@@ -3,14 +3,8 @@ This file runs the immunization data transformation.
 """
 
 
-class App:
+def run():
     """
-    Main App class for project
+    Run project
     """
-
-    @staticmethod
-    def run():
-        """
-        Run project
-        """
-        return "hello world"
+    return "hello world"
