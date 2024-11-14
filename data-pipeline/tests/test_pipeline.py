@@ -14,5 +14,5 @@ def pipeline_fixture():
     return Pipeline()
 
 
-def test_hello_world(pipeline_instance):
+def test_pipeline_run(pipeline_instance):
     assert pipeline_instance.run() == "Data pipeline executed successfully"
