@@ -12,7 +12,12 @@
 			"extensions": [
 				"mhutchie.git-graph",
 				"GitHub.vscode-pull-request-github",
-				"ms-python.python"
+				"ms-python.python",
+				"ms-python.pylint",
+				"ms-python.mypy-type-checker",
+				"ms-python.flake8",
+				"ms-python.black-formatter",
+				"ms-python.isort"
 			]
 		}
 	}
