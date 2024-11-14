@@ -6,12 +6,12 @@ Tests for the pipeline orchestration
 
 import pytest
 
-from data_pipeline import Pipeline
+from data_pipeline import DataPipeline
 
 
 @pytest.fixture(name="pipeline_instance")
 def pipeline_fixture():
-    return Pipeline()
+    return DataPipeline()
 
 
 def test_pipeline_run(pipeline_instance):

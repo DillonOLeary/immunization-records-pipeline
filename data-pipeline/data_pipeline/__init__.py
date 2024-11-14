@@ -1,4 +1,4 @@
 # pylint: disable=missing-docstring
 # flake8: noqa
 
-from .pipeline import Pipeline
+from .orchestrator import Orchestrator as DataPipeline

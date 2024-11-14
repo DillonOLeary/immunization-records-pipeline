@@ -3,9 +3,9 @@ This file runs the immunization data pipeline.
 """
 
 
-class Pipeline:
+class Orchestrator:
     """
-    This runs the data pipeline
+    Orchestrate the ETL
     """
 
     def run(self):
