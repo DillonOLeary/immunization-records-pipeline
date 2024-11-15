@@ -1,0 +1,2 @@
+[flake8]
+ignore = E501 # ignore the line length limits
