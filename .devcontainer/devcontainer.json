@@ -19,7 +19,8 @@
 				"ms-python.isort"
 			]
 		}
-	}
+	},
+	"postCreateCommand": "cd data-pipline && poetry install"
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
