@@ -2,10 +2,10 @@
 Transforms the immunization records
 """
 
-from pandas import DataFrame
+import pandas as pd
 
 
-def transform_data_from_aisr_to_infinite_campus(df: DataFrame) -> DataFrame:
+def transform_data_from_aisr_to_infinite_campus(df: pd.DataFrame) -> pd.DataFrame:
     """
     Transform the data as required by Infinite Campus.
 
@@ -25,9 +25,9 @@ def transform_data_from_aisr_to_infinite_campus(df: DataFrame) -> DataFrame:
     # Ensure the dataframe only contains the required columns
     df = df[required_columns]
 
-    # # Format the 'vaccination_date' column to MM/DD/YYYY
-    # df["vaccination_date"] = pd.to_datetime(df["vaccination_date"]).dt.strftime(
-    #     "%m/%d/%Y"
-    # )
+    # Format the 'vaccination_date' column to MM/DD/YYYY
+    df["vaccination_date"] = pd.to_datetime(df["vaccination_date"]).dt.strftime(
+        "%m/%d/%Y"
+    )
 
     return df
