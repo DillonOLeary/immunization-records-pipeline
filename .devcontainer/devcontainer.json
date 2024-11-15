@@ -20,7 +20,7 @@
 			]
 		}
 	},
-	"postCreateCommand": "cd data-pipline && poetry install"
+	"postCreateCommand": "cd /workspaces/immunization-records-pipeline/data-pipeline && poetry install"
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
