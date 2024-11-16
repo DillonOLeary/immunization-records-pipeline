@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
+# pylint: disable=fixme
+
 
 def read_from_aisr_csv(file_path: Path) -> pd.DataFrame:
     """
