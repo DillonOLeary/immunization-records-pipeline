@@ -162,3 +162,7 @@ cython_debug/
 #.idea/
 
 .DS_Store
+
+# ignore input and output files
+data-pipeline/output/
+data-pipeline/input/
