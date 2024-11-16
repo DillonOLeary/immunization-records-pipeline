@@ -10,7 +10,7 @@ import pytest
 
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
 
-from .fake_data import generate_fake_data
+from .mock_data import generate_fake_data
 
 
 def test_transform_filters_columns():

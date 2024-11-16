@@ -20,13 +20,9 @@ def transform_data_from_aisr_to_infinite_campus(df_in: pd.DataFrame) -> pd.DataF
         DataFrame: Transformed dataframe containing only the necessary columns with formatted date.
     # TODO some sort of validation
     """
-    # Define the list of expected columns
     required_columns = ["id_1", "id_2", "vaccine_group_name", "vaccination_date"]
-
-    # Copy the dataframe with the required columns
+    # Copying to avoid modifying the input dataframe directly.
     df_transformed = df_in[required_columns].copy()
-
-    # Format the 'vaccination_date' column to MM/DD/YYYY
     df_transformed["vaccination_date"] = pd.to_datetime(
         df_transformed["vaccination_date"]
     ).dt.strftime("%m/%d/%Y")
