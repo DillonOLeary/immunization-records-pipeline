@@ -12,7 +12,7 @@ from faker import Faker
 fake = Faker()
 
 
-def generate_fake_data(num_rows: int, seed: int = 42) -> pd.DataFrame:
+def generate_mock_data(num_rows: int, seed: int = 42) -> pd.DataFrame:
     """
     Function to generate fake data
     """
