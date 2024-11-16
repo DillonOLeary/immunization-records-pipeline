@@ -6,6 +6,9 @@ from collections.abc import Callable
 
 import pandas as pd
 
+# pylint: disable=fixme
+# pylint: disable=too-few-public-methods
+
 
 class Orchestrator:
     """
