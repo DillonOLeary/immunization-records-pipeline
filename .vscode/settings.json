@@ -10,10 +10,8 @@
       "--profile",
       "black"
     ],
-    "python.testing.pytestArgs": [
-      "data-pipeline/tests"
-    ],
+    "python.testing.cwd": "${workspaceFolder}/data-pipeline",
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "python.defaultInterpreterPath": "/workspaces/immunization-records-pipeline/data-pipeline/.venv/bin/python",
+    "python.defaultInterpreterPath": "data-pipeline/.venv/bin/python",
   }
