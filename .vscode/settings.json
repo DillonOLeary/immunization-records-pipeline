@@ -14,4 +14,8 @@
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "python.defaultInterpreterPath": "data-pipeline/.venv/bin/python",
+    "python.testing.pytestArgs": [
+      "--rootdir=data-pipeline"
+    ],
+    "python.testing.pytestPath": "data-pipeline/.venv/bin/pytest",
   }
