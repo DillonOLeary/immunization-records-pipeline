@@ -36,7 +36,7 @@ def test_transform_formats_vaccination_date():
     for date_str in result["vaccination_date"]:
         # Try to parse the date and check that it matches the expected format
         try:
-            _ = datetime.strptime(date_str, "%m/%d/%Y")
+            _ = datetime.strptime(date_str, "%m%d%Y")
         except ValueError:
             pytest.fail(
                 f"Vaccination date '{date_str}' is not in the correct format MM/DD/YYYY"

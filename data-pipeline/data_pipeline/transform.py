@@ -25,6 +25,6 @@ def transform_data_from_aisr_to_infinite_campus(df_in: pd.DataFrame) -> pd.DataF
     df_transformed = df_in[required_columns].copy()
     df_transformed["vaccination_date"] = pd.to_datetime(
         df_transformed["vaccination_date"]
-    ).dt.strftime("%m/%d/%Y")
+    ).dt.strftime("%m%d%Y")
 
     return df_transformed
