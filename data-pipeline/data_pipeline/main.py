@@ -34,7 +34,7 @@ if __name__ == "__main__":
     # pylint: disable=invalid-name
 
     # pylint: disable=line-too-long
-    # python data_pipeline/main.py tests/mock_data/mock_aisr_download.csv output/mock_transformed_data.csv
+    # poetry run python data_pipeline/main.py tests/mock_data/mock_aisr_download.csv output/mock_transformed_data.csv
 
     args = parse_args()
 
