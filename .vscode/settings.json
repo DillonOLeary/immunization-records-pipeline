@@ -11,8 +11,9 @@
       "black"
     ],
     "python.testing.pytestArgs": [
-      "tests"
+      "data-pipeline/tests"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
+    "python.defaultInterpreterPath": "/workspaces/immunization-records-pipeline/data-pipeline/.venv/bin/python",
   }
