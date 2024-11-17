@@ -1,5 +1,5 @@
 """
-Functions for reading from a csv
+Functions for extracting data
 """
 
 from pathlib import Path

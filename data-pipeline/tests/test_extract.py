@@ -9,7 +9,7 @@ Tests for CSV reading function
 
 from pathlib import Path
 
-from data_pipeline.csv_read import read_from_aisr_csv
+from data_pipeline.extract import read_from_aisr_csv
 
 
 def test_read_from_csv_has_id_1_column():
