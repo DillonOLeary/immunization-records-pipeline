@@ -29,11 +29,11 @@ jobs:
         pip install poetry
         cd data-pipeline
         poetry install --with dev
-    - name: Lint with pylint
-      run: |
-        cd data-pipeline
-        poetry run pylint $(git ls-files '*.py')
     - name: Test with pytest
       run: |
         cd data-pipeline
         poetry run pytest
+    - name: Lint with pylint
+      run: |
+        cd data-pipeline
+        poetry run pylint $(git ls-files '*.py')
