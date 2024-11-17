@@ -5,6 +5,9 @@ description = "Transforms immunization records from the Minnesota Department of 
 authors = ["Dillon O'Leary <dillon.oleary@icloud.com>"]
 readme = "README.md"
 
+[tool.poetry.virtualenvs]
+in-project = true
+
 [tool.poetry.dependencies]
 python = "^3.11"
 pandas = "^2.2.3"
