@@ -4,16 +4,13 @@ Tests for CSV reading function
 
 # pylint: disable=missing-function-docstring
 
-
-# return lambda: pd.read_csv(file_path, sep="|")
-
 from pathlib import Path
 
 from data_pipeline.extract import read_from_aisr_csv
 
 
 def test_read_from_csv_has_id_1_column():
-    file_path = Path("tests/mock_data/mock_aisr_download.csv")
+    file_path = Path(".") / "tests" / "mock_data" / "mock_aisr_download.csv"
 
     df = read_from_aisr_csv(file_path)
 
@@ -21,7 +18,7 @@ def test_read_from_csv_has_id_1_column():
 
 
 def test_read_from_csv_has_vaccination_date_column():
-    file_path = Path("tests/mock_data/mock_aisr_download.csv")
+    file_path = Path(".") / "tests" / "mock_data" / "mock_aisr_download.csv"
 
     df = read_from_aisr_csv(file_path)
 
@@ -31,7 +28,7 @@ def test_read_from_csv_has_vaccination_date_column():
 
 
 def test_read_from_csv_has_10000_rows():
-    file_path = Path("tests/mock_data/mock_aisr_download.csv")
+    file_path = Path(".") / "tests" / "mock_data" / "mock_aisr_download.csv"
 
     df = read_from_aisr_csv(file_path)
 
