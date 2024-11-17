@@ -10,12 +10,9 @@
       "--profile",
       "black"
     ],
-    "python.testing.cwd": "${workspaceFolder}/data-pipeline",
+    "python.testing.cwd": "/workspaces/immunization-records-pipeline/data-pipeline",
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "python.defaultInterpreterPath": "data-pipeline/.venv/bin/python",
-    "python.testing.pytestArgs": [
-      "--rootdir=data-pipeline"
-    ],
-    "python.testing.pytestPath": "data-pipeline/.venv/bin/pytest",
+    "python.defaultInterpreterPath": "/workspaces/immunization-records-pipeline/data-pipeline/.venv/bin/python",
+    "python.testing.pytestPath": "/workspaces/immunization-records-pipeline/data-pipeline/.venv/bin/pytest",
   }
