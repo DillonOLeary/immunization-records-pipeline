@@ -7,14 +7,12 @@ Tests for the transformation of the data files
 from datetime import datetime
 
 import pytest
-
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
-
-from .mock_data.mock_data_generation import generate_mock_data
+from tests.unit.test_data.test_data_generation import generate_test_data
 
 
 def test_transform_filters_columns():
-    df_in = generate_mock_data(5)
+    df_in = generate_test_data(5)
 
     result = transform_data_from_aisr_to_infinite_campus(df_in)
 
@@ -27,7 +25,7 @@ def test_transform_filters_columns():
 
 def test_transform_formats_vaccination_date():
     # Generate fake data
-    df_in = generate_mock_data(5)
+    df_in = generate_test_data(5)
 
     # Transform the data
     result = transform_data_from_aisr_to_infinite_campus(df_in)

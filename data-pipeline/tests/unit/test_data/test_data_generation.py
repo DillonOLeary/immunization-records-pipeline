@@ -12,7 +12,7 @@ from faker import Faker
 fake = Faker()
 
 
-def generate_mock_data(num_rows: int, seed: int = 42) -> pd.DataFrame:
+def generate_test_data(num_rows: int, seed: int = 42) -> pd.DataFrame:
     """
     Function to generate fake data with the columns used by AISR
     """
