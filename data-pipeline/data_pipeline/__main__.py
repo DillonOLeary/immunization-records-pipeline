@@ -16,16 +16,16 @@ def parse_args():
     Parse command-line arguments.
 
     Returns:
-        argparse.Namespace: Parsed arguments with file_in_path and file_out_path.
+        argparse.Namespace: Parsed arguments with input_folder and output_folder.
     """
     parser = argparse.ArgumentParser(
         description="Run the immunization data pipeline, transforming and saving data."
     )
     parser.add_argument(
-        "file_in_path", type=Path, help="Path to the input CSV file (AISR data)"
+        '--input_folder', type=Path, required=True, help="Path to the input folder containing CSV files (AISR data)"
     )
     parser.add_argument(
-        "file_out_path", type=Path, help="Path to save the transformed CSV file"
+        '--output_folder', type=Path, required=True, help="Path to the folder where transformed files will be saved"
     )
     return parser.parse_args()
 
@@ -34,11 +34,12 @@ if __name__ == "__main__":
     # pylint: disable=invalid-name
 
     args = parse_args()
-
-    result_message = run_etl(
-        extract=lambda: read_from_aisr_csv(args.file_in_path),
-        transform=transform_data_from_aisr_to_infinite_campus,
-        load=lambda df: write_to_infinite_campus_csv(df, args.file_out_path),
-    )
+    
+    for input_file in args.input_folder.glob("*.csv"):
+        result_message = run_etl(
+            extract=lambda: read_from_aisr_csv(input_file),
+            transform=transform_data_from_aisr_to_infinite_campus,
+            load=lambda df: write_to_infinite_campus_csv(df, args.output_folder, input_file),
+        )
 
     print(result_message)
