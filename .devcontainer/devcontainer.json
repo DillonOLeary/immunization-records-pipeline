@@ -21,7 +21,10 @@
 			]
 		}
 	},
-	"postCreateCommand": "cd /workspaces/immunization-records-pipeline/data-pipeline && poetry install"
+	"mounts": [
+		"source=${localEnv:HOME}/.gitconfig,target=/tmp/.gitconfig,type=bind,consistency=cached"
+	],
+	"postCreateCommand": "bash ./.devcontainer/post-install.sh"
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
