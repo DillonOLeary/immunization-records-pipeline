@@ -4,38 +4,8 @@ Integration tests for the CLI
 
 import os
 import subprocess
-from pathlib import Path
-
-import pytest
 
 # pylint: disable=missing-function-docstring
-
-
-@pytest.fixture(name="folders")
-def input_output_folders():
-    input_folder = Path(".") / "tests" / "integration" / "test_input"
-    output_folder = Path(".") / "tests" / "integration" / "test_output"
-    manifest_folder = Path(".") / "tests" / "integration" / "test_manifest"
-
-    input_folder.mkdir(parents=True, exist_ok=True)
-    output_folder.mkdir(parents=True, exist_ok=True)
-
-    # Yield both the input and output folders for use in tests
-    yield input_folder, output_folder, manifest_folder
-
-    # Cleanup after the test
-    if input_folder.exists():
-        for file in input_folder.iterdir():
-            file.unlink()
-        input_folder.rmdir()
-    if output_folder.exists():
-        for file in output_folder.iterdir():
-            file.unlink()
-        output_folder.rmdir()
-    if manifest_folder.exists():
-        for file in manifest_folder.iterdir():
-            file.unlink()
-        manifest_folder.rmdir()
 
 
 def test_cli_runs_for_all_test_files(folders):

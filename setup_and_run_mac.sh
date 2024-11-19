@@ -18,11 +18,13 @@ poetry install
 
 # Use AppleScript to select input and output folders
 echo "Please select the input folder:"
-INPUT_FOLDER=$(osascript -e 'tell application "Finder" to POSIX path of (choose folder with prompt "Select the input folder:")')
+INPUT_FOLDER=$(osascript -e 'tell application "Finder" to activate' \
+                         -e 'tell application "Finder" to POSIX path of (choose folder with prompt "Select the input folder:")')
 echo "Selected input folder: $INPUT_FOLDER"
 
 echo "Please select the output folder:"
-OUTPUT_FOLDER=$(osascript -e 'tell application "Finder" to POSIX path of (choose folder with prompt "Select the output folder:")')
+OUTPUT_FOLDER=$(osascript -e 'tell application "Finder" to activate' \
+                         -e 'tell application "Finder" to POSIX path of (choose folder with prompt "Select the output folder:")')
 echo "Selected output folder: $OUTPUT_FOLDER"
 
 # Pass the variables to the Poetry project
