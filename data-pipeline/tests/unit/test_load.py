@@ -16,7 +16,9 @@ def test_write_to_csv_creates_file(tmp_path):
 
     write_to_infinite_campus_csv(test_df, tmp_path, INPUT_FILE_NAME)
 
-    assert (tmp_path / f"transformed_{INPUT_FILE_NAME}").exists(), "CSV file was not created"
+    assert (
+        tmp_path / f"transformed_{INPUT_FILE_NAME}"
+    ).exists(), "CSV file was not created"
 
 
 def test_write_to_csv_with_correct_separator(tmp_path):

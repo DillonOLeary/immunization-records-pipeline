@@ -7,7 +7,9 @@ from pathlib import Path
 import pandas as pd
 
 
-def write_to_infinite_campus_csv(df: pd.DataFrame, output_folder: Path, input_file_name: str) -> None:
+def write_to_infinite_campus_csv(
+    df: pd.DataFrame, output_folder: Path, input_file_name: str
+) -> None:
     """
     Write a DataFrame to a CSV file formatted for Infinite Campus.
 

@@ -22,24 +22,33 @@ def parse_args():
         description="Run the immunization data pipeline, transforming and saving data."
     )
     parser.add_argument(
-        '--input_folder', type=Path, required=True, help="Path to the input folder containing CSV files (AISR data)"
+        "--input_folder",
+        type=Path,
+        required=True,
+        help="Path to the input folder containing CSV files (AISR data)",
     )
     parser.add_argument(
-        '--output_folder', type=Path, required=True, help="Path to the folder where transformed files will be saved"
+        "--output_folder",
+        type=Path,
+        required=True,
+        help="Path to the folder where transformed files will be saved",
     )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     # pylint: disable=invalid-name
+    # pylint: disable=cell-var-from-loop
+    # Lazy evaluation is fine for this loop because the function
+    # runs immediately
 
     args = parse_args()
-    
+
     for input_file in args.input_folder.glob("*.csv"):
         result_message = run_etl(
             extract=lambda: read_from_aisr_csv(input_file),
             transform=transform_data_from_aisr_to_infinite_campus,
-            load=lambda df: write_to_infinite_campus_csv(df, args.output_folder, input_file),
+            load=lambda df: write_to_infinite_campus_csv(
+                df, args.output_folder, input_file.name
+            ),
         )
-
-    exit(0)

@@ -10,6 +10,7 @@ from data_pipeline.extract import read_from_aisr_csv
 
 INPUT_FILE_PATH = Path(".") / "tests" / "unit" / "test_data" / "mock_aisr_download.csv"
 
+
 def test_read_from_csv_has_id_1_column():
     df = read_from_aisr_csv(INPUT_FILE_PATH)
 
