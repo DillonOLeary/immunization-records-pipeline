@@ -9,6 +9,7 @@ from pathlib import Path
 from data_pipeline.etl_pipeline import run_etl, run_etl_on_folder
 from data_pipeline.extract import read_from_aisr_csv
 from data_pipeline.load import write_to_infinite_campus_csv
+from data_pipeline.manifest_generator import log_etl_run
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
 
 
@@ -33,6 +34,12 @@ def parse_args():
         type=Path,
         required=True,
         help="Path to the folder where transformed files will be saved",
+    )
+    parser.add_argument(
+        "--manifest_folder",
+        type=Path,
+        required=True,
+        help="Path to the folder where the manifest of ETL runs will be saved",
     )
     return parser.parse_args()
 
@@ -76,17 +83,18 @@ if __name__ == "__main__":
     args = parse_args()
 
     # Create the ETL pipeline with injected dependencies
-    # This pipeline extracts from an aisr csv
-    # and transforms data into an infinite campus csv
     etl_pipeline = create_etl_pipeline(
         extract=read_from_aisr_csv,
         transform=transform_data_from_aisr_to_infinite_campus,
         load=write_to_infinite_campus_csv,
     )
 
+    # Apply the logging decorator to track ETL runs
+    etl_pipeline_with_logging = log_etl_run(args.manifest_folder)(etl_pipeline)
+
     # Run the ETL pipeline on all files in the input folder
     run_etl_on_folder(
         input_folder=args.input_folder,
         output_folder=args.output_folder,
-        etl_fn=etl_pipeline,
+        etl_fn=etl_pipeline_with_logging,
     )
