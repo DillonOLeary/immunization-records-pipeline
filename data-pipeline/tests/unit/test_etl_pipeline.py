@@ -5,8 +5,12 @@ Tests for the pipeline orchestration
 # pylint: disable=missing-function-docstring
 
 
+import os
+from pathlib import Path
+from unittest.mock import MagicMock
+
 import pandas as pd
-from data_pipeline.etl_pipeline import run_etl
+from data_pipeline.etl_pipeline import run_etl, run_etl_on_folder
 
 
 def test_pipeline_runs():
@@ -90,3 +94,81 @@ def test_pipeline_calls_data_load_function():
     )
 
     assert called, "The load function was not called"
+
+
+def test_run_etl_on_folder_creates_output_folder():
+    input_folder = Path(".") / "tests" / "unit" / "test_input"
+    output_folder = Path(".") / "tests" / "unit" / "test_output"
+
+    try:
+        run_etl_on_folder(input_folder, output_folder, lambda: "")
+
+        # Assert that the output folder was created
+        assert output_folder.exists(), "Output folder was not created"
+    finally:
+        # Cleanup
+        if input_folder.exists():
+            for file in input_folder.iterdir():
+                file.unlink()
+            input_folder.rmdir()
+        if output_folder.exists():
+            for file in output_folder.iterdir():
+                file.unlink()
+            output_folder.rmdir()
+
+
+def test_run_etl_on_folder_calls_etl_fn():
+    input_folder = Path(".") / "tests" / "unit" / "test_input"
+    output_folder = Path(".") / "tests" / "unit" / "test_output"
+
+    try:
+        input_folder.mkdir(parents=True, exist_ok=True)
+        output_folder.mkdir(parents=True, exist_ok=True)
+        test_file = input_folder / "test_file.csv"
+        with open(test_file, "w", encoding="utf-8") as f:
+            f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
+
+        # Create a mock function and track its calls
+        mock_etl_fn = MagicMock()
+        run_etl_on_folder(input_folder, output_folder, mock_etl_fn)
+
+        # Assert the mock function was called for each file in the input folder
+        mock_etl_fn.assert_called_once_with(test_file, output_folder)
+    finally:
+        # Cleanup
+        if input_folder.exists():
+            for file in input_folder.iterdir():
+                file.unlink()
+            input_folder.rmdir()
+        if output_folder.exists():
+            for file in output_folder.iterdir():
+                file.unlink()
+            output_folder.rmdir()
+
+
+def test_run_etl_on_folder_no_input_files():
+    input_folder = Path(".") / "tests" / "unit" / "test_input"
+    output_folder = Path(".") / "tests" / "unit" / "test_output"
+
+    try:
+        input_folder.mkdir(parents=True, exist_ok=True)
+        output_folder.mkdir(parents=True, exist_ok=True)
+
+        # Run the ETL process with no files in input folder
+        run_etl_on_folder(input_folder, output_folder, lambda: "")
+
+        # Assert that no output files were created
+        assert (
+            len(os.listdir(output_folder)) == 0
+        ), "Output files were created unexpectedly"
+
+    finally:
+        # Cleanup
+        if input_folder.exists():
+            for file in input_folder.iterdir():
+                file.unlink()
+            input_folder.rmdir()
+        if output_folder.exists():
+            for file in output_folder.iterdir():
+                file.unlink()
+            output_folder.rmdir()

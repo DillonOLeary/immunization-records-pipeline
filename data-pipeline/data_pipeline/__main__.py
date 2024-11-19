@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
-from data_pipeline.etl_pipeline import run_etl
+from data_pipeline.etl_pipeline import run_etl, run_etl_on_folder
 from data_pipeline.extract import read_from_aisr_csv
 from data_pipeline.load import write_to_infinite_campus_csv
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
@@ -72,33 +72,12 @@ def create_etl_pipeline(extract, transform, load) -> Callable[[Path, Path], str]
     return etl_fn
 
 
-def run_etl_on_folder(
-    input_folder: Path, output_folder: Path, etl_fn: Callable[[Path, Path], str]
-):
-    """
-    Runs the ETL pipeline for all CSV files in the input folder
-    and saves the results to the output folder.
-
-    Args:
-        input_folder (Path): The folder containing the input CSV files.
-        output_folder (Path): The folder to save the transformed files.
-        etl_fn (Callable[[Path, Path], str]): The ETL function to process individual files.
-    """
-    # Ensure the output folder exists
-    output_folder.mkdir(parents=True, exist_ok=True)
-
-    # Iterate over each CSV file in the input folder and run the ETL pipeline
-    for input_file in input_folder.glob("*.csv"):
-        result_message = etl_fn(input_file, output_folder)
-        print(f"Processed {input_file.name}: {result_message}")
-
-    print("Pipeline completed successfully.")
-
-
 if __name__ == "__main__":
     args = parse_args()
 
     # Create the ETL pipeline with injected dependencies
+    # This pipeline extracts from an aisr csv
+    # and transforms data into an infinite campus csv
     etl_pipeline = create_etl_pipeline(
         extract=read_from_aisr_csv,
         transform=transform_data_from_aisr_to_infinite_campus,
