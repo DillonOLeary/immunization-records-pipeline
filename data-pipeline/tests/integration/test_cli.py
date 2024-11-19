@@ -48,10 +48,14 @@ def test_cli_runs_for_all_test_files():
         ), "No files were created in the output folder"
     finally:
         # Cleanup
-        for file in input_folder.iterdir():
-            file.unlink()
-        for file in output_folder.iterdir():
-            file.unlink()
+        if input_folder.exists():
+            for file in input_folder.iterdir():
+                file.unlink()
+            input_folder.rmdir()
+        if output_folder.exists():
+            for file in output_folder.iterdir():
+                file.unlink()
+            output_folder.rmdir()
 
 
 def test_cli_creates_non_existent_output_folder():
@@ -93,12 +97,14 @@ def test_cli_creates_non_existent_output_folder():
         ), "No files were created in the output folder."
     finally:
         # Cleanup
+        if input_folder.exists():
+            for file in input_folder.iterdir():
+                file.unlink()
+            input_folder.rmdir()
         if output_folder.exists():
             for file in output_folder.iterdir():
                 file.unlink()
             output_folder.rmdir()
-        for file in input_folder.iterdir():
-            file.unlink()
 
 
 def test_cli_correct_output_file_contents():
@@ -155,7 +161,11 @@ def test_cli_correct_output_file_contents():
         assert lines == expected_lines, f"Output file contents are incorrect: {lines}"
     finally:
         # Cleanup
-        for file in output_folder.iterdir():
-            file.unlink()
-        for file in input_folder.iterdir():
-            file.unlink()
+        if input_folder.exists():
+            for file in input_folder.iterdir():
+                file.unlink()
+            input_folder.rmdir()
+        if output_folder.exists():
+            for file in output_folder.iterdir():
+                file.unlink()
+            output_folder.rmdir()
