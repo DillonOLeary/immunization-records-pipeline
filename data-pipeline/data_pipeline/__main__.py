@@ -42,4 +42,4 @@ if __name__ == "__main__":
             load=lambda df: write_to_infinite_campus_csv(df, args.output_folder, input_file),
         )
 
-    print(result_message)
+    exit(0)
