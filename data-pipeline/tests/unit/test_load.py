@@ -8,23 +8,25 @@ import pandas as pd
 from data_pipeline.load import write_to_infinite_campus_csv
 
 INPUT_FILE_NAME = "test_input.csv"
-OUTPUT_FILE_NAME = f"transformed_{INPUT_FILE_NAME}"
+OUTPUT_FILE_NAME = f"t_{INPUT_FILE_NAME}"
+
+
+def filename_generator(name):
+    return f"t_{name}"
 
 
 def test_write_to_csv_creates_file(tmp_path):
     test_df = pd.DataFrame({"id_1": [1], "vaccination_date": ["01/01/2022"]})
 
-    write_to_infinite_campus_csv(test_df, tmp_path, INPUT_FILE_NAME)
+    write_to_infinite_campus_csv(test_df, tmp_path, INPUT_FILE_NAME, filename_generator)
 
-    assert (
-        tmp_path / f"transformed_{INPUT_FILE_NAME}"
-    ).exists(), "CSV file was not created"
+    assert (tmp_path / f"t_{INPUT_FILE_NAME}").exists(), "CSV file was not created"
 
 
 def test_write_to_csv_with_correct_separator(tmp_path):
     output_file = tmp_path / OUTPUT_FILE_NAME
     test_df = pd.DataFrame({"id_1": [1], "vaccination_date": ["01/01/2022"]})
-    write_to_infinite_campus_csv(test_df, tmp_path, INPUT_FILE_NAME)
+    write_to_infinite_campus_csv(test_df, tmp_path, INPUT_FILE_NAME, filename_generator)
 
     with open(output_file, "r", encoding="utf-8") as file:
         content = file.read()
@@ -35,7 +37,7 @@ def test_write_to_csv_contains_expected_data(tmp_path):
     output_file = tmp_path / OUTPUT_FILE_NAME
     test_df = pd.DataFrame({"id_1": [1], "vaccination_date": ["01/01/2022"]})
 
-    write_to_infinite_campus_csv(test_df, tmp_path, INPUT_FILE_NAME)
+    write_to_infinite_campus_csv(test_df, tmp_path, INPUT_FILE_NAME, filename_generator)
 
     loaded_df = pd.read_csv(output_file)
     assert "id_1" in loaded_df.columns, "'id_1' column is missing in the output CSV"
