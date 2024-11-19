@@ -45,7 +45,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     # Ensure the output folder exists
-    args.output_folder.mkdir(exist_ok=True)
+    args.output_folder.mkdir(parents=True, exist_ok=True)
 
     for input_file in args.input_folder.glob("*.csv"):
         result_message = run_etl(
