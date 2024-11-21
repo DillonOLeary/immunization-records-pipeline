@@ -129,20 +129,13 @@ BoxLayout:
             text: ""
             size_hint_y: None
             height: '40dp'
+            size_hint_x: 1  # Allow the label to adjust its width based on the parent
+            text_size: self.width, None  # Wrap text to the width of the label
             halign: "center"
+            valign: "middle"  # To vertically center the text
             bold: True
-            color: 0.95, 0.95, 0.95, 1 # White text
+            color: 0.95, 0.95, 0.95, 1  # Softer white text
 """
-
-class RoundedBoxLayout(BoxLayout):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def on_size(self, *args):
-        self.canvas.before.clear()
-        with self.canvas.before:
-            Color(0.1, 0.2, 0.6, 1)  # Main background color (blue)
-            RoundedRectangle(size=self.size, pos=self.pos, radius=[20])
 
 
 class PipelineApp(App):
@@ -229,13 +222,13 @@ class PipelineApp(App):
             etl_pipeline_with_logging = log_etl_run(manifest_folder)(etl_pipeline)
 
             # Running the ETL pipeline
-            self.update_status("Running ETL pipeline...")
+            self.update_status("Transforming CSVs...")
             run_etl_on_folder(
                 input_folder=input_folder,
                 output_folder=output_folder,
                 etl_fn=etl_pipeline_with_logging,
             )
-            self.update_status("ETL pipeline completed successfully.")
+            self.update_status(f"Data transformation successful, output saved to {Path(self.root.ids.output_folder.text)}")
         except Exception as e:
             # Error handling during ETL execution
             self.update_status(f"Error: {e}")
