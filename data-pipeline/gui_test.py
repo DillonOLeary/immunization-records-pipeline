@@ -130,24 +130,7 @@ class PipelineApp(App):
         root = Builder.load_string(KV)
         root.minimum_width = 600  # Minimum width for the window
         root.minimum_height = 500  # Minimum height for the window
-        
-        # Set default folder paths when the app starts
-        self.set_default_folders(root)
-        
         return root
-
-    def set_default_folders(self, root):
-        """
-        Set the default folder paths for input, output, and manifest.
-        """
-        default_input = Path('./tests/unit/test_data').resolve()
-        default_output = Path('./output').resolve()
-        default_manifest = Path('./manifests').resolve()
-
-        # Set default text in the text fields
-        self.root.ids.input_folder.text = str(default_input)
-        self.root.ids.output_folder.text = str(default_output)
-        self.root.ids.manifest_folder.text = str(default_manifest)
 
     def select_folder(self, folder_type):
         """
