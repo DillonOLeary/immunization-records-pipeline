@@ -1,14 +1,7 @@
 import os
 from pathlib import Path
 
-from create_dp import create_etl_pipeline
-from data_pipeline.etl_pipeline import run_etl_on_folder
-from data_pipeline.extract import read_from_aisr_csv
-from data_pipeline.load import write_to_infinite_campus_csv
-from data_pipeline.manifest_generator import log_etl_run
-from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
 from kivy.app import App
-from kivy.graphics import Color, RoundedRectangle
 from kivy.lang import Builder
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -16,6 +9,7 @@ from kivy.uix.filechooser import FileChooserIconView
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.textinput import TextInput
+from pipeline_service import AisrToIcPipelineService  # Import the service class
 
 KV = """
 BoxLayout:
@@ -207,28 +201,19 @@ class PipelineApp(App):
         output_folder = Path(self.root.ids.output_folder.text)
         manifest_folder = Path(self.root.ids.manifest_folder.text)
 
-        # Check if any folder is missing or invalid
-        if not (input_folder.exists() and output_folder.exists() and manifest_folder.exists()):
+        # Create an instance of the service class
+        pipeline_service = AisrToIcPipelineService(input_folder, output_folder, manifest_folder)
+
+        # Validate folder paths
+        if not pipeline_service.validate_folders():
             self.update_status("Please select valid folder paths.")
             return
 
         try:
-            # Create and run the ETL pipeline
-            etl_pipeline = create_etl_pipeline(
-                extract=read_from_aisr_csv,
-                transform=transform_data_from_aisr_to_infinite_campus,
-                load=write_to_infinite_campus_csv,
-            )
-            etl_pipeline_with_logging = log_etl_run(manifest_folder)(etl_pipeline)
-
-            # Running the ETL pipeline
-            self.update_status("Transforming CSVs...")
-            run_etl_on_folder(
-                input_folder=input_folder,
-                output_folder=output_folder,
-                etl_fn=etl_pipeline_with_logging,
-            )
-            self.update_status(f"Data transformation successful, output saved to {Path(self.root.ids.output_folder.text)}")
+            # Create and run the ETL pipeline using the service
+            etl_pipeline = pipeline_service.create_pipeline()
+            pipeline_service.run_pipeline(etl_pipeline)
+            self.update_status(f"Data transformation successful, output saved to {output_folder}")
         except Exception as e:
             # Error handling during ETL execution
             self.update_status(f"Error: {e}")
