@@ -22,7 +22,7 @@ BoxLayout:
     padding: [30, 30, 30, 30]
     spacing: 20
     size_hint: None, None
-    width: 600  # Fixed width for the container
+    width: 1200  # Fixed width for the container
     height: self.minimum_height  # Automatically adjusted height
     pos_hint: {"center_x": 0.5, "center_y": 0.5}
 
@@ -53,16 +53,14 @@ BoxLayout:
                 id: input_folder
                 hint_text: "Input Folder"
                 readonly: True
-                size_hint_x: None
-                width: '300dp'
+                size_hint_x: 0.7
                 multiline: False
                 padding: [10, 10]
 
             Button:
                 text: "Select Input Folder"
                 on_press: app.select_folder("input")
-                size_hint_x: None
-                width: '150dp'
+                size_hint_x: .3
 
         # Output Folder Box
         BoxLayout:
@@ -75,16 +73,14 @@ BoxLayout:
                 id: output_folder
                 hint_text: "Output Folder"
                 readonly: True
-                size_hint_x: None
-                width: '300dp'
+                size_hint_x: 0.7
                 multiline: False
                 padding: [10, 10]
 
             Button:
                 text: "Select Output Folder"
                 on_press: app.select_folder("output")
-                size_hint_x: None
-                width: '150dp'
+                size_hint_x: .3
 
         # Manifest Folder Box
         BoxLayout:
@@ -97,16 +93,14 @@ BoxLayout:
                 id: manifest_folder
                 hint_text: "Manifest Folder"
                 readonly: True
-                size_hint_x: None
-                width: '300dp'
+                size_hint_x: 0.7
                 multiline: False
                 padding: [10, 10]
 
             Button:
                 text: "Select Manifest Folder"
                 on_press: app.select_folder("manifest")
-                size_hint_x: None
-                width: '150dp'
+                size_hint_x: 0.3
 
         Button:
             text: "Run Pipeline"
@@ -131,6 +125,19 @@ class PipelineApp(App):
         root.minimum_width = 600  # Minimum width for the window
         root.minimum_height = 500  # Minimum height for the window
         return root
+
+    def on_start(self):
+        """
+        Set the default folder paths for input, output, and manifest after the app starts.
+        """
+        default_input = Path('./tests/unit/test_data').resolve()
+        default_output = Path('./output').resolve()
+        default_manifest = Path('./manifests').resolve()
+
+        # Set default text in the text fields
+        self.root.ids.input_folder.text = str(default_input)
+        self.root.ids.output_folder.text = str(default_output)
+        self.root.ids.manifest_folder.text = str(default_manifest)
 
     def select_folder(self, folder_type):
         """
