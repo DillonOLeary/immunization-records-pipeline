@@ -8,6 +8,7 @@ from data_pipeline.load import write_to_infinite_campus_csv
 from data_pipeline.manifest_generator import log_etl_run
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
 from kivy.app import App
+from kivy.graphics import Color, RoundedRectangle
 from kivy.lang import Builder
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -27,12 +28,13 @@ BoxLayout:
     pos_hint: {"center_x": 0.5, "center_y": 0.5}
 
     Label:
-        text: "Data Pipeline GUI"
+        text: "ISD 197 Immunization Records Pipeline"
         font_size: '24sp'
         size_hint_y: None
         height: '40dp'
         halign: "center"
         bold: True
+        color: 0.95, 0.95, 0.95, 1 # White text
 
     # Main content BoxLayout for form
     BoxLayout:
@@ -56,11 +58,15 @@ BoxLayout:
                 size_hint_x: 0.7
                 multiline: False
                 padding: [10, 10]
+                background_color: 1, 1, 1, 1  # Soft white background
+                foreground_color: 0, 0, 0, 1  # Black text for contrast
 
             Button:
                 text: "Select Input Folder"
                 on_press: app.select_folder("input")
                 size_hint_x: .3
+                background_color: 0.2, 0.4, 0.8, 1  # Lighter blue background
+                color: 0.95, 0.95, 0.95, 1  # White text
 
         # Output Folder Box
         BoxLayout:
@@ -76,11 +82,15 @@ BoxLayout:
                 size_hint_x: 0.7
                 multiline: False
                 padding: [10, 10]
+                background_color: 1, 1, 1, 1  # Soft white background
+                foreground_color: 0, 0, 0, 1  # Black text for contrast
 
             Button:
                 text: "Select Output Folder"
                 on_press: app.select_folder("output")
                 size_hint_x: .3
+                background_color: 0.2, 0.4, 0.8, 1  # Lighter blue background
+                color: 0.95, 0.95, 0.95, 1 # White text
 
         # Manifest Folder Box
         BoxLayout:
@@ -96,18 +106,23 @@ BoxLayout:
                 size_hint_x: 0.7
                 multiline: False
                 padding: [10, 10]
+                background_color: 1, 1, 1, 1  # Soft white background
+                foreground_color: 0, 0, 0, 1  # Black text for contrast
 
             Button:
                 text: "Select Manifest Folder"
                 on_press: app.select_folder("manifest")
                 size_hint_x: 0.3
+                background_color: 0.2, 0.4, 0.8, 1  # Lighter blue background
+                color: 0.95, 0.95, 0.95, 1 # White text
 
         Button:
             text: "Run Pipeline"
             on_press: app.run_pipeline()
             size_hint_y: None
             height: '50dp'
-            background_color: (0.1, 0.6, 0.9, 1)
+            background_color: 0.1, 0.3, 0.7, 1  # Darker blue background
+            color: 0.95, 0.95, 0.95, 1 # White text
 
         Label:
             id: status_label
@@ -116,7 +131,19 @@ BoxLayout:
             height: '40dp'
             halign: "center"
             bold: True
+            color: 0.95, 0.95, 0.95, 1 # White text
 """
+
+class RoundedBoxLayout(BoxLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def on_size(self, *args):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(0.1, 0.2, 0.6, 1)  # Main background color (blue)
+            RoundedRectangle(size=self.size, pos=self.pos, radius=[20])
+
 
 class PipelineApp(App):
     def build(self):
@@ -214,11 +241,8 @@ class PipelineApp(App):
             self.update_status(f"Error: {e}")
 
     def update_status(self, text):
-        """
-        Update the status label in the UI.
-        """
         self.root.ids.status_label.text = text
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     PipelineApp().run()
