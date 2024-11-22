@@ -118,9 +118,9 @@ def test_cli_correct_output_file_contents(folders):
 
     expected_lines = [
         "id_1,id_2,vaccine_group_name,vaccination_date\n",
-        "123,456,COVID-19,11172024\n",
-        "789,101,Flu,11162024\n",
-        "112,131,COVID-19,11152024\n",
+        "123,456,COVID-19,11/17/2024\n",
+        "789,101,Flu,11/16/2024\n",
+        "112,131,COVID-19,11/15/2024\n",
     ]
 
     assert lines == expected_lines, f"Output file contents are incorrect: {lines}"
@@ -178,9 +178,9 @@ def test_cli_runs_for_multiple_test_files(folders):
         # Expected transformed lines
         expected_lines = [
             "id_1,id_2,vaccine_group_name,vaccination_date\n",
-            f"123{i},456,COVID-19,11172024\n",
-            f"789{i},101,Flu,11162024\n",
-            f"112{i},131,COVID-19,11152024\n",
+            f"123{i},456,COVID-19,11/17/2024\n",
+            f"789{i},101,Flu,11/16/2024\n",
+            f"112{i},131,COVID-19,11/15/2024\n",
         ]
         assert lines == expected_lines, f"Output file contents are incorrect: {lines}"
 
