@@ -9,7 +9,7 @@ import os
 from unittest.mock import MagicMock
 
 import pandas as pd
-from data_pipeline.etl_pipeline import run_etl, run_etl_on_folder
+from data_pipeline.etl_workflow import run_etl, run_etl_on_folder
 
 
 def test_pipeline_runs():

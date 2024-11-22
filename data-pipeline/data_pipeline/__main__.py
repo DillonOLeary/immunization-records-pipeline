@@ -3,13 +3,13 @@ Inject dependencies and run pipeline
 """
 
 import argparse
-from collections.abc import Callable
 from pathlib import Path
 
-from data_pipeline.etl_pipeline import run_etl, run_etl_on_folder
+from data_pipeline.etl_workflow import run_etl_on_folder
 from data_pipeline.execution_logger import log_etl_run
 from data_pipeline.extract import read_from_aisr_csv
 from data_pipeline.load import write_to_infinite_campus_csv
+from data_pipeline.pipeline_factory import create_file_to_file_etl_pipeline
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
 
 
@@ -44,46 +44,11 @@ def parse_args():
     return parser.parse_args()
 
 
-def create_etl_pipeline(extract, transform, load) -> Callable[[Path, Path], str]:
-    """
-    Creates an ETL pipeline by injecting the extract, transform, and load functions.
-
-    Args:
-        extract (Callable[[], pd.DataFrame]): Function to extract data from input.
-        transform (Callable[[pd.DataFrame], pd.DataFrame]):
-            Function to transform the extracted data.
-        load (Callable[[pd.DataFrame], None]):
-            Function to load the transformed data to a destination.
-
-    Returns:
-        Callable[[Path, Path], str]: A function that runs the full ETL pipeline on a file.
-    """
-
-    def etl_fn(input_file: Path, output_folder: Path) -> str:
-        """
-        Runs the ETL pipeline on a single input file.
-
-        Args:
-            input_file (Path): The input file to process.
-            output_folder (Path): The folder where output will be saved.
-
-        Returns:
-            str: A success message if the ETL pipeline completes successfully.
-        """
-        return run_etl(
-            extract=lambda: extract(input_file),
-            transform=transform,
-            load=lambda df: load(df, output_folder, input_file.name),
-        )
-
-    return etl_fn
-
-
 if __name__ == "__main__":
     args = parse_args()
 
     # Create the ETL pipeline with injected dependencies
-    etl_pipeline = create_etl_pipeline(
+    etl_pipeline = create_file_to_file_etl_pipeline(
         extract=read_from_aisr_csv,
         transform=transform_data_from_aisr_to_infinite_campus,
         load=write_to_infinite_campus_csv,

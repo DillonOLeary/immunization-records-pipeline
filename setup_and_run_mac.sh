@@ -14,7 +14,7 @@ cd data-pipeline
 
 # Run poetry install
 echo "Running 'poetry install'..."
-poetry install
+poetry install --only main
 
 # Use AppleScript to select input and output folders
 echo "Please select the input folder:"
