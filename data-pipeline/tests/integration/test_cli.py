@@ -9,7 +9,7 @@ import subprocess
 
 
 def test_cli_runs_for_all_test_files(folders):
-    input_folder, output_folder, manifest_folder = folders
+    input_folder, output_folder, log_folder = folders
 
     test_file = os.path.join(input_folder, "test_file.csv")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -28,8 +28,8 @@ def test_cli_runs_for_all_test_files(folders):
             input_folder,
             "--output_folder",
             output_folder,
-            "--manifest_folder",
-            manifest_folder,
+            "--log_folder",
+            log_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -43,7 +43,7 @@ def test_cli_runs_for_all_test_files(folders):
 
 
 def test_cli_creates_non_existent_output_folder(folders):
-    input_folder, output_folder, manifest_folder = folders
+    input_folder, output_folder, log_folder = folders
 
     test_file = os.path.join(input_folder, "test_file.csv")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -62,8 +62,8 @@ def test_cli_creates_non_existent_output_folder(folders):
             input_folder,
             "--output_folder",
             output_folder,
-            "--manifest_folder",
-            manifest_folder,
+            "--log_folder",
+            log_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -78,7 +78,7 @@ def test_cli_creates_non_existent_output_folder(folders):
 
 
 def test_cli_correct_output_file_contents(folders):
-    input_folder, output_folder, manifest_folder = folders
+    input_folder, output_folder, log_folder = folders
 
     test_file = os.path.join(input_folder, "test_file.csv")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -97,8 +97,8 @@ def test_cli_correct_output_file_contents(folders):
             input_folder,
             "--output_folder",
             output_folder,
-            "--manifest_folder",
-            manifest_folder,
+            "--log_folder",
+            log_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -127,7 +127,7 @@ def test_cli_correct_output_file_contents(folders):
 
 
 def test_cli_runs_for_multiple_test_files(folders):
-    input_folder, output_folder, manifest_folder = folders
+    input_folder, output_folder, log_folder = folders
 
     # Create multiple test CSV files
     test_files = [
@@ -154,8 +154,8 @@ def test_cli_runs_for_multiple_test_files(folders):
             input_folder,
             "--output_folder",
             output_folder,
-            "--manifest_folder",
-            manifest_folder,
+            "--log_folder",
+            log_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -185,8 +185,8 @@ def test_cli_runs_for_multiple_test_files(folders):
         assert lines == expected_lines, f"Output file contents are incorrect: {lines}"
 
 
-def test_cli_creates_manifest_with_correct_fields(folders):
-    input_folder, output_folder, manifest_folder = folders
+def test_cli_creates_log_with_correct_fields(folders):
+    input_folder, output_folder, log_folder = folders
 
     test_file = os.path.join(input_folder, "test_file.csv")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -205,8 +205,8 @@ def test_cli_creates_manifest_with_correct_fields(folders):
             input_folder,
             "--output_folder",
             output_folder,
-            "--manifest_folder",
-            manifest_folder,
+            "--log_folder",
+            log_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -215,28 +215,20 @@ def test_cli_creates_manifest_with_correct_fields(folders):
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
 
-    # Check if a manifest file was created
-    manifest_files = list(
-        manifest_folder.glob("*.json")
-    )  # Assuming manifest is a JSON file
-    assert (
-        len(manifest_files) == 1
-    ), "Manifest file was not created or too many manifest files found."
+    # Check if a log file was created
+    log_files = list(log_folder.glob("*.json"))  # Assuming log is a JSON file
+    assert len(log_files) == 1, "Log file was not created or too many log files found."
 
-    manifest_file = manifest_files[0]
+    log_file = log_files[0]
 
-    # Read the manifest file to verify its contents
-    with open(manifest_file, "r", encoding="utf-8") as f:
-        manifest_data = f.read()
+    # Read the log file to verify its contents
+    with open(log_file, "r", encoding="utf-8") as f:
+        log_data = f.read()
 
-    # Validate the presence of required keys in the manifest
-    assert "run_id" in manifest_data, "Manifest file does not contain 'run_id'."
-    assert "input_file" in manifest_data, "Manifest file does not contain 'input_file'."
-    assert (
-        "output_folder" in manifest_data
-    ), "Manifest file does not contain 'output_folder'."
-    assert "timestamp" in manifest_data, "Manifest file does not contain 'timestamp'."
-    assert "version" in manifest_data, "Manifest file does not contain 'version'."
-    assert (
-        "result_message" in manifest_data
-    ), "Manifest file does not contain 'result_message'."
+    # Validate the presence of required keys in the log
+    assert "run_id" in log_data, "log file does not contain 'run_id'."
+    assert "input_file" in log_data, "log file does not contain 'input_file'."
+    assert "output_folder" in log_data, "log file does not contain 'output_folder'."
+    assert "timestamp" in log_data, "log file does not contain 'timestamp'."
+    assert "version" in log_data, "log file does not contain 'version'."
+    assert "result_message" in log_data, "log file does not contain 'result_message'."

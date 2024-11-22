@@ -29,6 +29,6 @@ echo "Selected output folder: $OUTPUT_FOLDER"
 
 # Pass the variables to the Poetry project
 echo "Passing folders to the Poetry project..."
-poetry run python data_pipeline --input_folder "$INPUT_FOLDER" --output_folder "$OUTPUT_FOLDER" --manifest_folder manifests/
+poetry run python data_pipeline --input_folder "$INPUT_FOLDER" --output_folder "$OUTPUT_FOLDER" --log_folder log/
 
 echo "Done!"

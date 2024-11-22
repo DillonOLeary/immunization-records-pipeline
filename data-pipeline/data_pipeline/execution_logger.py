@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-def log_etl_run(manifest_folder: Path):
+def log_etl_run(log_folder: Path):
     """
     Decorator to log the details of an ETL pipeline run.
     """
@@ -28,8 +28,8 @@ def log_etl_run(manifest_folder: Path):
             # Call the ETL pipeline function
             result_message = etl_fn(input_file, output_folder)
 
-            # Create the manifest entry
-            manifest_entry = {
+            # Create the log entry
+            log_data = {
                 "run_id": run_id,
                 "input_file": input_file.name,
                 "output_folder": str(output_folder),
@@ -38,13 +38,13 @@ def log_etl_run(manifest_folder: Path):
                 "result_message": result_message,
             }
 
-            # Ensure the manifest folder exists
-            manifest_folder.mkdir(parents=True, exist_ok=True)
+            # Ensure the log folder exists
+            log_folder.mkdir(parents=True, exist_ok=True)
 
-            # Write the manifest to a JSON file
-            manifest_file = manifest_folder / f"manifest_{run_id}.json"
-            with open(manifest_file, "w", encoding="utf-8") as f:
-                json.dump(manifest_entry, f, indent=4)
+            # Write the log to a JSON file
+            log_file = log_folder / f"log_{run_id}.json"
+            with open(log_file, "w", encoding="utf-8") as f:
+                json.dump(log_data, f, indent=4)
 
             return result_message
 

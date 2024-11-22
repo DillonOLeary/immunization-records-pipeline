@@ -7,9 +7,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from data_pipeline.etl_pipeline import run_etl, run_etl_on_folder
+from data_pipeline.execution_logger import log_etl_run
 from data_pipeline.extract import read_from_aisr_csv
 from data_pipeline.load import write_to_infinite_campus_csv
-from data_pipeline.manifest_generator import log_etl_run
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
 
 
@@ -36,10 +36,10 @@ def parse_args():
         help="Path to the folder where transformed files will be saved",
     )
     parser.add_argument(
-        "--manifest_folder",
+        "--log_folder",
         type=Path,
         required=True,
-        help="Path to the folder where the manifest of ETL runs will be saved",
+        help="Path to the folder where the log of ETL runs will be saved",
     )
     return parser.parse_args()
 
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     )
 
     # Apply the logging decorator to track ETL runs
-    etl_pipeline_with_logging = log_etl_run(args.manifest_folder)(etl_pipeline)
+    etl_pipeline_with_logging = log_etl_run(args.log_folder)(etl_pipeline)
 
     # Run the ETL pipeline on all files in the input folder
     run_etl_on_folder(
