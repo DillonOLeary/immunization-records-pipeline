@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "data-pipeline"
-version = "0.1.1"
+version = "1.0.0"
 description = "Transforms immunization records from the Minnesota Department of Health to the format used by Infinite Campus."
 authors = ["Dillon O'Leary <dillon.oleary@icloud.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<3.14"
 pandas = "^2.2.3"
 
 
@@ -16,6 +16,7 @@ mypy = "^1.13.0"
 pylint = "^3.3.1"
 black = "^24.10.0"
 pandas-stubs = "^2.2.3.241009"
+pyinstaller = "^6.11.1"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.3"
