@@ -1,28 +1,28 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# This workflow will install Python dependencies and run tests of Python data pipeline
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
-name: Lint and Test Python Transformation
+name: Test Python Data Pipeline Code
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-
-permissions:
-  contents: read
+  workflow_call:
 
 jobs:
-  build:
-
+  testing:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Python 3.11
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -33,7 +33,3 @@ jobs:
       run: |
         cd data-pipeline
         poetry run pytest
-    - name: Lint with pylint
-      run: |
-        cd data-pipeline
-        poetry run pylint $(git ls-files '*.py')
