@@ -4,6 +4,7 @@ version = "0.1.1"
 description = "Transforms immunization records from the Minnesota Department of Health to the format used by Infinite Campus."
 authors = ["Dillon O'Leary <dillon.oleary@icloud.com>"]
 readme = "README.md"
+license = "GPL-3.0-only"
 
 [tool.poetry.dependencies]
 python = "^3.11"
