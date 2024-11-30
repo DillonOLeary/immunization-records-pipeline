@@ -20,7 +20,9 @@ def log_etl_run(log_folder: Path):
         def wrapper(input_file: Path, output_folder: Path):
             # Get current timestamp and pipeline version
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            version = importlib.metadata.version("data_pipeline")  # Get package version
+            version = importlib.metadata.version(
+                "minnesota-immunization-data-pipeline"
+            )  # Get package version
 
             # Generate a unique ID for the run
             run_id = uuid.uuid4().hex[:8]
