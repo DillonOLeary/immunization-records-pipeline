@@ -11,3 +11,6 @@ NEW_VERSION=$(poetry version -s)
 
 # Create a Git tag with the new version
 git tag "v$NEW_VERSION"
+
+# Push the tags
+git push --tags
