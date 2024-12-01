@@ -37,7 +37,7 @@ jobs:
       run: |
         cd data-pipeline
         poetry config repositories.testpypi https://test.pypi.org/legacy/
-        poetry publish -r testpypi -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}
+        poetry publish -r testpypi -u __token__ -p ${{ secrets.PYPI_TEST_API_TOKEN }}
 
     - name: Publish to PyPI
       run: |
