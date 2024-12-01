@@ -13,7 +13,7 @@
    ```
 1. Then you can run the project with 
    ```bash
-   minnesota-immunization-data-pipeline --input_folder "<input_folder_path>" --output_folder "<output_folder_path>" --log_folder <log_folder_path>
+   minnesota-immunization-data-pipeline --input_folder "<input_folder_path>" --output_folder "<output_folder_path>" --log_folder "<log_folder_path>"
    ```
 
 ## Developer Setup
