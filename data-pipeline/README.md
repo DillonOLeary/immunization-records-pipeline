@@ -11,7 +11,10 @@
 
    # If you get an error about 'pip not found', just replace pip with pip3.
    ```
-1. Then you can run the project with `minnesota-immunization-data-pipeline --input_folder "<input_folder_path>" --output_folder "<output_folder_path>" --log_folder <log_folder_path>`
+1. Then you can run the project with 
+   ```bash
+   minnesota-immunization-data-pipeline --input_folder "<input_folder_path>" --output_folder "<output_folder_path>" --log_folder <log_folder_path>
+   ```
 
 ## Developer Setup
 Developer setup is easy with Dev Containers!
