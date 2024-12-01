@@ -1,8 +1,7 @@
 name: Publish Immunization Data Pipeline to PyPI
 on:
-  push:
-    tags:
-      - "*.*.*"
+  release:
+    types: [ published ]
 
 jobs:
   # Call the test workflow to ensure all tests pass before deploying
@@ -32,7 +31,7 @@ jobs:
       run: |
         cd data-pipeline
         poetry build
-    
+
     - name: Test publish to PyPI
       run: |
         cd data-pipeline
@@ -44,8 +43,3 @@ jobs:
         cd data-pipeline
         poetry publish -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}
 
-    - name: Create GitHub Release
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh release create ${{ github.ref_name }} ./data-pipeline/dist/* --generate-notes

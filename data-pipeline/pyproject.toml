@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "minnesota-immunization-data-pipeline"
-version = "0.1.10"
+version = "0.1.11"
 description = "A data pipeline that minimizes manual effort when extracting immunization records from the Minnesota Department of Health, transforming them, and loading them into the student information system, Infinite Campus."
 authors = ["Dillon O'Leary <dillon.oleary@icloud.com>"]
 readme = "README.md"
