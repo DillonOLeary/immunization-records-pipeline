@@ -44,7 +44,10 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def run():
+    """
+    Gather CL args, set up the project and run the ETL
+    """
     args = parse_args()
 
     # Create the ETL pipeline with injected dependencies
@@ -63,3 +66,7 @@ if __name__ == "__main__":
         output_folder=args.output_folder,
         etl_fn=etl_pipeline_with_logging,
     )
+
+
+if __name__ == "__main__":
+    run()

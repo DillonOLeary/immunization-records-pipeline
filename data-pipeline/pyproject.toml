@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "minnesota-immunization-data-pipeline"
-version = "0.1.12"
+version = "0.2.0"
 description = "A data pipeline that minimizes manual effort when extracting immunization records from the Minnesota Department of Health, transforming them, and loading them into the student information system, Infinite Campus."
 authors = ["Dillon O'Leary <dillon.oleary@icloud.com>"]
 readme = "README.md"
@@ -10,6 +10,9 @@ keywords = ["etl", "poetry", "immunization", "civic tech"]
 packages = [
     { include = "data_pipeline" },
 ]
+
+[tool.poetry.scripts]
+minnesota-immunization-data-pipeline = "data_pipeline.__main__:run"
 
 [tool.poetry.dependencies]
 python = "^3.11"
