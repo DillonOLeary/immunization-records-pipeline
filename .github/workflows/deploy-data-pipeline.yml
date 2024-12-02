@@ -11,8 +11,7 @@ jobs:
     uses: DillonOLeary/immunization-records-pipeline/.github/workflows/lint-data-pipeline.yml@main
 
   publish:
-    needs: run-tests
-    needs: run-linting
+    needs: [run-tests, run-linting]
     runs-on: ubuntu-latest
 
     steps:
