@@ -7,6 +7,9 @@ jobs:
   # Call the test workflow to ensure all tests pass before deploying
   run-tests:
     uses: DillonOLeary/immunization-records-pipeline/.github/workflows/test-data-pipeline.yml@main
+  
+  run-linting:
+    uses: DillonOLeary/immunization-records-pipeline/.github/workflows/lint-data-pipeline.yml@main
 
   publish:
     needs: run-tests  # Ensures tests pass before proceeding
