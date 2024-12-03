@@ -37,7 +37,4 @@ def run_etl_on_folder(
 
     # Iterate over each CSV file in the input folder and run the ETL pipeline
     for input_file in input_folder.glob("*.csv"):
-        result_message = etl_fn(input_file, output_folder)
-        print(f"Processed {input_file.name}: {result_message}")
-
-    print("Successfully ran etl for all files in input folder.")
+        etl_fn(input_file, output_folder)

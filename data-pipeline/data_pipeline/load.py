@@ -33,5 +33,3 @@ def write_to_infinite_campus_csv(
     output_filename = filename_generator(input_file_name)
     output_file = output_folder / output_filename
     df.to_csv(output_file, index=False, sep=",", header=False)
-
-    print(f"Data written to {output_file}")
