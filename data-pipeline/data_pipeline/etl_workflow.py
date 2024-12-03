@@ -14,15 +14,8 @@ def run_etl(
     load: Callable[[pd.DataFrame], None],
 ) -> str:
     """
-    Run the etl data pipeline.
+    Run the etl data pipeline with functions passed in.
 
-    Args:
-        extract (Callable[[], pd.DataFrame]):
-            Function that extracts data and returns a DataFrame.
-        transform (Callable[[pd.DataFrame], pd.DataFrame]):
-            Function that takes a DataFrame as input and returns a transformed DataFrame.
-        load (Callable[[pd.DataFrame], None]):
-            Function that loads the transformed dataframe.
     Returns:
         str: A message stating the run successed or failed
     """
@@ -38,11 +31,6 @@ def run_etl_on_folder(
     """
     Runs the ETL pipeline for all CSV files in the input folder
     and saves the results to the output folder.
-
-    Args:
-        input_folder (Path): The folder containing the input CSV files.
-        output_folder (Path): The folder to save the transformed files.
-        etl_fn (Callable[[Path, Path], str]): The ETL function to process individual files.
     """
     # Ensure the output folder exists
     output_folder.mkdir(parents=True, exist_ok=True)
@@ -52,4 +40,4 @@ def run_etl_on_folder(
         result_message = etl_fn(input_file, output_folder)
         print(f"Processed {input_file.name}: {result_message}")
 
-    print("Pipeline completed successfully.")
+    print("Successfully ran etl for all files in input folder.")
