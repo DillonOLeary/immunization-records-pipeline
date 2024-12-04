@@ -25,5 +25,7 @@
 Developer setup is easy with Dev Containers!
 1. [Download the code locally](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository)
 1. Ensure [VS Code](https://code.visualstudio.com/) is installed
+1. Open the repository in VS Code
 1. Follow the tutorial [here](https://code.visualstudio.com/docs/devcontainers/tutorial) to set up Dev Containers.
-1. Run the command `Dev Containers: Reopen in Container`
+1. Run the command (View->Command Palette) `Dev Containers: Reopen in Container`
+   - This may take several minutes the first time
