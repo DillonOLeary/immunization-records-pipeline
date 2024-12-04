@@ -3,7 +3,12 @@
 <h4 align="center">A data pipeline that minimizes manual effort when extracting immunization records from the Minnesota Department of Health, transforming them, and loading them into the student information system, Infinite Campus.</h4>
 
 ## Running the AISR to Infinite Campus CSV Transformation
-1. Make sure you have Python 3 installed on your computer.
+1. Make sure you have Python 3 and Pip installed on your computer. Run the following commands in the command line to check:
+   ```bash
+   python --version
+
+   pip --version
+   ```
 1. Open your terminal and paste the command below:
 
    ```bash
