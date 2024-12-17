@@ -33,6 +33,7 @@ requests = "^2.32.3"
 types-requests = "^2.32.0.20241016"
 fastapi = "^0.115.6"
 uvicorn = "^0.34.0"
+pytest-cov = "^6.0.0"
 
 [build-system]
 requires = ["poetry-core"]
