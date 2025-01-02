@@ -96,7 +96,7 @@ def test_pipeline_calls_data_load_function():
 
 
 def test_run_etl_on_folder_creates_output_folder(folders):
-    input_folder, output_folder, _ = folders
+    input_folder, output_folder = folders
 
     run_etl_on_folder(input_folder, output_folder, lambda: "")
 
@@ -105,7 +105,7 @@ def test_run_etl_on_folder_creates_output_folder(folders):
 
 
 def test_run_etl_on_folder_calls_etl_fn(folders):
-    input_folder, output_folder, _ = folders
+    input_folder, output_folder = folders
 
     test_file = input_folder / "test_file.csv"
     with open(test_file, "w", encoding="utf-8") as f:
@@ -120,7 +120,7 @@ def test_run_etl_on_folder_calls_etl_fn(folders):
 
 
 def test_run_etl_on_folder_no_input_files(folders):
-    input_folder, output_folder, _ = folders
+    input_folder, output_folder = folders
 
     # Run the ETL process with no files in input folder
     run_etl_on_folder(input_folder, output_folder, lambda: "")

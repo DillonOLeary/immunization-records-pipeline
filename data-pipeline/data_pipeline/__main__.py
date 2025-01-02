@@ -6,9 +6,9 @@ import argparse
 from pathlib import Path
 
 from data_pipeline.etl_workflow import run_etl_on_folder
-from data_pipeline.execution_logger import log_etl_run
 from data_pipeline.extract import read_from_aisr_csv
 from data_pipeline.load import write_to_infinite_campus_csv
+from data_pipeline.metadata_generator import run_etl_with_metadata_generation
 from data_pipeline.pipeline_factory import create_file_to_file_etl_pipeline
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
 
@@ -35,12 +35,6 @@ def parse_args():
         required=True,
         help="Path to the folder where transformed files will be saved",
     )
-    parser.add_argument(
-        "--log_folder",
-        type=Path,
-        required=True,
-        help="Path to the folder where the log of ETL runs will be saved",
-    )
     return parser.parse_args()
 
 
@@ -57,14 +51,14 @@ def run():
         load=write_to_infinite_campus_csv,
     )
 
-    # Apply the logging decorator to track ETL runs
-    etl_pipeline_with_logging = log_etl_run(args.log_folder)(etl_pipeline)
+    etl_pipeline_with_metadata = run_etl_with_metadata_generation(
+        Path(args.output_folder) / "metadata"
+    )(etl_pipeline)
 
-    # Run the ETL pipeline on all files in the input folder
     run_etl_on_folder(
         input_folder=args.input_folder,
         output_folder=args.output_folder,
-        etl_fn=etl_pipeline_with_logging,
+        etl_fn=etl_pipeline_with_metadata,
     )
 
 

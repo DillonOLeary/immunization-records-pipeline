@@ -13,23 +13,23 @@ from fastapi.responses import HTMLResponse
 
 
 @pytest.fixture(name="folders")
-def input_output_log_folders():
+def input_output_folders():
     """
-    Allows tests to use input, output, and log folders
+    Allows tests to use input and output folders
     """
     input_folder = Path(".") / "tests" / "test_input"
     output_folder = Path(".") / "tests" / "test_output"
-    log_folder = Path(".") / "tests" / "test_log"
+    metadata_folder = output_folder / "metadata"
 
     # Create directories
-    for folder in [input_folder, output_folder, log_folder]:
+    for folder in [input_folder, output_folder]:
         folder.mkdir(parents=True, exist_ok=True)
 
     # Yield the folders for test usage
-    yield input_folder, output_folder, log_folder
+    yield input_folder, output_folder
 
     # Cleanup after the test
-    for folder in [input_folder, output_folder, log_folder]:
+    for folder in [metadata_folder, input_folder, output_folder]:
         if folder.exists():
             for file in folder.iterdir():
                 file.unlink()
