@@ -37,11 +37,20 @@ def parse_args():
         required=True,
         help="Path to the folder where transformed files will be saved",
     )
+    parser.add_argument(
+        "--logs_folder",
+        type=Path,
+        required=True,
+        default="logs",
+        help="Path to the folder where log files will be saved",
+    )
     return parser.parse_args()
 
 
-# pylint: disable=missing-function-docstring
 def setup_logging(env: str, config_dir: Path, log_dir: Path):
+    """
+    Set up logging configuration.
+    """
     log_configs = {"dev": "logging.dev.ini", "prod": "logging.prod.ini"}
     config_path = config_dir / log_configs.get(env, "logging.dev.ini")
 

@@ -9,7 +9,7 @@ import subprocess
 
 
 def test_cli_runs_for_all_test_files(folders):
-    input_folder, output_folder = folders
+    input_folder, output_folder, logs_folder = folders
 
     test_file = os.path.join(input_folder, "test_file.csv")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -28,6 +28,8 @@ def test_cli_runs_for_all_test_files(folders):
             input_folder,
             "--output_folder",
             output_folder,
+            "--logs_folder",
+            logs_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -41,7 +43,7 @@ def test_cli_runs_for_all_test_files(folders):
 
 
 def test_cli_creates_non_existent_output_folder(folders):
-    input_folder, output_folder = folders
+    input_folder, output_folder, logs_folder = folders
 
     test_file = os.path.join(input_folder, "test_file.csv")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -60,6 +62,8 @@ def test_cli_creates_non_existent_output_folder(folders):
             input_folder,
             "--output_folder",
             output_folder,
+            "--logs_folder",
+            logs_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -74,7 +78,7 @@ def test_cli_creates_non_existent_output_folder(folders):
 
 
 def test_cli_correct_output_file_contents(folders):
-    input_folder, output_folder = folders
+    input_folder, output_folder, logs_folder = folders
 
     test_file = os.path.join(input_folder, "test_file.csv")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -93,6 +97,8 @@ def test_cli_correct_output_file_contents(folders):
             input_folder,
             "--output_folder",
             output_folder,
+            "--logs_folder",
+            logs_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -120,7 +126,7 @@ def test_cli_correct_output_file_contents(folders):
 
 
 def test_cli_runs_for_multiple_test_files(folders):
-    input_folder, output_folder = folders
+    input_folder, output_folder, logs_folder = folders
 
     # Create multiple test CSV files
     test_files = [
@@ -147,6 +153,8 @@ def test_cli_runs_for_multiple_test_files(folders):
             input_folder,
             "--output_folder",
             output_folder,
+            "--logs_folder",
+            logs_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -176,7 +184,7 @@ def test_cli_runs_for_multiple_test_files(folders):
 
 
 def test_cli_creates_metadata_file_with_correct_fields(folders):
-    input_folder, output_folder = folders
+    input_folder, output_folder, logs_folder = folders
 
     test_file = os.path.join(input_folder, "test_file.csv")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -195,6 +203,8 @@ def test_cli_creates_metadata_file_with_correct_fields(folders):
             input_folder,
             "--output_folder",
             output_folder,
+            "--logs_folder",
+            logs_folder,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
