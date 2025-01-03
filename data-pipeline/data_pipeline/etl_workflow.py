@@ -2,10 +2,14 @@
 This file runs the immunization data pipeline.
 """
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
+
+# Configure the logger for this module
+logger = logging.getLogger(__name__)
 
 
 def run_etl(
@@ -14,14 +18,18 @@ def run_etl(
     load: Callable[[pd.DataFrame], None],
 ) -> str:
     """
-    Run the etl data pipeline with functions passed in.
+    Run the ETL data pipeline with functions passed in.
 
     Returns:
-        str: A message stating the run successed or failed
+        str: A message stating the run succeeded or failed
     """
+    logger.info("Starting ETL process.")
+
     df_in = extract()
     transformed_df = transform(df_in)
     load(transformed_df)
+
+    logger.info("ETL process completed successfully.")
     return "Data pipeline executed successfully"
 
 
@@ -32,9 +40,14 @@ def run_etl_on_folder(
     Runs the ETL pipeline for all CSV files in the input folder
     and saves the results to the output folder.
     """
+    logger.info("Starting ETL on folder: %s", input_folder)
+
     # Ensure the output folder exists
     output_folder.mkdir(parents=True, exist_ok=True)
 
     # Iterate over each CSV file in the input folder and run the ETL pipeline
     for input_file in input_folder.glob("*.csv"):
+        logger.info("Processing file: %s", input_file)
         etl_fn(input_file, output_folder)
+
+    logger.info("ETL on folder completed.")

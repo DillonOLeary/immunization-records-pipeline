@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument(
         "--logs_folder",
         type=Path,
-        required=True,
+        required=False,
         default="logs",
         help="Path to the folder where log files will be saved",
     )
