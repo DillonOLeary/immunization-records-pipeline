@@ -5,11 +5,16 @@ Tests for the pipeline orchestration
 # pylint: disable=missing-function-docstring
 
 
+import logging
 import os
 from unittest.mock import MagicMock
 
 import pandas as pd
-from data_pipeline.etl_workflow import run_etl, run_etl_on_folder
+from data_pipeline.etl_workflow import (
+    ETLExecutionFailureError,
+    run_etl,
+    run_etl_on_folder,
+)
 
 
 def test_pipeline_runs():
@@ -127,3 +132,21 @@ def test_run_etl_on_folder_no_input_files(folders):
 
     # Assert that no output files were created
     assert len(os.listdir(output_folder)) == 0, "Output files were created unexpectedly"
+
+
+def test_run_etl_on_folder_handles_extract_exception(folders, caplog):
+    input_folder, output_folder, _ = folders
+
+    dummy_csv = input_folder / "test.csv"
+    dummy_csv.touch()
+
+    def failing_etl_fn(input_file, output_folder):
+        raise ETLExecutionFailureError("Mock extract error")
+
+    with caplog.at_level(logging.ERROR):
+        run_etl_on_folder(input_folder, output_folder, failing_etl_fn)
+
+    assert any(
+        "ETL failed for file" in record.message and record.levelname == "ERROR"
+        for record in caplog.records
+    )

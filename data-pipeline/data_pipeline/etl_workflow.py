@@ -12,6 +12,13 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+class ETLExecutionFailureError(Exception):
+    """Custom exception for ETL execution failures."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 def run_etl(
     extract: Callable[[], pd.DataFrame],
     transform: Callable[[pd.DataFrame], pd.DataFrame],
@@ -48,6 +55,9 @@ def run_etl_on_folder(
     # Iterate over each CSV file in the input folder and run the ETL pipeline
     for input_file in input_folder.glob("*.csv"):
         logger.info("Processing file: %s", input_file)
-        etl_fn(input_file, output_folder)
+        try:
+            etl_fn(input_file, output_folder)
+        except ETLExecutionFailureError:
+            logger.error("ETL failed for file: %s", input_file, exc_info=True)
 
     logger.info("ETL on folder completed.")
