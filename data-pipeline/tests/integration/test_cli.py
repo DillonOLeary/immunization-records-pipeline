@@ -234,3 +234,37 @@ def test_cli_creates_metadata_file_with_correct_fields(folders):
     assert (
         "result_message" in metadata
     ), "metadata file does not contain 'result_message'."
+
+
+def test_cli_creates_log_file(folders):
+    input_folder, output_folder, logs_folder = folders
+
+    test_file = os.path.join(input_folder, "test_file.csv")
+    with open(test_file, "w", encoding="utf-8") as f:
+        f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
+        f.write("123|456|COVID-19|11/17/2024\n")
+        f.write("789|101|Flu|11/16/2024\n")
+        f.write("112|131|COVID-19|11/15/2024\n")
+
+    result = subprocess.run(
+        [
+            "poetry",
+            "run",
+            "python",
+            "data_pipeline",
+            "--input_folder",
+            input_folder,
+            "--output_folder",
+            output_folder,
+            "--logs_folder",
+            logs_folder,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
+    assert (
+        len(os.listdir(logs_folder)) > 0
+    ), "No files were created in the output folder"
