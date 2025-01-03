@@ -3,6 +3,8 @@ Inject dependencies and run pipeline
 """
 
 import argparse
+import datetime
+import logging
 from pathlib import Path
 
 from data_pipeline.etl_workflow import run_etl_on_folder
@@ -36,6 +38,20 @@ def parse_args():
         help="Path to the folder where transformed files will be saved",
     )
     return parser.parse_args()
+
+
+# pylint: disable=missing-function-docstring
+def setup_logging(env: str, config_dir: Path, log_dir: Path):
+    log_configs = {"dev": "logging.dev.ini", "prod": "logging.prod.ini"}
+    config_path = config_dir / log_configs.get(env, "logging.dev.ini")
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H:%M:%S")
+
+    logging.config.fileConfig(
+        config_path,
+        disable_existing_loggers=False,
+        defaults={"logfilename": log_dir / f"{timestamp}.log"},
+    )
 
 
 def run():
