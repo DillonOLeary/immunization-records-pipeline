@@ -9,15 +9,13 @@ from data_pipeline.__main__ import setup_logging
 
 
 @patch("logging.config.fileConfig")
-@patch("datetime.datetime")
 # pylint: disable-next=invalid-name
-def test_setup_logging(mock_datetime, mock_fileConfig):
-    mock_datetime.now.return_value.strftime.return_value = "20250101-12:00:00"
+def test_setup_logging(mock_fileConfig):
 
     setup_logging(env="dev", log_dir=Path("mock_logs"))
 
     mock_fileConfig.assert_called_once_with(
         Path("config") / "logging.dev.ini",
         disable_existing_loggers=False,
-        defaults={"logfilename": Path("mock_logs") / "20250101-12:00:00.log"},
+        defaults={"logfilename": Path("mock_logs") / "app.log"},
     )
