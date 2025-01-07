@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import uvicorn
+from data_pipeline.pipeline_factory import use_web_driver
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
@@ -73,3 +74,14 @@ def fastapi_server():
 
     process.terminate()
     process.join()
+
+
+@pytest.fixture
+def selenium_driver():
+    """
+    Sets up the driver for the tests.
+    """
+    target_url = "http://127.0.0.1:8000"
+
+    with use_web_driver(target_url) as driver:
+        yield driver
