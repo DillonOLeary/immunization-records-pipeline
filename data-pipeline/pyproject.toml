@@ -18,6 +18,7 @@ minnesota-immunization-data-pipeline = "data_pipeline.__main__:run"
 python = "^3.11"
 pandas = "^2.2.3"
 selenium = "^4.27.1"
+chromedriver-autoinstaller = "^0.6.4"
 
 
 [tool.poetry.group.dev.dependencies]

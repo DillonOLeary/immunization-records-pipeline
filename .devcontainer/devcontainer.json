@@ -5,7 +5,8 @@
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	"image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
 	"features": {
-		"ghcr.io/devcontainers-extra/features/poetry:2": {}
+		"ghcr.io/devcontainers-extra/features/poetry:2": {},
+		"ghcr.io/kreemer/features/chrometesting:1": {}
 	},
 	"customizations": {
 		"vscode": {
