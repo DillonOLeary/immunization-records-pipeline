@@ -5,12 +5,13 @@ Pytest utils
 import time
 from multiprocessing import Process
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
 import uvicorn
 from data_pipeline.pipeline_factory import use_web_driver
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form
+from fastapi.responses import HTMLResponse, JSONResponse
 
 
 @pytest.fixture(name="folders")
@@ -61,6 +62,50 @@ def fastapi_server():
         </html>
         """
 
+    @app.get("/protocol/openid-connect/auth", response_class=HTMLResponse)
+    async def oidc_auth():
+        """
+        Simulates an authentication endpoint. Returns an HTML page with a form
+        that includes the required `session_code` and `tab_id`.
+        """
+        form_action_url = f"/protocol/openid-connect/login?{urlencode({
+            'session_code': 'mock-session-code',
+            'tab_id': 'mock-tab-id'
+        })}"
+
+        return f"""
+        <!DOCTYPE html>
+        <html lang=\"en\">
+        <head>
+            <meta charset=\"UTF-8\">
+            <title>Login</title>
+        </head>
+        <body>
+            <form id=\"kc-form-login\" action=\"{form_action_url}\" method=\"post\">
+                <input type=\"text\" name=\"username\" placeholder=\"Username\" required />
+                <input type=\"password\" name=\"password\" placeholder=\"Password\" required />
+                <button type=\"submit\">Login</button>
+            </form>
+        </body>
+        </html>
+        """
+
+    @app.post("/login-actions/authenticate")
+    async def authenticate(username: str = Form(...), password: str = Form(...)):
+        """
+        Simulates the login authentication endpoint. Validates username and password and returns
+        a response indicating success or failure.
+        """
+        if username == "test_user" and password == "test_password":
+            return JSONResponse(
+                content={"message": "Login successful", "is_successful": True},
+                status_code=200,
+            )
+        return JSONResponse(
+            content={"message": "Invalid credentials", "is_successful": False},
+            status_code=401,
+        )
+
     def run_server():
         uvicorn.run(app, host="127.0.0.1", port=8000)
 
@@ -74,14 +119,3 @@ def fastapi_server():
 
     process.terminate()
     process.join()
-
-
-@pytest.fixture
-def selenium_driver():
-    """
-    Sets up the driver for the tests.
-    """
-    target_url = "http://127.0.0.1:8000"
-
-    with use_web_driver(target_url) as driver:
-        yield driver

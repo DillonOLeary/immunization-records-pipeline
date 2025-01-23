@@ -8,9 +8,6 @@ from pathlib import Path
 
 import pandas as pd
 from data_pipeline.etl_workflow import run_etl
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.webdriver import WebDriver
 
 
 def create_file_to_file_etl_pipeline(
@@ -38,21 +35,3 @@ def create_file_to_file_etl_pipeline(
         )
 
     return etl_fn
-
-
-@contextmanager
-def use_web_driver(target_url) -> Generator[WebDriver, None, None]:
-    """
-    Context manager for a Chrome WebDriver with options set for headless operation.
-
-    Automatically closes the WebDriver when exiting the context.
-    """
-    options = Options()
-    options.headless = True
-
-    driver = webdriver.Chrome(options=options)
-    try:
-        driver.get(target_url)
-        yield driver
-    finally:
-        driver.quit()
