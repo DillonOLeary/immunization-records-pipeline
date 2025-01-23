@@ -1,5 +1,5 @@
 """
-Factory to create and configure the ETL pipeline with injected dependencies.
+Factory for creating the pipeline and related tools
 """
 
 from collections.abc import Callable
