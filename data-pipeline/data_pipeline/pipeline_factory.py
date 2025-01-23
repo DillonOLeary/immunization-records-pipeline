@@ -2,8 +2,7 @@
 Factory for creating the pipeline and related tools
 """
 
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd

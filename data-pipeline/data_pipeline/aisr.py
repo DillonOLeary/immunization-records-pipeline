@@ -2,7 +2,6 @@
 Query MIIC for school immunization data
 """
 
-import getpass
 import logging
 import uuid
 from dataclasses import dataclass
@@ -86,17 +85,3 @@ def logout(session: requests.Session, auth_realm_url: str):
     """
     url = f"{auth_realm_url}/protocol/openid-connect/logout?client_id=aisr-app"
     session.request("GET", url, headers={}, data={})
-
-
-# with requests.Session() as s:
-#     login(
-#         s,
-#         "https://authenticator4.web.health.state.mn.us/auth/realms/idepc-aisr-realm",
-#         "dave.sandum@isd197.org",
-#         getpass.getpass(),
-#     )
-# print(s.cookies)
-# OPTIONS_URL = "https://aisr-api.web.health.state.mn.us/school/list/public"
-
-# res = s.request("GET", OPTIONS_URL, headers={}, data={})
-# print(res.text)
