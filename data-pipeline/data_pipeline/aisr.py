@@ -1,5 +1,5 @@
 """
-Query MIIC for school immunization data
+Module for interactions with AISR
 """
 
 import logging
@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup, Tag
 logger = logging.getLogger(__name__)
 
 
-def _get_session_and_tab(
+def _get_session_code_and_tab_id(
     session: requests.Session, auth_realm_url: str
 ) -> Tuple[str, str]:
     """
@@ -30,12 +30,12 @@ def _get_session_and_tab(
     soup = BeautifulSoup(response.content, "html.parser")
     form_element = soup.find("form", id="kc-form-login")
 
+    # the session code and tab id are found in the action URL of the form
     if isinstance(form_element, Tag):
         action_url = form_element.get("action")
         if isinstance(action_url, str):
             parsed_url = urlparse(action_url)
             query_dict = parse_qs(parsed_url.query)
-            print(query_dict["session_code"][0], query_dict["tab_id"][0])
             return query_dict["session_code"][0], query_dict["tab_id"][0]
         raise ValueError("The action URL is not a valid string.")
     raise ValueError("Login form not found or is not a valid HTML form element.")
@@ -58,7 +58,7 @@ def login(
     Login with AISR.
     """
     logger.info("Logging into MIIC")
-    session_code, tab_id = _get_session_and_tab(session, auth_realm_url)
+    session_code, tab_id = _get_session_code_and_tab_id(session, auth_realm_url)
 
     # pylint: disable-next=line-too-long
     url = f"{auth_realm_url}/login-actions/authenticate?session_code={session_code}&execution=084dee30-925f-4a8f-829d-7a372e38d0de&client_id=aisr-app&tab_id={tab_id}"
@@ -79,9 +79,13 @@ def login(
     )
 
 
-def logout(session: requests.Session, auth_realm_url: str):
+def logout(session: requests.Session, auth_realm_url: str) -> AISRResponse:
     """
     Log out of AISR.
     """
     url = f"{auth_realm_url}/protocol/openid-connect/logout?client_id=aisr-app"
     session.request("GET", url, headers={}, data={})
+    return AISRResponse(
+        is_successful=True,
+        message="Logged out successfully",
+    )

@@ -42,7 +42,6 @@ def input_output_logs_folders():
 def fastapi_server():
     """
     Spins up a FastAPI server for integration tests.
-    Serves a boilerplate HTML page with a <h1> tag: 'Hello Minnesota!'
     """
     app = FastAPI()
 
@@ -112,8 +111,8 @@ def fastapi_server():
             )
             response.delete_cookie(
                 key="KEYCLOAK_IDENTITY",
-                httponly=True,  # Ensure this matches the original cookie settings
-                secure=True,  # Ensure this matches the original cookie settings
+                httponly=True,
+                secure=True,
             )
             return response
 
