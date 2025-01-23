@@ -54,10 +54,10 @@ def fastapi_server():
         Simulates an authentication endpoint. Returns an HTML page with a form
         that includes the required `session_code` and `tab_id`.
         """
-        form_action_url = f"/protocol/openid-connect/login?{urlencode({
-            'session_code': 'mock-session-code',
-            'tab_id': 'mock-tab-id'
-        })}"
+        encoded_session_and_tab = urlencode(
+            {"session_code": "mock-session-code", "tab_id": "mock-tab-id"}
+        )
+        form_action_url = f"/protocol/openid-connect/login?{encoded_session_and_tab}"
 
         return f"""
         <!DOCTYPE html>
