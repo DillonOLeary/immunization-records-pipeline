@@ -9,7 +9,6 @@ from urllib.parse import urlencode
 
 import pytest
 import uvicorn
-from data_pipeline.pipeline_factory import use_web_driver
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -47,22 +46,10 @@ def fastapi_server():
     """
     app = FastAPI()
 
-    @app.get("/", response_class=HTMLResponse)
-    async def root():
-        return """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title>Test Page</title>
-        </head>
-        <body>
-            <h1>Hello Minnesota!</h1>
-        </body>
-        </html>
-        """
-
-    @app.get("/protocol/openid-connect/auth", response_class=HTMLResponse)
+    @app.get(
+        "/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth",
+        response_class=HTMLResponse,
+    )
     async def oidc_auth():
         """
         Simulates an authentication endpoint. Returns an HTML page with a form
@@ -90,20 +77,49 @@ def fastapi_server():
         </html>
         """
 
-    @app.post("/login-actions/authenticate")
+    @app.post("/auth/realms/idepc-aisr-realm/login-actions/authenticate")
     async def authenticate(username: str = Form(...), password: str = Form(...)):
         """
         Simulates the login authentication endpoint. Validates username and password and returns
-        a response indicating success or failure.
+        a response with a cookie indicating success or failure.
         """
         if username == "test_user" and password == "test_password":
-            return JSONResponse(
+            response = JSONResponse(
                 content={"message": "Login successful", "is_successful": True},
                 status_code=200,
             )
+            response.set_cookie(
+                key="KEYCLOAK_IDENTITY",
+                value="mocked-identity-token",
+                httponly=True,
+                secure=True,
+            )
+            return response
         return JSONResponse(
             content={"message": "Invalid credentials", "is_successful": False},
             status_code=401,
+        )
+
+    @app.get("/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout")
+    async def logout(client_id: str):
+        """
+        Simulates the logout endpoint. Removes the KEYCLOAK_IDENTITY cookie.
+        """
+        if client_id == "aisr-app":
+            response = JSONResponse(
+                content={"message": "Logout successful"},
+                status_code=200,
+            )
+            response.delete_cookie(
+                key="KEYCLOAK_IDENTITY",
+                httponly=True,  # Ensure this matches the original cookie settings
+                secure=True,  # Ensure this matches the original cookie settings
+            )
+            return response
+
+        return JSONResponse(
+            content={"message": "Invalid client_id", "is_successful": False},
+            status_code=400,
         )
 
     def run_server():

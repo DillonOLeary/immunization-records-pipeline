@@ -4,14 +4,15 @@ Tests for interacting with AISR
 
 # pylint: disable=missing-function-docstring
 
-import uuid
-from getpass import getpass
-from typing import Tuple
-from urllib.parse import parse_qs, quote, urlparse
+# import uuid
+# from getpass import getpass
+# from typing import Tuple
+# from urllib.parse import parse_qs, quote, urlparse
 
 import requests
-from bs4 import BeautifulSoup
-from data_pipeline.aisr import login
+
+# from bs4 import BeautifulSoup
+from data_pipeline.aisr import login, logout
 
 TEST_USERNAME = "test_user"
 TEST_PASSWORD = "test_password"
@@ -47,11 +48,6 @@ TEST_ROW_ID = "test_row_id"
 #     print(response.text)
 
 
-def logout(s: requests.Session):
-    url = "https://authenticator4.web.health.state.mn.us/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout?client_id=aisr-app"
-    s.request("GET", url, headers={}, data={})
-
-
 # with requests.Session() as session:
 #     session_code, tab_id = get_session_and_tab(session)
 #     authenticate(session)
@@ -63,10 +59,12 @@ def logout(s: requests.Session):
 
 
 def test_login_successful(fastapi_server):
+    test_realm_url = f"{fastapi_server}/auth/realms/idepc-aisr-realm"
+
     with requests.Session() as local_session:
         result = login(
             session=local_session,
-            auth_realm_url=fastapi_server,
+            auth_realm_url=test_realm_url,
             username=TEST_USERNAME,
             password=TEST_PASSWORD,
         )
@@ -74,11 +72,27 @@ def test_login_successful(fastapi_server):
 
 
 def test_login_failure(fastapi_server):
+    test_realm_url = f"{fastapi_server}/auth/realms/idepc-aisr-realm"
+
     with requests.Session() as local_session:
         result = login(
             session=local_session,
-            auth_realm_url=fastapi_server,
+            auth_realm_url=test_realm_url,
             username=TEST_USERNAME,
             password="wrong_password",
         )
     assert not result.is_successful, "Log in should fail with incorrect password"
+
+
+def test_logout_successful(fastapi_server):
+    test_realm_url = f"{fastapi_server}/auth/realms/idepc-aisr-realm"
+
+    with requests.Session() as local_session:
+        login(
+            session=local_session,
+            auth_realm_url=test_realm_url,
+            username=TEST_USERNAME,
+            password=TEST_PASSWORD,
+        )
+        logout(local_session, test_realm_url)
+    assert not local_session.cookies, "Session cookies should be cleared after logout"

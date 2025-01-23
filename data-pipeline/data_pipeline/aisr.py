@@ -67,3 +67,11 @@ def login(
 
     logger.error("Login failed")
     return AISRResponse(is_successful=False, message="Failed to log in")
+
+
+def logout(session: requests.Session, auth_realm_url: str):
+    """
+    Log out of AISR.
+    """
+    url = f"{auth_realm_url}/protocol/openid-connect/logout?client_id=aisr-app"
+    session.request("GET", url, headers={}, data={})
