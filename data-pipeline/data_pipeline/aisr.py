@@ -2,6 +2,7 @@
 Query MIIC for school immunization data
 """
 
+import getpass
 import logging
 import uuid
 from dataclasses import dataclass
@@ -9,12 +10,14 @@ from typing import Tuple
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 logger = logging.getLogger(__name__)
 
 
-def _get_session_and_tab(s: requests.Session, auth_realm_url: str) -> Tuple[str, str]:
+def _get_session_and_tab(
+    session: requests.Session, auth_realm_url: str
+) -> Tuple[str, str]:
     """
     The session and tab are needed to authenticate with AISR.
     """
@@ -24,14 +27,19 @@ def _get_session_and_tab(s: requests.Session, auth_realm_url: str) -> Tuple[str,
     # pylint: disable-next=line-too-long
     url = f"{auth_realm_url}/protocol/openid-connect/auth?client_id=aisr-app&redirect_uri=https%3A%2F%2Faisr.web.health.state.mn.us%2Fhome&state={state}&response_mode=fragment&response_type=code&scope=openid&nonce={nonce}"
 
-    response = s.request("GET", url, headers={}, data={})
+    response = session.request("GET", url, headers={}, data={})
     soup = BeautifulSoup(response.content, "html.parser")
     form_element = soup.find("form", id="kc-form-login")
-    action_url = form_element.get("action") if form_element else None
-    parsed_url = urlparse(action_url)
-    query_dict = parse_qs(parsed_url.query)
 
-    return query_dict["session_code"][0], query_dict["tab_id"][0]
+    if isinstance(form_element, Tag):
+        action_url = form_element.get("action")
+        if isinstance(action_url, str):
+            parsed_url = urlparse(action_url)
+            query_dict = parse_qs(parsed_url.query)
+            print(query_dict["session_code"][0], query_dict["tab_id"][0])
+            return query_dict["session_code"][0], query_dict["tab_id"][0]
+        raise ValueError("The action URL is not a valid string.")
+    raise ValueError("Login form not found or is not a valid HTML form element.")
 
 
 @dataclass
@@ -54,19 +62,22 @@ def login(
     session_code, tab_id = _get_session_and_tab(session, auth_realm_url)
 
     # pylint: disable-next=line-too-long
-    url = f"{auth_realm_url}/login-actions/authenticate?session_code={session_code}&execution={uuid.uuid4()}&client_id=aisr-app&tab_id={tab_id}"
+    url = f"{auth_realm_url}/login-actions/authenticate?session_code={session_code}&execution=084dee30-925f-4a8f-829d-7a372e38d0de&client_id=aisr-app&tab_id={tab_id}"
 
     payload = f"password={quote(password)}&username={username}"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
     response = session.request("POST", url, headers=headers, data=payload)
 
-    if response.status_code == 200:
+    if response.status_code == 200 and "KEYCLOAK_IDENTITY" in response.cookies:
         logger.info("Logged in successfully")
         return AISRResponse(is_successful=True, message="Logged in successfully")
 
-    logger.error("Login failed")
-    return AISRResponse(is_successful=False, message="Failed to log in")
+    logger.error("Login failed or KEYCLOAK_IDENTITY cookie is missing")
+    return AISRResponse(
+        is_successful=False,
+        message="Login failed or KEYCLOAK_IDENTITY cookie is missing",
+    )
 
 
 def logout(session: requests.Session, auth_realm_url: str):
@@ -75,3 +86,17 @@ def logout(session: requests.Session, auth_realm_url: str):
     """
     url = f"{auth_realm_url}/protocol/openid-connect/logout?client_id=aisr-app"
     session.request("GET", url, headers={}, data={})
+
+
+# with requests.Session() as s:
+#     login(
+#         s,
+#         "https://authenticator4.web.health.state.mn.us/auth/realms/idepc-aisr-realm",
+#         "dave.sandum@isd197.org",
+#         getpass.getpass(),
+#     )
+# print(s.cookies)
+# OPTIONS_URL = "https://aisr-api.web.health.state.mn.us/school/list/public"
+
+# res = s.request("GET", OPTIONS_URL, headers={}, data={})
+# print(res.text)

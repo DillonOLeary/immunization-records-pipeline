@@ -97,7 +97,7 @@ def fastapi_server():
             return response
         return JSONResponse(
             content={"message": "Invalid credentials", "is_successful": False},
-            status_code=401,
+            status_code=200,
         )
 
     @app.get("/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout")
