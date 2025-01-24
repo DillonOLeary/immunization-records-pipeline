@@ -83,8 +83,13 @@ def _get_code_from_response(response: requests.Response) -> str:
     """
     location = response.headers.get("Location")
     if location:
-        query_dict = parse_qs(urlparse(location).query)
-        return query_dict["code"][0]
+        parsed_url = urlparse(location)
+        fragment = parsed_url.fragment
+        fragment_dict = parse_qs(fragment)
+        code_list = fragment_dict.get("code")
+        if code_list:
+            return code_list[0]
+        raise CodeNotFoundError("Code not found in response fragment.")
     raise CodeNotFoundError("Code not found in response Location header.")
 
 

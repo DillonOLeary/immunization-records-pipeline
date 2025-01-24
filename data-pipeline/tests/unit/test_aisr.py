@@ -28,7 +28,7 @@ def test_extract_code_from_auth_response_headers(fastapi_server):
     test_realm_url = f"{fastapi_server}/auth/realms/idepc-aisr-realm"
     mock_response = Mock()
     mock_response.status_code = 302
-    mock_response.headers = {"Location": f"{test_realm_url}?code=test_code"}
+    mock_response.headers = {"Location": f"{test_realm_url}#code=test_code"}
 
     code = _get_code_from_response(mock_response)
 
