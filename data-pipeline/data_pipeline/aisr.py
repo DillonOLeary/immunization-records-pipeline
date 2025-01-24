@@ -66,9 +66,11 @@ def login(
     payload = f"password={quote(password)}&username={username}"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
-    response = session.request("POST", url, headers=headers, data=payload)
-
-    if response.status_code == 200 and "KEYCLOAK_IDENTITY" in session.cookies:
+    response = session.request(
+        "POST", url, headers=headers, data=payload, allow_redirects=False
+    )
+    # Will return a 302 with a location header that contains the code in the query string
+    if response.status_code == 302 and "KEYCLOAK_IDENTITY" in session.cookies:
         logger.info("Logged in successfully")
         return AISRResponse(is_successful=True, message="Logged in successfully")
 

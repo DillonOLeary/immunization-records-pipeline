@@ -85,7 +85,7 @@ def fastapi_server():
         if username == "test_user" and password == "test_password":
             response = JSONResponse(
                 content={"message": "Login successful", "is_successful": True},
-                status_code=200,
+                status_code=302,
             )
             response.set_cookie(
                 key="KEYCLOAK_IDENTITY",

@@ -16,13 +16,14 @@ def test_login_successful(fastapi_server):
     test_realm_url = f"{fastapi_server}/auth/realms/idepc-aisr-realm"
 
     with requests.Session() as local_session:
-        result = login(
+        login_result = login(
             session=local_session,
             auth_realm_url=test_realm_url,
             username=TEST_USERNAME,
             password=TEST_PASSWORD,
         )
-    assert result.is_successful, "Log in should be successful"
+    assert login_result.is_successful, "Log in should be successful"
+    assert login_result.access_token, "Log in should return an access token"
 
 
 def test_login_failure(fastapi_server):
