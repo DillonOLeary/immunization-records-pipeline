@@ -104,7 +104,7 @@ def _get_access_token_using_response_code(
     payload = {
         "grant_type": "authorization_code",
         "code": code,
-        # "redirect_uri": "https://aisr.web.health.state.mn.us/home",  # Unclear if this is needed
+        "redirect_uri": "https://aisr.web.health.state.mn.us/home",
         "client_id": "aisr-app",
     }
 
