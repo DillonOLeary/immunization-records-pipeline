@@ -5,13 +5,49 @@ Module for interactions with AISR
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 from bs4 import BeautifulSoup, Tag
 
 logger = logging.getLogger(__name__)
+
+
+class CodeNotFoundError(Exception):
+    """Custom exception for when the authorization code is not found in the response."""
+
+    def __init__(self, message=None):
+        self.message = (
+            message or "Authorization code not found in response Location header."
+        )
+
+    def __str__(self):
+        return self.message
+
+
+class TokenRequestError(Exception):
+    """Custom exception for errors during token request."""
+
+    def __init__(self, status_code, message=None):
+        self.status_code = status_code
+        self.message = (
+            message or f"Token request failed with status code: {status_code}"
+        )
+
+    def __str__(self):
+        return self.message
+
+
+@dataclass
+class AISRLoginResponse:
+    """
+    Dataclass to hold the response from interactions with AISR.
+    """
+
+    is_successful: bool
+    message: str
+    access_token: Optional[str] = None
 
 
 def _get_session_code_and_tab_id(
@@ -41,23 +77,57 @@ def _get_session_code_and_tab_id(
     raise ValueError("Login form not found or is not a valid HTML form element.")
 
 
-@dataclass
-class AISRResponse:
+def _get_code_from_response(response: requests.Response) -> str:
     """
-    Dataclass to hold the response from interactions with AISR.
+    Get the code from the response.
     """
+    location = response.headers.get("Location")
+    if location:
+        parsed_url = urlparse(location)
+        fragment = parsed_url.fragment
+        fragment_dict = parse_qs(fragment)
+        code_list = fragment_dict.get("code")
+        if code_list:
+            return code_list[0]
+        raise CodeNotFoundError("Code not found in response fragment.")
+    raise CodeNotFoundError("Code not found in response Location header.")
 
-    is_successful: bool
-    message: str
+
+def _get_access_token_using_response_code(
+    session: requests.Session, auth_realm_url: str, code: str
+) -> str:
+    """
+    Get the access token from the response.
+    """
+    url = f"{auth_realm_url}/protocol/openid-connect/token"
+
+    payload = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": "https://aisr.web.health.state.mn.us/home",
+        "client_id": "aisr-app",
+    }
+
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+
+    response = session.request(
+        "POST", url, headers=headers, data=payload, allow_redirects=False
+    )
+
+    if response.status_code != 200:
+        raise TokenRequestError(response.status_code, response.text)
+    return response.json().get("access_token")
 
 
 def login(
     session: requests.Session, auth_realm_url: str, username: str, password: str
-) -> AISRResponse:
+) -> AISRLoginResponse:
     """
     Login with AISR.
     """
-    logger.info("Logging into MIIC")
+    logger.info("Logging into MIIC with username %s", username)
     session_code, tab_id = _get_session_code_and_tab_id(session, auth_realm_url)
 
     # pylint: disable-next=line-too-long
@@ -66,26 +136,34 @@ def login(
     payload = f"password={quote(password)}&username={username}"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
-    response = session.request("POST", url, headers=headers, data=payload)
+    response = session.request(
+        "POST", url, headers=headers, data=payload, allow_redirects=False
+    )
 
-    if response.status_code == 200 and "KEYCLOAK_IDENTITY" in response.cookies:
+    if response.status_code == 302 and "KEYCLOAK_IDENTITY" in session.cookies:
         logger.info("Logged in successfully")
-        return AISRResponse(is_successful=True, message="Logged in successfully")
+        return AISRLoginResponse(
+            is_successful=True,
+            message="Logged in successfully",
+            access_token=_get_access_token_using_response_code(
+                session, auth_realm_url, _get_code_from_response(response)
+            ),
+        )
 
     logger.error("Login failed or KEYCLOAK_IDENTITY cookie is missing")
-    return AISRResponse(
+    return AISRLoginResponse(
         is_successful=False,
         message="Login failed or KEYCLOAK_IDENTITY cookie is missing",
     )
 
 
-def logout(session: requests.Session, auth_realm_url: str) -> AISRResponse:
+def logout(session: requests.Session, auth_realm_url: str) -> AISRLoginResponse:
     """
     Log out of AISR.
     """
     url = f"{auth_realm_url}/protocol/openid-connect/logout?client_id=aisr-app"
     session.request("GET", url, headers={}, data={})
-    return AISRResponse(
+    return AISRLoginResponse(
         is_successful=True,
         message="Logged out successfully",
     )
