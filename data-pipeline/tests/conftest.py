@@ -93,6 +93,7 @@ def fastapi_server():
                 httponly=True,
                 secure=True,
             )
+            response.headers["Location"] = "http://127.0.0.1:8000?code=test_code"
             return response
         return JSONResponse(
             content={"message": "Invalid credentials", "is_successful": False},
@@ -118,6 +119,30 @@ def fastapi_server():
 
         return JSONResponse(
             content={"message": "Invalid client_id", "is_successful": False},
+            status_code=400,
+        )
+
+    @app.post("/auth/realms/idepc-aisr-realm/protocol/openid-connect/token")
+    async def get_access_token(
+        grant_type: str = Form(...), code: str = Form(...), client_id: str = Form(...)
+    ):
+        """
+        Simulates the token endpoint. Returns a mock access token if the request is valid.
+        """
+        if (
+            grant_type == "authorization_code"
+            and code == "test_code"
+            and client_id == "aisr-app"
+        ):
+            return JSONResponse(
+                content={"access_token": "mocked-access-token", "token_type": "Bearer"},
+                status_code=200,
+            )
+        return JSONResponse(
+            content={
+                "error": "invalid_request",
+                "error_description": "Invalid token request",
+            },
             status_code=400,
         )
 
