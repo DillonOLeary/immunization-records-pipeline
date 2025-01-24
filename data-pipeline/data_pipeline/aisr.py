@@ -68,7 +68,7 @@ def login(
 
     response = session.request("POST", url, headers=headers, data=payload)
 
-    if response.status_code == 200 and "KEYCLOAK_IDENTITY" in response.cookies:
+    if response.status_code == 200 and "KEYCLOAK_IDENTITY" in session.cookies:
         logger.info("Logged in successfully")
         return AISRResponse(is_successful=True, message="Logged in successfully")
 
