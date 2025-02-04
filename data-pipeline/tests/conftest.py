@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 
 import pytest
 import uvicorn
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
 
@@ -149,6 +149,49 @@ def fastapi_server():
             },
             status_code=400,
         )
+
+    @app.post("/signing/puturl")
+    async def signing_puturl(request: Request):
+        """
+        Simulates the request signed URL endpoint. Validates the request and returns a mock URL.
+        """
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        try:
+            data = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
+        required_fields = {"filePath", "contentType", "schoolId"}
+        if not required_fields.issubset(data.keys()):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+
+        return JSONResponse(
+            content={"url": "http://127.0.0.1:8000/test-put-location"}, status_code=200
+        )
+
+    @app.put("/test-s3-put-location")
+    async def put_file(request: Request):
+        """
+        This endpoint mocks an S3 signed URL upload.
+        It accepts a PUT request with file data and custom S3 headers.
+        """
+        if not await request.body():
+            raise HTTPException(status_code=400, detail="Empty request body.")
+        headers = request.headers
+        expected_headers = {
+            "x-amz-meta-classification",
+            "x-amz-meta-school_id",
+            "x-amz-meta-email_contact",
+            "content-type",
+            "x-amz-meta-iddis",
+            "host",
+        }
+        if not expected_headers.issubset(set(headers.keys())):
+            raise HTTPException(status_code=400, detail="Missing required headers")
+        return Response(status_code=200)
 
     def run_server():
         uvicorn.run(app, host="127.0.0.1", port=8000)
