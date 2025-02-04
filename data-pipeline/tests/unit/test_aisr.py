@@ -7,13 +7,11 @@ Tests for interacting with AISR
 from unittest.mock import Mock
 
 import requests
-from data_pipeline.aisr import (
-    S3UploadHeaders,
+from data_pipeline.aisr.authenticate import (
     _get_access_token_using_response_code,
     _get_code_from_response,
-    _get_put_url,
-    put_file_to_s3,
 )
+from data_pipeline.aisr.query import S3UploadHeaders, _get_put_url, put_file_to_s3
 
 UPLOAD_FILE_NAME = "test_file.csv"
 

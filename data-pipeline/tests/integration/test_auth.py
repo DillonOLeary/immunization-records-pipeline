@@ -5,7 +5,7 @@ Integration tests for authentication and authorization.
 # pylint: disable=missing-function-docstring
 
 import requests
-from data_pipeline.aisr import login, logout
+from data_pipeline.aisr.authenticate import login, logout
 
 TEST_USERNAME = "test_user"
 TEST_PASSWORD = "test_password"
