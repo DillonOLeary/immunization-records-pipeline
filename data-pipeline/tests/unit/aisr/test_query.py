@@ -4,8 +4,14 @@ Tests for interacting with AISR
 
 # pylint: disable=missing-function-docstring
 
+import pytest
 import requests
-from data_pipeline.aisr.query import S3UploadHeaders, _get_put_url, put_file_to_s3
+from data_pipeline.aisr.query import (
+    QueryFailedException,
+    S3UploadHeaders,
+    _get_put_url,
+    put_file_to_s3,
+)
 
 UPLOAD_FILE_NAME = "test_file.csv"
 
@@ -33,3 +39,16 @@ def test_upload_file_to_s3(fastapi_server, tmp_path):
         response = put_file_to_s3(local_session, test_url, test_headers, test_file_name)
 
     assert response.is_successful, "File upload should be successful"
+
+
+def test_failed_upload_raises_exception(fastapi_server, tmp_path):
+    test_url = f"{fastapi_server}/test-s3-put-location"
+    test_file_name = tmp_path / UPLOAD_FILE_NAME
+    with open(test_file_name, "w", encoding="utf-8") as file:
+        file.write("")
+
+    test_headers = S3UploadHeaders("", "", "", "", "", "")
+
+    with requests.Session() as local_session:
+        with pytest.raises(QueryFailedException):
+            put_file_to_s3(local_session, test_url, test_headers, test_file_name)

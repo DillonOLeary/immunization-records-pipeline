@@ -11,6 +11,13 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+class QueryFailedException(Exception):
+    """Custom exception for query failures."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 def _get_put_url(
     session: requests.Session,
     query_endpoint: str,
@@ -90,10 +97,4 @@ def put_file_to_s3(
             is_successful=True,
             message="File uploaded successfully",
         )
-    logger.error(
-        "File upload of %s failed with status code: %s", file_name, res.status_code
-    )
-    return AISRFileUploadResponse(
-        is_successful=False,
-        message="File upload failed",
-    )
+    raise QueryFailedException(f"Failed to upload file: {res.status_code} - {res.text}")

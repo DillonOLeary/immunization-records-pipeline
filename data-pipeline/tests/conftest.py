@@ -41,7 +41,7 @@ def input_output_logs_folders():
 @pytest.fixture(scope="session")
 def fastapi_server():
     """
-    Spins up a FastAPI server for integration tests.
+    Spins up a FastAPI server for testing.
     """
     app = FastAPI()
 
