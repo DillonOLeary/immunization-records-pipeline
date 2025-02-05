@@ -10,8 +10,11 @@ import os
 from unittest.mock import MagicMock
 
 import pandas as pd
+import requests
+from data_pipeline.aisr.query import QueryFailedException
 from data_pipeline.etl_workflow import (
     ETLExecutionFailureError,
+    run_aisr_bulk_queries,
     run_etl,
     run_etl_on_folder,
 )
@@ -149,4 +152,61 @@ def test_run_etl_on_folder_handles_extract_exception(folders, caplog):
     assert any(
         "ETL failed for file" in record.message and record.levelname == "ERROR"
         for record in caplog.records
+    )
+
+
+def test_aisr_runs_bulk_queries():
+    called_query_1 = False
+    called_query_2 = False
+
+    def mock_query_function_1(session: requests.Session) -> None:
+        # pylint: disable=unused-argument
+        nonlocal called_query_1
+        called_query_1 = True
+
+    def mock_query_function_2(session: requests.Session) -> None:
+        # pylint: disable=unused-argument
+        nonlocal called_query_2
+        called_query_2 = True
+
+    run_aisr_bulk_queries(
+        login=lambda session: None,
+        upload_query_file_functions=[mock_query_function_1, mock_query_function_2],
+        logout=lambda session: None,
+    )
+    assert called_query_1 and called_query_2, "The query functions were not called"
+
+
+def test_aisr_bulk_queries_login_logout():
+    login_called = False
+    logout_called = False
+
+    def mock_login(session: requests.Session) -> None:
+        # pylint: disable=unused-argument
+        nonlocal login_called
+        login_called = True
+
+    def mock_logout(session: requests.Session) -> None:
+        # pylint: disable=unused-argument
+        nonlocal logout_called
+        logout_called = True
+
+    run_aisr_bulk_queries(
+        login=mock_login,
+        upload_query_file_functions=[],
+        logout=mock_logout,
+    )
+
+    assert login_called, "Login function was not called"
+    assert logout_called, "Logout function was not called"
+
+
+def test_aisr_bulk_queries_handles_exceptions():
+    def mock_query_function(session: requests.Session) -> None:
+        raise QueryFailedException("Mock query failure")
+
+    run_aisr_bulk_queries(
+        login=lambda session: None,
+        upload_query_file_functions=[mock_query_function],
+        logout=lambda session: None,
     )

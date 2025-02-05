@@ -1,5 +1,5 @@
 """
-Module for interactions with AISR
+Handle authentication with AISR.
 """
 
 import logging
