@@ -5,8 +5,11 @@ This file runs the immunization data pipeline.
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import List
 
 import pandas as pd
+import requests
+from data_pipeline.aisr.query import QueryFailedException
 
 logger = logging.getLogger(__name__)
 
@@ -60,3 +63,26 @@ def run_etl_on_folder(
             logger.error("ETL failed for file: %s", input_file, exc_info=True)
 
     logger.info("ETL on folder completed.")
+
+
+def run_aisr_bulk_queries(
+    login: Callable[[requests.Session], None],
+    upload_query_file_functions: List[Callable[[requests.Session], None]],
+    logout: Callable[[requests.Session], None],
+):
+    """
+    Logs into MIIC, runs the upload query file functions, and logs out of MIIC.
+    """
+    with requests.Session() as session:
+        login(session)
+        for upload_query_file in upload_query_file_functions:
+            try:
+                upload_query_file(session)
+            except QueryFailedException as e:
+                logger.error(
+                    "Error occurred during %s: %s",
+                    upload_query_file.__name__,
+                    e,
+                )
+        logout(session)
+        logger.info("Completed all query functions.")
