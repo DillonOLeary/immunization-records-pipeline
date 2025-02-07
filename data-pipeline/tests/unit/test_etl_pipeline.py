@@ -11,10 +11,11 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import requests
-from data_pipeline.aisr.query import QueryFailedException
+from data_pipeline.aisr.actions import AISRActionFailedException
+from data_pipeline.aisr.authenticate import AISRAuthResponse
 from data_pipeline.etl_workflow import (
     ETLExecutionFailureError,
-    run_aisr_bulk_queries,
+    run_aisr_workflow,
     run_etl,
     run_etl_on_folder,
 )
@@ -159,25 +160,29 @@ def test_aisr_runs_bulk_queries():
     called_query_1 = False
     called_query_2 = False
 
-    def mock_query_function_1(session: requests.Session) -> None:
+    def mock_query_function_1(
+        session: requests.Session, aisr_response: AISRAuthResponse
+    ) -> None:
         # pylint: disable=unused-argument
         nonlocal called_query_1
         called_query_1 = True
 
-    def mock_query_function_2(session: requests.Session) -> None:
+    def mock_query_function_2(
+        session: requests.Session, aisr_response: AISRAuthResponse
+    ) -> None:
         # pylint: disable=unused-argument
         nonlocal called_query_2
         called_query_2 = True
 
-    run_aisr_bulk_queries(
-        login=lambda session: None,
-        upload_query_file_functions=[mock_query_function_1, mock_query_function_2],
+    run_aisr_workflow(
+        login=lambda session: AISRAuthResponse(True, "Sucess", "mocked-access-token"),
+        aisr_actions=[mock_query_function_1, mock_query_function_2],
         logout=lambda session: None,
     )
     assert called_query_1 and called_query_2, "The query functions were not called"
 
 
-def test_aisr_bulk_queries_login_logout():
+def test_aisr_login_logout():
     login_called = False
     logout_called = False
 
@@ -191,9 +196,9 @@ def test_aisr_bulk_queries_login_logout():
         nonlocal logout_called
         logout_called = True
 
-    run_aisr_bulk_queries(
+    run_aisr_workflow(
         login=mock_login,
-        upload_query_file_functions=[],
+        aisr_actions=[],
         logout=mock_logout,
     )
 
@@ -202,11 +207,13 @@ def test_aisr_bulk_queries_login_logout():
 
 
 def test_aisr_bulk_queries_handles_exceptions():
-    def mock_query_function(session: requests.Session) -> None:
-        raise QueryFailedException("Mock query failure")
+    def mock_query_function(
+        session: requests.Session, aisr_response: AISRAuthResponse
+    ) -> None:
+        raise AISRActionFailedException("Mock query failure")
 
-    run_aisr_bulk_queries(
-        login=lambda session: None,
-        upload_query_file_functions=[mock_query_function],
+    run_aisr_workflow(
+        login=lambda session: AISRAuthResponse(True, "Sucess", "mocked-access-token"),
+        aisr_actions=[mock_query_function],
         logout=lambda session: None,
     )

@@ -11,8 +11,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-class QueryFailedException(Exception):
-    """Custom exception for query failures."""
+class AISRActionFailedException(Exception):
+    """Custom exception for AISR failures."""
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -20,10 +20,10 @@ class QueryFailedException(Exception):
 
 def _get_put_url(
     session: requests.Session,
-    query_endpoint: str,
+    base_url: str,
     access_token: str,
     file_path: str,
-    school_id: int,
+    school_id: str,
 ) -> str:
     """
     Get the the signed S3 URL for uploading the bulk query file.
@@ -40,7 +40,9 @@ def _get_put_url(
         "Content-Type": "application/json",
     }
 
-    res = session.post(query_endpoint, headers=headers, data=payload, timeout=60)
+    res = session.post(
+        f"{base_url}/signing/puturl", headers=headers, data=payload, timeout=60
+    )
 
     json_string = res.content.decode("utf-8")
     return json.loads(json_string).get("url")
@@ -50,6 +52,7 @@ def _get_put_url(
 class S3UploadHeaders:
     """
     Dataclass to hold the headers required for S3 upload.
+    # TODO some fields are hard coded to isd 197
     """
 
     classification: str
@@ -72,7 +75,7 @@ class AISRFileUploadResponse:
     message: str
 
 
-def put_file_to_s3(
+def _put_file_to_s3(
     session: requests.Session, s3_url: str, headers: S3UploadHeaders, file_name: str
 ) -> AISRFileUploadResponse:
     """
@@ -97,4 +100,52 @@ def put_file_to_s3(
             is_successful=True,
             message="File uploaded successfully",
         )
-    raise QueryFailedException(f"Failed to upload file: {res.status_code} - {res.text}")
+    raise AISRActionFailedException(
+        f"Failed to upload file: {res.status_code} - {res.text}"
+    )
+
+
+@dataclass
+class SchoolQueryInformation:
+    """
+    Class to hold the information needed to query a school.
+    """
+
+    school_name: str
+    classification: str
+    school_id: str
+    email_contact: str
+    query_file_path: str | None = None
+
+
+def bulk_query_aisr(
+    session: requests.Session,
+    access_token: str,
+    base_url: str,
+    query_info: SchoolQueryInformation,
+) -> AISRFileUploadResponse:
+    """
+    Perform a bulk query to AISR.
+    """
+    if query_info.query_file_path is None:
+        raise AISRActionFailedException("Query file path is not set.")
+    signed_s3_url = _get_put_url(
+        session,
+        base_url,
+        access_token,
+        query_info.query_file_path,
+        query_info.school_id,
+    )
+    _put_file_to_s3(
+        session,
+        signed_s3_url,
+        S3UploadHeaders(
+            classification=query_info.classification,
+            school_id=query_info.school_id,
+            email_contact=query_info.email_contact,
+        ),
+        query_info.query_file_path,
+    )
+    return AISRFileUploadResponse(
+        is_successful=True, message="File uploaded successfully"
+    )

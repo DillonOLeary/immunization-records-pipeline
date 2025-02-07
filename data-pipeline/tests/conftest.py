@@ -169,7 +169,8 @@ def fastapi_server():
             raise HTTPException(status_code=400, detail="Missing required fields")
 
         return JSONResponse(
-            content={"url": "http://127.0.0.1:8000/test-put-location"}, status_code=200
+            content={"url": "http://127.0.0.1:8000/test-s3-put-location"},
+            status_code=200,
         )
 
     @app.put("/test-s3-put-location")

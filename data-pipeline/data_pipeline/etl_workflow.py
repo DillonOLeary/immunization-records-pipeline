@@ -9,7 +9,8 @@ from typing import List
 
 import pandas as pd
 import requests
-from data_pipeline.aisr.query import QueryFailedException
+from data_pipeline.aisr.actions import AISRActionFailedException
+from data_pipeline.aisr.authenticate import AISRAuthResponse
 
 logger = logging.getLogger(__name__)
 
@@ -65,24 +66,24 @@ def run_etl_on_folder(
     logger.info("ETL on folder completed.")
 
 
-def run_aisr_bulk_queries(
-    login: Callable[[requests.Session], None],
-    upload_query_file_functions: List[Callable[[requests.Session], None]],
+def run_aisr_workflow(
+    login: Callable[[requests.Session], AISRAuthResponse],
+    aisr_actions: List[Callable[[requests.Session, str], None]],
     logout: Callable[[requests.Session], None],
 ):
     """
-    Logs into MIIC, runs the upload query file functions, and logs out of MIIC.
+    Logs into MIIC, runs a series of actions, and logs out of MIIC.
     """
     with requests.Session() as session:
-        login(session)
-        for upload_query_file in upload_query_file_functions:
+        aisr_response = login(session)
+        for action in aisr_actions:
             try:
-                upload_query_file(session)
-            except QueryFailedException as e:
+                action(session, aisr_response.access_token)
+            except AISRActionFailedException as e:
                 logger.error(
                     "Error occurred during %s: %s",
-                    upload_query_file.__name__,
+                    action.__name__,
                     e,
                 )
         logout(session)
-        logger.info("Completed all query functions.")
+        logger.info("Completed all aisr action functions.")

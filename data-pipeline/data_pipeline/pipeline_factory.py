@@ -6,7 +6,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
-from data_pipeline.etl_workflow import run_etl
+import requests
+from data_pipeline.aisr.actions import SchoolQueryInformation
+from data_pipeline.aisr.authenticate import AISRAuthResponse
+from data_pipeline.etl_workflow import run_aisr_workflow, run_etl
 
 
 def create_file_to_file_etl_pipeline(
@@ -34,3 +37,53 @@ def create_file_to_file_etl_pipeline(
         )
 
     return etl_fn
+
+
+def create_aisr_actions_for_school_bulk_query(
+    school_query_information_list: list[SchoolQueryInformation],
+) -> list[Callable[[requests.Session, str, str], None]]:
+    """
+    Creates a list of bulk query functions for each school in the
+    school_query_information_list. The returned functions can be run with
+    a requests session and base url.
+    """
+    raise NotImplementedError("This function is not implemented yet.")
+    # function_list = []
+    # # inject the school information into the functions and return the list
+    # # FIXME: there may be unexpected function behavior here due to the use of lambda in a loop
+    # for school_query_information in school_query_information_list:
+    #     function_list.append(
+    #         lambda session, access_token: school_query_information.bulk_query_aisr(
+    #             session, access_token,
+    #         )
+    #     )
+    # return function_list
+
+
+def create_aisr_workflow(
+    login: Callable[[requests.Session, str, str, str], AISRAuthResponse],
+    aisr_function_list: list[Callable[[requests.Session, AISRAuthResponse, str], None]],
+    logout: Callable[[requests.Session, str], AISRAuthResponse],
+) -> Callable[[str, str, str], str]:
+    """
+    Create a query function that can be run with a base url, username, and password
+    """
+
+    def aisr_fn(
+        base_url: str,
+        username: str,
+        password: str,
+    ):
+        action_list = [
+            lambda session, aisr_login_response, func=bulk_query_function: func(
+                session, aisr_login_response, base_url
+            )
+            for bulk_query_function in aisr_function_list
+        ]
+        return run_aisr_workflow(
+            login=lambda session: login(session, base_url, username, password),
+            aisr_actions=action_list,
+            logout=lambda session: logout(session, base_url),
+        )
+
+    return aisr_fn
