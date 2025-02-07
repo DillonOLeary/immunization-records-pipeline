@@ -3,34 +3,10 @@ Integration tests for the CLI
 """
 
 import os
-import subprocess
+
+from tests.test_utils import execute_transform_subprocess
 
 # pylint: disable=missing-function-docstring
-
-
-def execute_subprocess(input_folder, output_folder, logs_folder):
-    """
-    Execute the CLI as a subprocess.
-    """
-    result = subprocess.run(
-        [
-            "poetry",
-            "run",
-            "python",
-            "data_pipeline",
-            "--input_folder",
-            input_folder,
-            "--output_folder",
-            output_folder,
-            "--logs_folder",
-            logs_folder,
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-
-    return result
 
 
 def test_cli_runs_for_all_test_files(folders):
@@ -43,7 +19,7 @@ def test_cli_runs_for_all_test_files(folders):
         f.write("789|101|Flu|11/16/2024\n")
         f.write("112|131|COVID-19|11/15/2024\n")
 
-    result = execute_subprocess(input_folder, output_folder, logs_folder)
+    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
     assert (
@@ -61,7 +37,7 @@ def test_cli_creates_non_existent_output_folder(folders):
         f.write("789|101|Flu|11/16/2024\n")
         f.write("112|131|COVID-19|11/15/2024\n")
 
-    result = execute_subprocess(input_folder, output_folder, logs_folder)
+    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
     assert output_folder.exists(), "Output folder was not created."
@@ -80,7 +56,7 @@ def test_cli_correct_output_file_contents(folders):
         f.write("789|101|Flu|11/16/2024\n")
         f.write("112|131|COVID-19|11/15/2024\n")
 
-    result = execute_subprocess(input_folder, output_folder, logs_folder)
+    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
 
@@ -120,7 +96,7 @@ def test_cli_runs_for_multiple_test_files(folders):
             f.write(f"789{i}|101|Flu|11/16/2024\n")
             f.write(f"112{i}|131|COVID-19|11/15/2024\n")
 
-    result = execute_subprocess(input_folder, output_folder, logs_folder)
+    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
 
@@ -154,7 +130,7 @@ def test_cli_creates_metadata_file_with_correct_fields(folders):
         f.write("789|101|Flu|11/16/2024\n")
         f.write("112|131|COVID-19|11/15/2024\n")
 
-    result = execute_subprocess(input_folder, output_folder, logs_folder)
+    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
 
@@ -191,7 +167,7 @@ def test_cli_creates_log_file(folders):
         f.write("789|101|Flu|11/16/2024\n")
         f.write("112|131|COVID-19|11/15/2024\n")
 
-    result = execute_subprocess(input_folder, output_folder, logs_folder)
+    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
     assert (

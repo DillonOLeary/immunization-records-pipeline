@@ -5,8 +5,12 @@ This file runs the immunization data pipeline.
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import List
 
 import pandas as pd
+import requests
+from data_pipeline.aisr.actions import AISRActionFailedException
+from data_pipeline.aisr.authenticate import AISRAuthResponse
 
 logger = logging.getLogger(__name__)
 
@@ -60,3 +64,26 @@ def run_etl_on_folder(
             logger.error("ETL failed for file: %s", input_file, exc_info=True)
 
     logger.info("ETL on folder completed.")
+
+
+def run_aisr_workflow(
+    login: Callable[[requests.Session], AISRAuthResponse],
+    aisr_actions: List[Callable[[requests.Session, str], None]],
+    logout: Callable[[requests.Session], None],
+):
+    """
+    Logs into MIIC, runs a series of actions, and logs out of MIIC.
+    """
+    with requests.Session() as session:
+        aisr_response = login(session)
+        for action in aisr_actions:
+            try:
+                action(session, aisr_response.access_token)
+            except AISRActionFailedException as e:
+                logger.error(
+                    "Error occurred during %s: %s",
+                    action.__name__,
+                    e,
+                )
+        logout(session)
+        logger.info("Completed all aisr action functions.")
