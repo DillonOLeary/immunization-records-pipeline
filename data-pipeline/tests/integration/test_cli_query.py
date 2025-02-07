@@ -2,34 +2,31 @@
 Test the CLI query command.
 """
 
-from data_pipeline.aisr.actions import _put_file_to_s3
+from data_pipeline.aisr.actions import SchoolQueryInformation
 from data_pipeline.aisr.authenticate import login, logout
-from data_pipeline.etl_workflow import run_aisr_workflow
 from data_pipeline.pipeline_factory import (
     create_aisr_actions_for_school_bulk_query,
     create_aisr_workflow,
 )
 
-# from data_pipeline.pipeline_factory import create_aisr_workflow
-
-# from data_pipeline.pipeline_factory import create_query_workflow
-
-# from data_pipeline.pipeline_factory import create_query_function
-
-# pylint: disable=missing-function-docstring
-
 USERNAME = "test_user"
 PASSWORD = "test_password"
 
 
-def test_cli_query_can_upload_a_file(fastapi_server):
+def test_cli_query_can_upload_a_file(fastapi_server, tmp_path):
     """
     Test CLI by injecting dependencies.
     """
-    # TODO put_file_to_s3 needs to be changed to a function that also gets the s3 url
-    raise NotImplementedError(
-        "this is an integration test, so I need to see if I can use the generated functions"
-    )
-    # action_list = generate_bulk_query_functions({})
-    query_workflow = create_aisr_workflow(login, {}, logout)
+    bulk_query_file = tmp_path / "bulk_query.csv"
+
+    with open(bulk_query_file, "w", encoding="utf-8") as file:
+        file.write("body")
+
+    school_info_list = [
+        SchoolQueryInformation(
+            "test_school1", "N", "test_id1", "test_email1", str(bulk_query_file)
+        ),
+    ]
+    action_list = create_aisr_actions_for_school_bulk_query(school_info_list)
+    query_workflow = create_aisr_workflow(login, action_list, logout)
     query_workflow(fastapi_server, USERNAME, PASSWORD)

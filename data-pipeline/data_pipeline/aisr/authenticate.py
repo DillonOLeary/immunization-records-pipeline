@@ -45,6 +45,8 @@ class AISRAuthResponse:
     Dataclass to hold auth related response from interactions with AISR.
     """
 
+    # FIXME just get rid of this and through an error if auth fails
+
     is_successful: bool
     message: str
     access_token: Optional[str] = None

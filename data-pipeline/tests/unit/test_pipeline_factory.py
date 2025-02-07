@@ -16,22 +16,43 @@ USERNAME = "test_user"
 PASSWORD = "test_password"
 
 
-def test_generate_bulk_query_functions(fastapi_server):
-    school_information_dict = {
-        "test_school_id_123": SchoolQueryInformation(
-            "test_school", "N", "test_id", "test_email", None
-        ),
-        "test_school_id_456": SchoolQueryInformation(
-            "test_school_2", "P", "test_id_2", "test_email_2", None
-        ),
-    }
+def test_generate_bulk_query_functions(fastapi_server, tmp_path):
+    file1 = tmp_path / "bulk_query_1.csv"
+    file2 = tmp_path / "bulk_query_2.csv"
 
-    query_functions = create_aisr_actions_for_school_bulk_query(school_information_dict)
+    with open(file1, "w", encoding="utf-8") as file:
+        file.write("body")
+
+    with open(file2, "w", encoding="utf-8") as file:
+        file.write("body")
+
+    school_information_list = [
+        SchoolQueryInformation(
+            "test_school",
+            "N",
+            "test_id",
+            "test_email",
+            str(file1),
+        ),
+        SchoolQueryInformation(
+            "test_school_2",
+            "P",
+            "test_id_2",
+            "test_email_2",
+            str(file2),
+        ),
+    ]
+
+    query_functions = create_aisr_actions_for_school_bulk_query(school_information_list)
 
     # should be able to run the query functions with no exceptions
     with requests.Session() as session:
         for query_function in query_functions:
-            query_function(session, fastapi_server)
+            query_function(
+                session,
+                AISRAuthResponse(True, "", "mocked-access-token"),
+                fastapi_server,
+            )
 
 
 def test_create_callable_aisr_workflow(fastapi_server):
