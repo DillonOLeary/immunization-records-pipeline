@@ -46,7 +46,7 @@ def fastapi_server():
     app = FastAPI()
 
     @app.get(
-        "/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth",
+        "/mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth",
         response_class=HTMLResponse,
     )
     async def oidc_auth():
@@ -76,7 +76,9 @@ def fastapi_server():
         </html>
         """
 
-    @app.post("/auth/realms/idepc-aisr-realm/login-actions/authenticate")
+    @app.post(
+        "/mock-auth-server/auth/realms/idepc-aisr-realm/login-actions/authenticate"
+    )
     async def authenticate(username: str = Form(...), password: str = Form(...)):
         """
         Simulates the login authentication endpoint. Validates username and password and returns
@@ -100,7 +102,9 @@ def fastapi_server():
             status_code=200,
         )
 
-    @app.get("/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout")
+    @app.get(
+        "/mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout"
+    )
     async def logout(client_id: str):
         """
         Simulates the logout endpoint. Removes the KEYCLOAK_IDENTITY cookie.
@@ -122,7 +126,9 @@ def fastapi_server():
             status_code=400,
         )
 
-    @app.post("/auth/realms/idepc-aisr-realm/protocol/openid-connect/token")
+    @app.post(
+        "/mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/token"
+    )
     async def get_access_token(
         grant_type: str = Form(...),
         redirect_uri: str = Form(...),

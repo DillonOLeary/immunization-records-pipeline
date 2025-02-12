@@ -39,7 +39,7 @@ def create_file_to_file_etl_pipeline(
     return etl_fn
 
 
-def create_aisr_actions_for_school_bulk_query(
+def create_aisr_actions_for_school_bulk_queries(
     school_query_information_list: list[SchoolQueryInformation],
 ) -> list[Callable[[requests.Session, AISRAuthResponse, str], None]]:
     """
@@ -50,6 +50,7 @@ def create_aisr_actions_for_school_bulk_query(
     function_list = []
     for school_query_information in school_query_information_list:
         function_list.append(
+            # pylint: disable-next=line-too-long
             lambda session, auth_response, base_url, query_information=school_query_information, func=bulk_query_aisr: func(
                 session,
                 auth_response,
@@ -64,26 +65,27 @@ def create_aisr_workflow(
     login: Callable[[requests.Session, str, str, str], AISRAuthResponse],
     aisr_function_list: list[Callable[[requests.Session, AISRAuthResponse, str], None]],
     logout: Callable[[requests.Session, str], AISRAuthResponse],
-) -> Callable[[str, str, str], str]:
+) -> Callable[[str, str, str, str], str]:
     """
     Create a query function that can be run with a base url, username, and password
     """
 
     def aisr_fn(
-        base_url: str,
+        auth_base_url: str,
+        aisr_base_url: str,
         username: str,
         password: str,
     ):
         action_list = [
             lambda session, aisr_login_response, func=bulk_query_function: func(
-                session, aisr_login_response, base_url
+                session, aisr_login_response, aisr_base_url
             )
             for bulk_query_function in aisr_function_list
         ]
         return run_aisr_workflow(
-            login=lambda session: login(session, base_url, username, password),
+            login=lambda session: login(session, auth_base_url, username, password),
             aisr_actions=action_list,
-            logout=lambda session: logout(session, base_url),
+            logout=lambda session: logout(session, auth_base_url),
         )
 
     return aisr_fn

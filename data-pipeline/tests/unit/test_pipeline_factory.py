@@ -6,7 +6,7 @@ import requests
 from data_pipeline.aisr.authenticate import AISRAuthResponse, login, logout
 from data_pipeline.pipeline_factory import (
     SchoolQueryInformation,
-    create_aisr_actions_for_school_bulk_query,
+    create_aisr_actions_for_school_bulk_queries,
     create_aisr_workflow,
 )
 
@@ -43,7 +43,9 @@ def test_generate_bulk_query_functions(fastapi_server, tmp_path):
         ),
     ]
 
-    query_functions = create_aisr_actions_for_school_bulk_query(school_information_list)
+    query_functions = create_aisr_actions_for_school_bulk_queries(
+        school_information_list
+    )
 
     # should be able to run the query functions with no exceptions
     with requests.Session() as session:
@@ -56,11 +58,17 @@ def test_generate_bulk_query_functions(fastapi_server, tmp_path):
 
 
 def test_create_callable_aisr_workflow(fastapi_server):
+    auth_base_url = f"{fastapi_server}/mock-auth-server"
+    aisr_base_url = fastapi_server
+
     query_workflow = create_aisr_workflow(login, {}, logout)
-    query_workflow(fastapi_server, USERNAME, PASSWORD)
+    query_workflow(auth_base_url, aisr_base_url, USERNAME, PASSWORD)
 
 
 def test_aisr_workflow_runs_actions_independently(fastapi_server):
+    auth_base_url = f"{fastapi_server}/mock-auth-server"
+    aisr_base_url = fastapi_server
+
     called_action_1 = False
     called_action_2 = False
 
@@ -81,7 +89,7 @@ def test_aisr_workflow_runs_actions_independently(fastapi_server):
     query_workflow = create_aisr_workflow(
         login, [mock_action_function_1, mock_action_function_2], logout
     )
-    query_workflow(fastapi_server, USERNAME, PASSWORD)
+    query_workflow(auth_base_url, aisr_base_url, USERNAME, PASSWORD)
 
     assert called_action_1, "Action function 1 was not called"
     assert called_action_2, "Action function 2 was not called"
