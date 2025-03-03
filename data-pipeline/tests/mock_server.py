@@ -190,6 +190,7 @@ def create_mock_app():
         This endpoint mocks an S3 signed URL download.
         It returns a sample CSV file content in the expected AISR format (pipe-delimited).
         """
+        # pylint: disable-next=line-too-long
         content = "id_1|id_2|name|dob|vaccine_group_name|vaccination_date\n123|456|John Doe|2010-01-01|COVID-19|11/17/2024\n789|101|Jane Smith|2011-02-02|Flu|11/16/2024"
         return Response(content=content, media_type="text/csv")
 

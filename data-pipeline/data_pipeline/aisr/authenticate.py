@@ -5,7 +5,7 @@ Handle authentication with AISR.
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Tuple
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
@@ -54,6 +54,7 @@ class AISRAuthResponse:
     """
     Dataclass to hold successful authentication details.
     """
+
     access_token: str
 
 
@@ -133,10 +134,10 @@ def login(
 ) -> AISRAuthResponse:
     """
     Login with AISR.
-    
+
     Returns:
         AISRAuthResponse with access token on success
-        
+
     Raises:
         AuthenticationError: If login fails for any reason
     """
@@ -159,7 +160,7 @@ def login(
             session, base_url, _get_code_from_response(response)
         )
         return AISRAuthResponse(access_token=access_token)
-    
+
     # Handle authentication failures
     if response.status_code == 401:
         # Generic error message without revealing authentication details

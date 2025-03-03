@@ -18,6 +18,7 @@ from data_pipeline.aisr.authenticate import AuthenticationError, login, logout
 from data_pipeline.etl_workflow import run_etl_on_folder
 from data_pipeline.extract import read_from_aisr_csv
 from data_pipeline.load import write_to_infinite_campus_csv
+from data_pipeline.log_analyzer import LogErrorAnalyzer
 from data_pipeline.metadata_generator import run_etl_with_metadata_generation
 from data_pipeline.pipeline_factory import (
     create_aisr_actions_for_school_bulk_queries,
@@ -74,6 +75,18 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         required=True,
         help="AISR username",
+    )
+
+    # Add check-errors command
+    check_errors_parser = subparsers.add_parser(
+        "check-errors", help="Check error logs for issues"
+    )
+    check_errors_parser.add_argument(
+        "--scope",
+        type=str,
+        choices=["last-day", "last-week", "last-month", "all"],
+        default="last-week",
+        help="Time scope for checking errors (default: last-week)",
     )
 
     return parser
@@ -197,11 +210,7 @@ def validate_input_folder(config: Dict) -> Path:
     return Path(input_folder)
 
 
-
-
-def get_school_query_information(
-    schools: list
-) -> list[SchoolQueryInformation]:
+def get_school_query_information(schools: list) -> list[SchoolQueryInformation]:
     """
     Create SchoolQueryInformation objects for each school.
 
@@ -237,9 +246,7 @@ def get_school_query_information(
             logger.error(
                 "Query file not found for school %s: %s", school_name, query_file
             )
-            raise ValueError(
-                f"No query file found at {query_file} for {school_name}"
-            )
+            raise ValueError(f"No query file found at {query_file} for {school_name}")
 
         logger.info("Processing request for %s", school_name)
 
@@ -322,9 +329,7 @@ def handle_bulk_query_command(args: argparse.Namespace, config: Dict) -> None:
     auth_url, api_url = validate_api_config(config)
 
     # Get school query information directly from school configurations
-    school_info_list = get_school_query_information(
-        config.get("schools", [])
-    )
+    school_info_list = get_school_query_information(config.get("schools", []))
 
     # Execute the bulk query
     execute_bulk_query(auth_url, api_url, username, password, school_info_list)
@@ -341,6 +346,67 @@ def handle_get_vaccinations_command(args: argparse.Namespace, config: Dict) -> N
         config: Loaded configuration
     """
     raise NotImplementedError
+
+
+def handle_check_errors_command(args: argparse.Namespace, config: Dict) -> None:
+    """
+    Handle the check-errors command to analyze log files for errors.
+
+    This function uses the LogErrorAnalyzer to efficiently scan log files
+    and display a summary of errors found within the specified time scope.
+
+    Args:
+        args: Command line arguments
+        config: Loaded configuration
+    """
+    logger.info("Starting error log analysis")
+
+    # Get the logs folder from config
+    logs_folder = config["paths"].get("logs_folder")
+    if not logs_folder or not Path(logs_folder).exists():
+        logger.error("Logs folder not found or not configured")
+        sys.exit(1)
+
+    logs_folder = Path(logs_folder)
+
+    # Create the analyzer
+    analyzer = LogErrorAnalyzer(logs_folder)
+
+    # Get the specified scope
+    scope = args.scope
+    logger.info("Analyzing errors for scope: %s", scope)
+
+    # Get error summary
+    summary = analyzer.get_error_summary(scope)
+    total_errors = summary["total_errors"]
+
+    # Display results
+    if total_errors == 0:
+        print(f"No errors found in logs for time scope: {scope}")
+        return
+
+    print(f"Found {total_errors} errors in logs for time scope: {scope}")
+    print("\nErrors by module:")
+    for module, count in summary["errors_by_module"].items():
+        print(f"  {module}: {count} errors")
+
+    print("\nRecent errors:")
+    for i, error in enumerate(
+        summary["errors"][:10], 1
+    ):  # Show the 10 most recent errors
+        timestamp = error["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+        print(f"\n{i}. {timestamp} - {error['module']} - {error['function']}")
+        print(f"   {error['message']}")
+
+    # Show a message if there are more errors than displayed
+    if total_errors > 10:
+        remaining = total_errors - 10
+        print(
+            # pylint: disable-next=line-too-long
+            f"\n... and {remaining} more errors. For full details, check the log files in {logs_folder}"
+        )
+
+    logger.info("Error log analysis completed")
 
 
 def handle_transform_command(config: Dict) -> None:

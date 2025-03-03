@@ -64,7 +64,7 @@ def create_test_config(config_path, fastapi_server, tmp_path=None):
     # Create a query file in the bulk_query_folder with a school-specific subfolder
     query_folder = Path(tmp_path) / "bulk_query"
     query_folder.mkdir(exist_ok=True)
-    
+
     # Create a school-specific folder
     school_folder = query_folder / "Friendly Hills"
     school_folder.mkdir(exist_ok=True)

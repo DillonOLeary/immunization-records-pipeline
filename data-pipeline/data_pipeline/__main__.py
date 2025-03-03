@@ -10,6 +10,7 @@ from pathlib import Path
 from data_pipeline.cli import (
     create_parser,
     handle_bulk_query_command,
+    handle_check_errors_command,
     handle_get_vaccinations_command,
     handle_transform_command,
     load_config,
@@ -53,18 +54,21 @@ def run():
 
     logger = logging.getLogger(__name__)
 
-    # try:
-    if args.command == "transform":
-        handle_transform_command(config)
-    elif args.command == "bulk-query":
-        handle_bulk_query_command(args, config)
-    elif args.command == "get-vaccinations":
-        handle_get_vaccinations_command(args, config)
-    else:
-        parser.print_help()
+    try:
+        if args.command == "transform":
+            handle_transform_command(config)
+        elif args.command == "bulk-query":
+            handle_bulk_query_command(args, config)
+        elif args.command == "get-vaccinations":
+            handle_get_vaccinations_command(args, config)
+        elif args.command == "check-errors":
+            handle_check_errors_command(args, config)
+        else:
+            parser.print_help()
+            sys.exit(1)
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error("Program failed with error %s", e)
         sys.exit(1)
-    # except Exception as e:
-    #     logger.error("Program failed with error %s", e)
 
 
 if __name__ == "__main__":
