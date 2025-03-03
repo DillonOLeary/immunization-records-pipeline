@@ -3,6 +3,7 @@ Pytest utils
 """
 
 import json
+import shutil
 import time
 from multiprocessing import Process
 
@@ -58,43 +59,15 @@ def setup_test_environment(tmp_path):
 
     yield input_folder, output_folder, logs_folder, bulk_query_folder, config_path
 
-    # Clean up after test
-    for file in input_folder.glob("*"):
-        file.unlink()
-
-    # Handle output folder with possible directories
-    for item in output_folder.glob("*"):
-        if item.is_file():
-            item.unlink()
-        elif item.is_dir():
-            # Handle nested files first
-            for subitem in item.glob("**/*"):
-                if subitem.is_file():
-                    subitem.unlink()
-            # Remove directories in reverse depth order
-            for subdir in sorted(
-                item.glob("**/*"), key=lambda p: str(p).count("/"), reverse=True
-            ):
-                if subdir.is_dir():
-                    subdir.rmdir()
-            item.rmdir()
-
-    for file in logs_folder.glob("*"):
-        file.unlink()
-
-    for file in bulk_query_folder.glob("**/*"):
-        if file.is_file():
-            file.unlink()
-
-    # Remove school directories in bulk_query_folder
-    for dir_path in bulk_query_folder.glob("*"):
-        if dir_path.is_dir():
-            for f in dir_path.glob("*"):
-                f.unlink()
-            dir_path.rmdir()
-
-
-# Removed folders fixture in favor of test_env fixture
+    # Clean up after test - much simpler with shutil.rmtree
+    # First, delete all files in each directory
+    for folder in [input_folder, output_folder, logs_folder, bulk_query_folder]:
+        # Make directory empty but preserve the directory itself
+        for item in folder.glob("*"):
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
 
 
 @pytest.fixture(scope="session")
