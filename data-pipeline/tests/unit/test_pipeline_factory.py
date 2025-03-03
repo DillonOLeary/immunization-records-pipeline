@@ -7,6 +7,7 @@ from data_pipeline.aisr.authenticate import login, logout
 from data_pipeline.pipeline_factory import (
     SchoolQueryInformation,
     create_aisr_actions_for_school_bulk_queries,
+    create_aisr_download_actions,
     create_aisr_workflow,
 )
 
@@ -55,6 +56,59 @@ def test_generate_bulk_query_functions(fastapi_server, tmp_path):
                 "mocked-access-token",
                 fastapi_server,
             )
+
+
+def test_generate_download_functions(fastapi_server, tmp_path):
+    school_information_list = [
+        SchoolQueryInformation(
+            "test_school",
+            "N",
+            "test_id",
+            "test_email",
+            "dummy_file_path",
+        ),
+        SchoolQueryInformation(
+            "test_school_2",
+            "P",
+            "test_id_2",
+            "test_email_2",
+            "dummy_file_path",
+        ),
+    ]
+    
+    # Create download folder
+    download_folder = tmp_path / "downloads"
+    download_folder.mkdir(exist_ok=True)
+    
+    # Generate download functions
+    download_functions = create_aisr_download_actions(
+        school_info_list=school_information_list,
+        output_folder=download_folder
+    )
+    
+    # Check that we got the right number of functions
+    assert len(download_functions) == 2, "Should create one function per school"
+    
+    # Test the functions
+    with requests.Session() as session:
+        for download_function in download_functions:
+            # This should call get_and_download_vaccination_records with the mock server
+            download_function(
+                session,
+                "mocked-access-token",
+                fastapi_server,
+            )
+    
+    # Verify files were created
+    files = list(download_folder.glob("*.csv"))
+    assert len(files) == 2, "Should create one file per school"
+    
+    # Check file contents
+    for file_path in files:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            # The mock server returns content with "John Doe"
+            assert "John Doe" in content, "Downloaded content should match expected"
 
 
 def test_create_callable_aisr_workflow(fastapi_server):
