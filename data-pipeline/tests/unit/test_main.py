@@ -17,5 +17,5 @@ def test_setup_logging(mock_fileConfig):
     mock_fileConfig.assert_called_once_with(
         Path("config") / "logging.dev.ini",
         disable_existing_loggers=False,
-        defaults={"logfilename": Path("mock_logs") / "app.log"},
+        defaults={"logfilename": str(Path("mock_logs") / "app.log")},
     )

@@ -2,153 +2,80 @@
 Pytest utils
 """
 
+import json
+import shutil
 import time
 from multiprocessing import Process
-from pathlib import Path
-from urllib.parse import urlencode
 
 import pytest
 import uvicorn
-from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from tests.mock_server import create_mock_app
 
 
-@pytest.fixture(name="folders")
-def input_output_logs_folders():
+@pytest.fixture(name="test_env")
+def setup_test_environment(tmp_path):
     """
-    Allows tests to use input and output folders
+    Create a test environment with input, output, and logs folders,
+    plus a test input file and config file.
+
+    Args:
+        tmp_path: Pytest's temporary path fixture
+
+    Returns:
+        tuple: (input_folder, output_folder, logs_folder, config_file)
     """
-    input_folder = Path(".") / "tests" / "test_input"
-    output_folder = Path(".") / "tests" / "test_output"
-    logs_folder = Path(".") / "tests" / "test_logs"
-    metadata_folder = output_folder / "metadata"
+    # Create necessary folders
+    input_folder = tmp_path / "input"
+    output_folder = tmp_path / "output"
+    logs_folder = tmp_path / "logs"
+    bulk_query_folder = tmp_path / "bulk_query"
 
-    # Create directories
-    for folder in [input_folder, output_folder, logs_folder]:
-        folder.mkdir(parents=True, exist_ok=True)
+    for folder in [input_folder, output_folder, logs_folder, bulk_query_folder]:
+        folder.mkdir(exist_ok=True)
 
-    # Yield the folders for test usage
-    yield input_folder, output_folder, logs_folder
+    # Create a sample input file
+    test_file = input_folder / "test_file.csv"
+    with open(test_file, "w", encoding="utf-8") as f:
+        f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
+        f.write("123|456|COVID-19|11/17/2024\n")
+        f.write("789|101|Flu|11/16/2024\n")
+        f.write("112|131|COVID-19|11/15/2024\n")
 
-    # Cleanup after the test
-    for folder in [metadata_folder, input_folder, output_folder, logs_folder]:
-        if folder.exists():
-            for file in folder.iterdir():
-                file.unlink()
-            folder.rmdir()
+    # Create a config file for the transform command
+    config_path = tmp_path / "config.json"
+
+    # Create config with paths
+    config = {
+        "paths": {
+            "input_folder": str(input_folder),
+            "output_folder": str(output_folder),
+            "logs_folder": str(logs_folder),
+        }
+    }
+
+    # Write config to file
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+
+    yield input_folder, output_folder, logs_folder, bulk_query_folder, config_path
+
+    # Clean up after test - much simpler with shutil.rmtree
+    # First, delete all files in each directory
+    for folder in [input_folder, output_folder, logs_folder, bulk_query_folder]:
+        # Make directory empty but preserve the directory itself
+        for item in folder.glob("*"):
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
 
 
 @pytest.fixture(scope="session")
 def fastapi_server():
     """
-    Spins up a FastAPI server for integration tests.
+    Spins up a FastAPI server for testing.
     """
-    app = FastAPI()
-
-    @app.get(
-        "/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth",
-        response_class=HTMLResponse,
-    )
-    async def oidc_auth():
-        """
-        Simulates an authentication endpoint. Returns an HTML page with a form
-        that includes the required `session_code` and `tab_id`.
-        """
-        encoded_session_and_tab = urlencode(
-            {"session_code": "mock-session-code", "tab_id": "mock-tab-id"}
-        )
-        form_action_url = f"/protocol/openid-connect/login?{encoded_session_and_tab}"
-
-        return f"""
-        <!DOCTYPE html>
-        <html lang=\"en\">
-        <head>
-            <meta charset=\"UTF-8\">
-            <title>Login</title>
-        </head>
-        <body>
-            <form id=\"kc-form-login\" action=\"{form_action_url}\" method=\"post\">
-                <input type=\"text\" name=\"username\" placeholder=\"Username\" required />
-                <input type=\"password\" name=\"password\" placeholder=\"Password\" required />
-                <button type=\"submit\">Login</button>
-            </form>
-        </body>
-        </html>
-        """
-
-    @app.post("/auth/realms/idepc-aisr-realm/login-actions/authenticate")
-    async def authenticate(username: str = Form(...), password: str = Form(...)):
-        """
-        Simulates the login authentication endpoint. Validates username and password and returns
-        a response with a cookie indicating success or failure.
-        """
-        if username == "test_user" and password == "test_password":
-            response = JSONResponse(
-                content={"message": "Login successful", "is_successful": True},
-                status_code=302,
-            )
-            response.set_cookie(
-                key="KEYCLOAK_IDENTITY",
-                value="mocked-identity-token",
-                httponly=True,
-                secure=True,
-            )
-            response.headers["Location"] = "http://127.0.0.1:8000#code=test_code"
-            return response
-        return JSONResponse(
-            content={"message": "Invalid credentials", "is_successful": False},
-            status_code=200,
-        )
-
-    @app.get("/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout")
-    async def logout(client_id: str):
-        """
-        Simulates the logout endpoint. Removes the KEYCLOAK_IDENTITY cookie.
-        """
-        if client_id == "aisr-app":
-            response = JSONResponse(
-                content={"message": "Logout successful"},
-                status_code=200,
-            )
-            response.delete_cookie(
-                key="KEYCLOAK_IDENTITY",
-                httponly=True,
-                secure=True,
-            )
-            return response
-
-        return JSONResponse(
-            content={"message": "Invalid client_id", "is_successful": False},
-            status_code=400,
-        )
-
-    @app.post("/auth/realms/idepc-aisr-realm/protocol/openid-connect/token")
-    async def get_access_token(
-        grant_type: str = Form(...),
-        redirect_uri: str = Form(...),
-        code: str = Form(...),
-        client_id: str = Form(...),
-    ):
-        """
-        Simulates the token endpoint. Returns a mock access token if the request is valid.
-        """
-        if (
-            grant_type == "authorization_code"
-            and redirect_uri == "https://aisr.web.health.state.mn.us/home"
-            and code == "test_code"
-            and client_id == "aisr-app"
-        ):
-            return JSONResponse(
-                content={"access_token": "mocked-access-token", "token_type": "Bearer"},
-                status_code=200,
-            )
-        return JSONResponse(
-            content={
-                "error": "invalid_request",
-                "error_description": "Invalid token request",
-            },
-            status_code=400,
-        )
+    app = create_mock_app()
 
     def run_server():
         uvicorn.run(app, host="127.0.0.1", port=8000)

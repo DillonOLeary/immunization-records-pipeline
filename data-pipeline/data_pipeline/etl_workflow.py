@@ -5,8 +5,12 @@ This file runs the immunization data pipeline.
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Sequence
 
 import pandas as pd
+import requests
+from data_pipeline.aisr.actions import AISRActionFailedException
+from data_pipeline.aisr.authenticate import AISRAuthResponse
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +47,13 @@ def run_etl_on_folder(
     input_folder: Path, output_folder: Path, etl_fn: Callable[[Path, Path], str]
 ):
     """
-    Runs the ETL pipeline for all CSV files in the input folder
+    Runs the ETL pipeline for all CSV files in the input folder (AISR downloads)
     and saves the results to the output folder.
+    
+    The input_folder should contain CSV files downloaded from AISR.
     """
     logger.info("Starting ETL on folder: %s", input_folder)
 
-    # Ensure the output folder exists
     output_folder.mkdir(parents=True, exist_ok=True)
 
     # Iterate over each CSV file in the input folder and run the ETL pipeline
@@ -60,3 +65,29 @@ def run_etl_on_folder(
             logger.error("ETL failed for file: %s", input_file, exc_info=True)
 
     logger.info("ETL on folder completed.")
+
+
+def run_aisr_workflow(
+    login: Callable[[requests.Session], AISRAuthResponse],
+    aisr_actions: Sequence[Callable[..., None]],
+    logout: Callable[[requests.Session], None],
+) -> None:
+    """
+    Logs into MIIC, runs a series of actions, and logs out of MIIC.
+    """
+    with requests.Session() as session:
+        aisr_response = login(session)
+
+        for action in aisr_actions:
+            try:
+                action(session, aisr_response.access_token)
+            except AISRActionFailedException as e:
+                logger.error(
+                    "Error occurred during %s: %s",
+                    action.__name__,
+                    e,
+                )
+
+        logout(session)
+
+        logger.info("Completed AISR workflow")

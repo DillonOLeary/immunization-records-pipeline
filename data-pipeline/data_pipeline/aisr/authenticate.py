@@ -1,11 +1,11 @@
 """
-Module for interactions with AISR
+Handle authentication with AISR.
 """
 
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Tuple
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
@@ -39,19 +39,27 @@ class TokenRequestError(Exception):
         return self.message
 
 
+class AuthenticationError(Exception):
+    """Custom exception for authentication failures."""
+
+    def __init__(self, message):
+        self.message = message
+
+    def __str__(self):
+        return self.message
+
+
 @dataclass
-class AISRLoginResponse:
+class AISRAuthResponse:
     """
-    Dataclass to hold the response from interactions with AISR.
+    Dataclass to hold successful authentication details.
     """
 
-    is_successful: bool
-    message: str
-    access_token: Optional[str] = None
+    access_token: str
 
 
 def _get_session_code_and_tab_id(
-    session: requests.Session, auth_realm_url: str
+    session: requests.Session, base_url: str
 ) -> Tuple[str, str]:
     """
     The session and tab are needed to authenticate with AISR.
@@ -60,7 +68,7 @@ def _get_session_code_and_tab_id(
     nonce = uuid.uuid4()
 
     # pylint: disable-next=line-too-long
-    url = f"{auth_realm_url}/protocol/openid-connect/auth?client_id=aisr-app&redirect_uri=https%3A%2F%2Faisr.web.health.state.mn.us%2Fhome&state={state}&response_mode=fragment&response_type=code&scope=openid&nonce={nonce}"
+    url = f"{base_url}/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth?client_id=aisr-app&redirect_uri=https%3A%2F%2Faisr.web.health.state.mn.us%2Fhome&state={state}&response_mode=fragment&response_type=code&scope=openid&nonce={nonce}"
 
     response = session.request("GET", url, headers={}, data={})
     soup = BeautifulSoup(response.content, "html.parser")
@@ -94,12 +102,12 @@ def _get_code_from_response(response: requests.Response) -> str:
 
 
 def _get_access_token_using_response_code(
-    session: requests.Session, auth_realm_url: str, code: str
+    session: requests.Session, base_url: str, code: str
 ) -> str:
     """
     Get the access token from the response.
     """
-    url = f"{auth_realm_url}/protocol/openid-connect/token"
+    url = f"{base_url}/auth/realms/idepc-aisr-realm/protocol/openid-connect/token"
 
     payload = {
         "grant_type": "authorization_code",
@@ -122,16 +130,22 @@ def _get_access_token_using_response_code(
 
 
 def login(
-    session: requests.Session, auth_realm_url: str, username: str, password: str
-) -> AISRLoginResponse:
+    session: requests.Session, base_url: str, username: str, password: str
+) -> AISRAuthResponse:
     """
     Login with AISR.
+
+    Returns:
+        AISRAuthResponse with access token on success
+
+    Raises:
+        AuthenticationError: If login fails for any reason
     """
     logger.info("Logging into MIIC with username %s", username)
-    session_code, tab_id = _get_session_code_and_tab_id(session, auth_realm_url)
+    session_code, tab_id = _get_session_code_and_tab_id(session, base_url)
 
     # pylint: disable-next=line-too-long
-    url = f"{auth_realm_url}/login-actions/authenticate?session_code={session_code}&execution=084dee30-925f-4a8f-829d-7a372e38d0de&client_id=aisr-app&tab_id={tab_id}"
+    url = f"{base_url}/auth/realms/idepc-aisr-realm/login-actions/authenticate?session_code={session_code}&execution=084dee30-925f-4a8f-829d-7a372e38d0de&client_id=aisr-app&tab_id={tab_id}"
 
     payload = f"password={quote(password)}&username={username}"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -142,28 +156,28 @@ def login(
 
     if response.status_code == 302 and "KEYCLOAK_IDENTITY" in session.cookies:
         logger.info("Logged in successfully")
-        return AISRLoginResponse(
-            is_successful=True,
-            message="Logged in successfully",
-            access_token=_get_access_token_using_response_code(
-                session, auth_realm_url, _get_code_from_response(response)
-            ),
+        access_token = _get_access_token_using_response_code(
+            session, base_url, _get_code_from_response(response)
         )
+        return AISRAuthResponse(access_token=access_token)
 
-    logger.error("Login failed or KEYCLOAK_IDENTITY cookie is missing")
-    return AISRLoginResponse(
-        is_successful=False,
-        message="Login failed or KEYCLOAK_IDENTITY cookie is missing",
-    )
+    # Handle authentication failures
+    if response.status_code == 401:
+        # Generic error message without revealing authentication details
+        error_msg = "Login failed: Invalid credentials"
+        logger.error(error_msg)
+        raise AuthenticationError(error_msg)
+
+    error_msg = "Login failed or KEYCLOAK_IDENTITY cookie is missing"
+    logger.error(error_msg)
+    raise AuthenticationError(error_msg)
 
 
-def logout(session: requests.Session, auth_realm_url: str) -> AISRLoginResponse:
+def logout(session: requests.Session, base_url: str) -> None:
     """
     Log out of AISR.
     """
-    url = f"{auth_realm_url}/protocol/openid-connect/logout?client_id=aisr-app"
+    # pylint: disable-next=line-too-long
+    url = f"{base_url}/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout?client_id=aisr-app"
     session.request("GET", url, headers={}, data={})
-    return AISRLoginResponse(
-        is_successful=True,
-        message="Logged out successfully",
-    )
+    logger.info("Logged out successfully")

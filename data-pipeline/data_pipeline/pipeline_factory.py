@@ -6,7 +6,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
-from data_pipeline.etl_workflow import run_etl
+import requests
+from data_pipeline.aisr.actions import SchoolQueryInformation, bulk_query_aisr
+from data_pipeline.aisr.authenticate import AISRAuthResponse
+from data_pipeline.etl_workflow import run_aisr_workflow, run_etl
 
 
 def create_file_to_file_etl_pipeline(
@@ -34,3 +37,55 @@ def create_file_to_file_etl_pipeline(
         )
 
     return etl_fn
+
+
+def create_aisr_actions_for_school_bulk_queries(
+    school_query_information_list: list[SchoolQueryInformation],
+) -> list[Callable[..., None]]:  # Using ... to accept any callable
+    """
+    Creates a list of bulk query functions for each school in the
+    school_query_information_list. The returned functions can be run with
+    a requests session and base url.
+    """
+    function_list = []
+    for school_query_information in school_query_information_list:
+        function_list.append(
+            # pylint: disable-next=line-too-long
+            lambda session, access_token, base_url, query_information=school_query_information, func=bulk_query_aisr: func(
+                session,
+                access_token,
+                base_url,
+                query_information,
+            )
+        )
+    return function_list
+
+
+def create_aisr_workflow(
+    login: Callable[[requests.Session, str, str, str], AISRAuthResponse],
+    aisr_function_list: list[Callable[..., None]],
+    logout: Callable[[requests.Session, str], None],
+) -> Callable[[str, str, str, str], None]:
+    """
+    Create a query function that can be run with a base url, username, and password
+    """
+
+    def aisr_fn(
+        auth_base_url: str,
+        aisr_base_url: str,
+        username: str,
+        password: str,
+    ):
+        action_list = [
+            lambda session, access_token, func=bulk_query_function: func(
+                session, access_token, aisr_base_url
+            )
+            for bulk_query_function in aisr_function_list
+        ]
+        return run_aisr_workflow(
+            login=lambda session: login(session, auth_base_url, username, password),
+            aisr_actions=action_list,
+            logout=lambda session: logout(session, auth_base_url),
+        )
+
+    return aisr_fn
