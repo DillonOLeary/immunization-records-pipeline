@@ -5,6 +5,9 @@ Factory for creating the pipeline and related tools
 from collections.abc import Callable
 from pathlib import Path
 
+import uuid
+from datetime import datetime
+
 import pandas as pd
 import requests
 from data_pipeline.aisr.actions import (
@@ -95,6 +98,26 @@ def create_aisr_workflow(
     return aisr_fn
 
 
+def generate_vaccination_record_filename(school_name: str) -> str:
+    """
+    Generate a filename for downloaded vaccination records.
+    
+    Args:
+        school_name: Name of the school
+        
+    Returns:
+        A filename string with the format 'vaccinations_SchoolName_YYYYMMDD_HHMMSS_uniqueID.csv'
+    """
+    # Clean up school name for filename (replace spaces with underscores)
+    clean_school_name = school_name.replace(' ', '_')
+    
+    # Add timestamp and unique ID
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = uuid.uuid4().hex[:8]  # Shortened UUID for brevity
+    
+    return f"vaccinations_{clean_school_name}_{timestamp}_{unique_id}.csv"
+
+
 def create_aisr_download_actions(
     school_info_list: list[SchoolQueryInformation],
     output_folder: Path,
@@ -112,8 +135,9 @@ def create_aisr_download_actions(
     """
     function_list = []
     for school_info in school_info_list:
-        # Create a specific output file for this school
-        output_file = output_folder / f"{school_info.school_name.replace(' ', '_')}_vaccinations.csv"
+        # Create a specific output file for this school with a unique filename
+        output_filename = generate_vaccination_record_filename(school_info.school_name)
+        output_file = output_folder / output_filename
         
         # Create a download function for this school - binding both the function and parameters
         function_list.append(

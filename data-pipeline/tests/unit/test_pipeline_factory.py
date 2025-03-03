@@ -99,12 +99,15 @@ def test_generate_download_functions(fastapi_server, tmp_path):
                 fastapi_server,
             )
     
-    # Verify files were created
-    files = list(download_folder.glob("*.csv"))
+    # Verify files were created - they should follow our naming pattern
+    files = list(download_folder.glob("vaccinations_*.csv"))
     assert len(files) == 2, "Should create one file per school"
     
     # Check file contents
     for file_path in files:
+        # Verify the filename pattern
+        assert "vaccinations_test_school_" in file_path.name or "vaccinations_test_school_2_" in file_path.name
+        
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
             # The mock server returns content with "John Doe"
