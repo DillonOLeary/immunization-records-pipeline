@@ -168,5 +168,58 @@ def create_mock_app():
         if not expected_headers.issubset(set(headers.keys())):
             raise HTTPException(status_code=400, detail="Missing required headers")
         return Response(status_code=200)
+    
+    @app.post("/signing/geturl")
+    async def signing_geturl(request: Request):
+        """
+        Simulates the request signed URL endpoint for getting a file.
+        Validates the request and returns a mock URL.
+        """
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        return JSONResponse(
+            content={"url": "http://127.0.0.1:8000/test-s3-get-location"},
+            status_code=200,
+        )
+    
+    @app.get("/test-s3-get-location")
+    async def get_file():
+        """
+        This endpoint mocks an S3 signed URL download.
+        It returns a sample CSV file content.
+        """
+        content = "id,name,dob\n1,John Doe,2010-01-01\n2,Jane Smith,2011-02-02"
+        return Response(content=content, media_type="text/csv")
+        
+    @app.get("/school/query/{school_id}")
+    async def get_vaccination_records(school_id: str, request: Request):
+        """
+        Mock endpoint to get vaccination records for a school.
+        """
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+            
+        # Return mock vaccination records
+        return [
+            {
+                "id": 16386,
+                "schoolId": int(school_id),
+                "uploadDateTime": 1740764967763,
+                "fileName": "test-file.csv",
+                "s3FileUrl": "https://example.com/test.csv",
+                "fullVaccineFileUrl": "http://127.0.0.1:8000/test-s3-get-location",
+                "covidVaccineFileUrl": "https://example.com/covid.txt",
+                "matchFileUrl": "https://example.com/match.xlsx",
+                "statsFileUrl": "https://example.com/stats.txt",
+                "fullVaccineFileName": "full/test.full.txt",
+                "covidVaccineFileName": "covid/test.covid.txt",
+                "matchFileName": "match/test.match.xlsx",
+                "statsFileName": "stats/test.stats.txt",
+                "s3FileName": "intake/test.csv"
+            }
+        ]
 
     return app
