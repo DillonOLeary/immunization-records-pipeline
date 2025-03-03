@@ -13,7 +13,7 @@ def test_cli_runs_for_all_test_files(tmp_path, test_env):
     # Unpack test environment
     _, _, _, config_path = test_env
 
-    result = execute_transform_subprocess(tmp_path, config_path)
+    result = execute_transform_subprocess(config_path)
 
     # Check if command executed successfully
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
@@ -25,7 +25,7 @@ def test_cli_runs_for_all_test_files(tmp_path, test_env):
     ), "No files were created in the output folder"
 
 
-def test_cli_creates_non_existent_output_folder(tmp_path, test_env):
+def test_cli_creates_non_existent_output_folder(test_env):
     # Unpack test environment
     _, output_folder, _, config_path = test_env
 
@@ -36,7 +36,7 @@ def test_cli_creates_non_existent_output_folder(tmp_path, test_env):
         output_folder.rmdir()
 
     # Run transform
-    result = execute_transform_subprocess(tmp_path, config_path)
+    result = execute_transform_subprocess(config_path)
 
     # Check results
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
@@ -46,12 +46,12 @@ def test_cli_creates_non_existent_output_folder(tmp_path, test_env):
     ), "No files were created in the output folder."
 
 
-def test_cli_correct_output_file_contents(tmp_path, test_env):
+def test_cli_correct_output_file_contents(test_env):
     # Unpack test environment
     _, output_folder, _, config_path = test_env
 
     # Run transform
-    result = execute_transform_subprocess(tmp_path, config_path)
+    result = execute_transform_subprocess(config_path)
 
     # Check if command executed successfully
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
@@ -75,7 +75,7 @@ def test_cli_correct_output_file_contents(tmp_path, test_env):
     assert lines == expected_lines, f"Output file contents are incorrect: {lines}"
 
 
-def test_cli_runs_for_multiple_test_files(tmp_path, test_env):
+def test_cli_runs_for_multiple_test_files(test_env):
     # Unpack test environment
     input_folder, output_folder, _, config_path = test_env
 
@@ -99,7 +99,7 @@ def test_cli_runs_for_multiple_test_files(tmp_path, test_env):
             f.write(f"112{i}|131|COVID-19|11/15/2024\n")
 
     # Run the transform command, using the existing config file
-    result = execute_transform_subprocess(tmp_path, config_path)
+    result = execute_transform_subprocess(config_path)
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
 
@@ -123,12 +123,12 @@ def test_cli_runs_for_multiple_test_files(tmp_path, test_env):
         assert lines == expected_lines, f"Output file contents are incorrect: {lines}"
 
 
-def test_cli_creates_metadata_file_with_correct_fields(tmp_path, test_env):
+def test_cli_creates_metadata_file_with_correct_fields(test_env):
     # Unpack test environment
     _, output_folder, _, config_path = test_env
 
     # Run transform
-    result = execute_transform_subprocess(tmp_path, config_path)
+    result = execute_transform_subprocess(config_path)
 
     # Check if command executed successfully
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
@@ -157,12 +157,12 @@ def test_cli_creates_metadata_file_with_correct_fields(tmp_path, test_env):
     ), "metadata file does not contain 'result_message'."
 
 
-def test_cli_creates_execution_metadata(tmp_path, test_env):
+def test_cli_creates_execution_metadata(test_env):
     # Unpack test environment
     _, output_folder, _, config_path = test_env
 
     # Run transform
-    result = execute_transform_subprocess(tmp_path, config_path)
+    result = execute_transform_subprocess(config_path)
 
     # Check if command executed successfully
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"

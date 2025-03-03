@@ -24,7 +24,7 @@ def default_filename_generator(input_file_name: str) -> str:
 def write_to_infinite_campus_csv(
     df: pd.DataFrame,
     output_folder: Path,
-    input_file_name: Path,
+    input_file_name: str,
     filename_generator: Callable = default_filename_generator,
 ) -> None:
     """

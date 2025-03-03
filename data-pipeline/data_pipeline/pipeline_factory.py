@@ -41,7 +41,7 @@ def create_file_to_file_etl_pipeline(
 
 def create_aisr_actions_for_school_bulk_queries(
     school_query_information_list: list[SchoolQueryInformation],
-) -> list[Callable[[requests.Session, AISRAuthResponse, str], None]]:
+) -> list[Callable[..., None]]:  # Using ... to accept any callable
     """
     Creates a list of bulk query functions for each school in the
     school_query_information_list. The returned functions can be run with
@@ -51,9 +51,9 @@ def create_aisr_actions_for_school_bulk_queries(
     for school_query_information in school_query_information_list:
         function_list.append(
             # pylint: disable-next=line-too-long
-            lambda session, auth_response, base_url, query_information=school_query_information, func=bulk_query_aisr: func(
+            lambda session, access_token, base_url, query_information=school_query_information, func=bulk_query_aisr: func(
                 session,
-                auth_response,
+                access_token,
                 base_url,
                 query_information,
             )
@@ -63,9 +63,9 @@ def create_aisr_actions_for_school_bulk_queries(
 
 def create_aisr_workflow(
     login: Callable[[requests.Session, str, str, str], AISRAuthResponse],
-    aisr_function_list: list[Callable[[requests.Session, AISRAuthResponse, str], None]],
-    logout: Callable[[requests.Session, str], AISRAuthResponse],
-) -> Callable[[str, str, str, str], str]:
+    aisr_function_list: list[Callable[..., None]],
+    logout: Callable[[requests.Session, str], None],
+) -> Callable[[str, str, str, str], None]:
     """
     Create a query function that can be run with a base url, username, and password
     """
@@ -77,8 +77,8 @@ def create_aisr_workflow(
         password: str,
     ):
         action_list = [
-            lambda session, aisr_login_response, func=bulk_query_function: func(
-                session, aisr_login_response, aisr_base_url
+            lambda session, access_token, func=bulk_query_function: func(
+                session, access_token, aisr_base_url
             )
             for bulk_query_function in aisr_function_list
         ]

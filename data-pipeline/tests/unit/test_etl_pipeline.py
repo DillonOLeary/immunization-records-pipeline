@@ -161,21 +161,21 @@ def test_aisr_runs_bulk_queries():
     called_query_2 = False
 
     def mock_query_function_1(
-        session: requests.Session, aisr_response: AISRAuthResponse
+        session: requests.Session, access_token: str
     ) -> None:
         # pylint: disable=unused-argument
         nonlocal called_query_1
         called_query_1 = True
 
     def mock_query_function_2(
-        session: requests.Session, aisr_response: AISRAuthResponse
+        session: requests.Session, access_token: str
     ) -> None:
         # pylint: disable=unused-argument
         nonlocal called_query_2
         called_query_2 = True
 
     run_aisr_workflow(
-        login=lambda session: AISRAuthResponse(True, "Sucess", "mocked-access-token"),
+        login=lambda session: AISRAuthResponse(access_token="mocked-access-token"),
         aisr_actions=[mock_query_function_1, mock_query_function_2],
         logout=lambda session: None,
     )
@@ -186,10 +186,11 @@ def test_aisr_login_logout():
     login_called = False
     logout_called = False
 
-    def mock_login(session: requests.Session) -> None:
+    def mock_login(session: requests.Session) -> AISRAuthResponse:
         # pylint: disable=unused-argument
         nonlocal login_called
         login_called = True
+        return AISRAuthResponse(access_token="mocked-access-token")
 
     def mock_logout(session: requests.Session) -> None:
         # pylint: disable=unused-argument
@@ -208,12 +209,12 @@ def test_aisr_login_logout():
 
 def test_aisr_bulk_queries_handles_exceptions():
     def mock_query_function(
-        session: requests.Session, aisr_response: AISRAuthResponse
+        session: requests.Session, access_token: str
     ) -> None:
         raise AISRActionFailedException("Mock query failure")
 
     run_aisr_workflow(
-        login=lambda session: AISRAuthResponse(True, "Sucess", "mocked-access-token"),
+        login=lambda session: AISRAuthResponse(access_token="mocked-access-token"),
         aisr_actions=[mock_query_function],
         logout=lambda session: None,
     )

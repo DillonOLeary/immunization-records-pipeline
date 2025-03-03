@@ -5,7 +5,7 @@ This file runs the immunization data pipeline.
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import List
+from typing import Sequence
 
 import pandas as pd
 import requests
@@ -52,7 +52,6 @@ def run_etl_on_folder(
     """
     logger.info("Starting ETL on folder: %s", input_folder)
 
-    # Ensure the output folder exists
     output_folder.mkdir(parents=True, exist_ok=True)
 
     # Iterate over each CSV file in the input folder and run the ETL pipeline
@@ -68,14 +67,15 @@ def run_etl_on_folder(
 
 def run_aisr_workflow(
     login: Callable[[requests.Session], AISRAuthResponse],
-    aisr_actions: List[Callable[[requests.Session, str], None]],
+    aisr_actions: Sequence[Callable[..., None]],
     logout: Callable[[requests.Session], None],
-):
+) -> None:
     """
     Logs into MIIC, runs a series of actions, and logs out of MIIC.
     """
     with requests.Session() as session:
         aisr_response = login(session)
+
         for action in aisr_actions:
             try:
                 action(session, aisr_response.access_token)
@@ -85,5 +85,7 @@ def run_aisr_workflow(
                     action.__name__,
                     e,
                 )
+
         logout(session)
-        logger.info("Completed all aisr action functions.")
+
+        logger.info("Completed AISR workflow")

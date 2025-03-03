@@ -8,6 +8,7 @@ from unittest.mock import Mock
 
 import requests
 from data_pipeline.aisr.authenticate import (
+    AuthenticationError,
     _get_access_token_using_response_code,
     _get_code_from_response,
     login,
@@ -52,7 +53,6 @@ def test_login_successful(fastapi_server):
             username=TEST_USERNAME,
             password=TEST_PASSWORD,
         )
-    assert login_result.is_successful, "Log in should be successful"
     assert login_result.access_token, "Log in should return an access token"
 
 
@@ -60,13 +60,17 @@ def test_login_failure(fastapi_server):
     auth_base_url = f"{fastapi_server}/mock-auth-server"
 
     with requests.Session() as local_session:
-        result = login(
-            session=local_session,
-            base_url=auth_base_url,
-            username=TEST_USERNAME,
-            password="wrong_password",
-        )
-    assert not result.is_successful, "Log in should fail with incorrect password"
+        try:
+            login(
+                session=local_session,
+                base_url=auth_base_url,
+                username=TEST_USERNAME,
+                password="wrong_password",
+            )
+            assert False, "Login should raise an exception with invalid credentials"
+        except AuthenticationError as e:
+            assert "Login failed" in str(e), "Exception should mention login failure"
+            assert "Invalid credentials" in str(e), "Exception should mention invalid credentials"
 
 
 def test_logout_successful(fastapi_server):

@@ -31,7 +31,7 @@ def setup_logging(env: str, log_dir: Path = Path("logs")):
     logging.config.fileConfig(
         config_path,
         disable_existing_loggers=False,
-        defaults={"logfilename": log_dir / "app.log"},
+        defaults={"logfilename": str(log_dir / "app.log")},
     )
 
 

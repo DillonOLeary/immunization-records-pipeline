@@ -52,7 +52,7 @@ def test_generate_bulk_query_functions(fastapi_server, tmp_path):
         for query_function in query_functions:
             query_function(
                 session,
-                AISRAuthResponse(True, "", "mocked-access-token"),
+                "mocked-access-token",
                 fastapi_server,
             )
 
@@ -73,14 +73,14 @@ def test_aisr_workflow_runs_actions_independently(fastapi_server):
     called_action_2 = False
 
     def mock_action_function_1(
-        session: requests.Session, aisr_response: AISRAuthResponse, base_url: str
+        session: requests.Session, access_token: str, base_url: str
     ) -> None:
         # pylint: disable=unused-argument
         nonlocal called_action_1
         called_action_1 = True
 
     def mock_action_function_2(
-        session: requests.Session, aisr_response: AISRAuthResponse, base_url: str
+        session: requests.Session, access_token: str, base_url: str
     ) -> None:
         # pylint: disable=unused-argument
         nonlocal called_action_2

@@ -7,7 +7,7 @@ import os
 import subprocess
 
 
-def execute_transform_subprocess(tmp_path, config_path=None):
+def execute_transform_subprocess(config_path=None):
     """
     Execute the CLI transform command as a subprocess.
 
@@ -38,9 +38,9 @@ def execute_transform_subprocess(tmp_path, config_path=None):
     return result
 
 
-def create_test_config(tmp_path, config_path, fastapi_server):
+def create_test_config(config_path, fastapi_server):
     """
-    Add API server configuration to a test config file.
+    Add API server configuration to a test config file and create necessary query files.
 
     Args:
         tmp_path: Pytest's temporary path fixture
@@ -58,17 +58,18 @@ def create_test_config(tmp_path, config_path, fastapi_server):
     auth_base_url = f"{fastapi_server}/mock-auth-server"
     api_base_url = fastapi_server
 
+    # School configuration
+    school_config = {
+        "name": "Friendly Hills",
+        "id": "1234",
+        "classification": "N",
+        "email": "test@example.com",
+    }
+
     config.update(
         {
             "api": {"auth_base_url": auth_base_url, "aisr_api_base_url": api_base_url},
-            "schools": [
-                {
-                    "name": "Friendly Hills",
-                    "id": "1234",
-                    "classification": "N",
-                    "email": "test@example.com",
-                }
-            ],
+            "schools": [school_config],
         }
     )
 
@@ -76,10 +77,20 @@ def create_test_config(tmp_path, config_path, fastapi_server):
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
 
+    # Create a query file with the expected naming pattern
+    input_folder = config["paths"]["input_folder"]
+    school_id = school_config["id"]
+    query_file_path = os.path.join(input_folder, f"{school_id}_query.csv")
+
+    with open(query_file_path, "w", encoding="utf-8") as f:
+        f.write("student_id,first_name,last_name,dob\n")
+        f.write("12345,John,Doe,2010-01-01\n")
+        f.write("67890,Jane,Smith,2011-02-02\n")
+
     return config_path
 
 
-def execute_query_subprocess(fastapi_server, config_path, username, password=None):
+def execute_query_subprocess(config_path, username, password=None):
     """
     Execute the CLI bulk-query command as a subprocess.
 

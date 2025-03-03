@@ -13,12 +13,20 @@ import sys
 from pathlib import Path
 from typing import Dict
 
+from data_pipeline.aisr.actions import SchoolQueryInformation
+from data_pipeline.aisr.authenticate import AuthenticationError, login, logout
 from data_pipeline.etl_workflow import run_etl_on_folder
 from data_pipeline.extract import read_from_aisr_csv
 from data_pipeline.load import write_to_infinite_campus_csv
 from data_pipeline.metadata_generator import run_etl_with_metadata_generation
-from data_pipeline.pipeline_factory import create_file_to_file_etl_pipeline
+from data_pipeline.pipeline_factory import (
+    create_aisr_actions_for_school_bulk_queries,
+    create_aisr_workflow,
+    create_file_to_file_etl_pipeline,
+)
 from data_pipeline.transform import transform_data_from_aisr_to_infinite_campus
+
+logger = logging.getLogger(__name__)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -141,6 +149,152 @@ def get_password_from_env_or_prompt() -> str:
     return getpass.getpass("Enter your AISR password: ")
 
 
+def validate_api_config(config: Dict) -> tuple[str, str]:
+    """
+    Validate API configuration and return auth and API URLs.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        Tuple of (auth_url, api_url)
+
+    Raises:
+        ValueError: If API URLs are missing
+    """
+    api_config = config.get("api", {})
+    auth_url = api_config.get("auth_base_url")
+    api_url = api_config.get("aisr_api_base_url")
+
+    if not auth_url or not api_url:
+        raise ValueError("Missing API URLs in configuration")
+
+    return auth_url, api_url
+
+
+def validate_input_folder(config: Dict) -> Path:
+    """
+    Validate the input folder exists.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        Path to input folder
+
+    Raises:
+        ValueError: If input folder is missing or doesn't exist
+    """
+    input_folder = config["paths"].get("input_folder")
+    if not input_folder or not Path(input_folder).exists():
+        raise ValueError("Input folder doesn't exist or is not configured")
+
+    return Path(input_folder)
+
+
+def get_school_query_information(
+    schools: list, input_folder: Path
+) -> list[SchoolQueryInformation]:
+    """
+    Create SchoolQueryInformation objects for each school.
+
+    Args:
+        schools: List of school configurations
+        input_folder: Path to input folder
+
+    Returns:
+        List of SchoolQueryInformation objects
+
+    Raises:
+        ValueError: If no valid schools are found
+    """
+    if not schools:
+        raise ValueError("No schools found in configuration")
+
+    logger.info("Found %d school(s) in configuration", len(schools))
+
+    school_info_list = []
+    for school in schools:
+        school_name = school.get("name", "Unknown")
+        school_id = school.get("id")
+        classification = school.get("classification")
+        email = school.get("email")
+
+        if not all([school_id, classification, email]):
+            logger.error("School %s is missing required information", school_name)
+            continue
+
+        # Use the school ID to find a matching query file
+        query_file = input_folder / f"{school_id}_query.csv"
+        if not query_file.exists():
+            logger.error(
+                "Query file not found for school %s: %s", school_name, query_file
+            )
+            continue
+
+        logger.info("Processing request for %s", school_name)
+
+        school_info = SchoolQueryInformation(
+            school_name=school_name,
+            classification=classification,
+            school_id=school_id,
+            email_contact=email,
+            query_file_path=str(query_file),
+        )
+        school_info_list.append(school_info)
+
+    if not school_info_list:
+        raise ValueError("No valid schools to process")
+
+    return school_info_list
+
+
+def try_query_workflow(workflow_fn, auth_url, api_url, username, password):
+    """
+    Executes a workflow with proper error handling.
+
+    Args:
+        workflow_fn: The workflow function to execute
+        auth_url: Authentication URL
+        api_url: API URL
+        username: AISR username
+        password: AISR password
+
+    Raises:
+        AuthenticationError: Re-raises authentication errors for CLI to handle
+    """
+    try:
+        workflow_fn(auth_url, api_url, username, password)
+    except AuthenticationError as e:
+        logger.error("Authentication Failed: %s", e)
+
+
+def execute_bulk_query(
+    auth_url: str,
+    api_url: str,
+    username: str,
+    password: str,
+    school_info_list: list[SchoolQueryInformation],
+) -> None:
+    """
+    Execute the bulk query workflow.
+
+    Args:
+        auth_url: Authentication URL
+        api_url: API URL
+        username: AISR username
+        password: AISR password
+        school_info_list: List of SchoolQueryInformation objects
+    """
+    action_list = create_aisr_actions_for_school_bulk_queries(school_info_list)
+    query_workflow = create_aisr_workflow(login, action_list, logout)
+
+    try_query_workflow(query_workflow, auth_url, api_url, username, password)
+
+    # If we get here, the workflow completed without errors
+    logger.info("Bulk query completed successfully")
+
+
 def handle_bulk_query_command(args: argparse.Namespace, config: Dict) -> None:
     """
     Handle the bulk-query command to submit a query to AISR.
@@ -149,48 +303,25 @@ def handle_bulk_query_command(args: argparse.Namespace, config: Dict) -> None:
         args: Command line arguments
         config: Loaded configuration
     """
-    # TODO
-    raise NotImplementedError
-    # logger = logging.getLogger(__name__)
-    # logger.info("Bulk query command started")
+    logger.info("Bulk query command started")
 
-    # try:
-    #     username = args.username
+    # Get authentication credentials
+    username = args.username
+    password = get_password_from_env_or_prompt()
 
-    #     # Get password
-    #     password = get_password_from_env_or_prompt()
+    # Validate configuration
+    auth_url, api_url = validate_api_config(config)
+    input_folder = validate_input_folder(config)
 
-    #     # Get API configuration
-    #     api_config = config.get("api", {})
-    #     auth_url = api_config.get("auth_base_url")
-    #     api_url = api_config.get("aisr_api_base_url")
+    # Get school query information
+    school_info_list = get_school_query_information(
+        config.get("schools", []), input_folder
+    )
 
-    #     if not auth_url or not api_url:
-    #         logger.error("Missing API URLs in configuration")
-    #         print("Error: Missing API URLs in configuration", file=sys.stderr)
-    #         sys.exit(1)
+    # Execute the bulk query
+    execute_bulk_query(auth_url, api_url, username, password, school_info_list)
 
-    #     # Log which schools will be queried
-    #     schools = config.get("schools", [])
-    #     if not schools:
-    #         logger.error("No schools found in configuration")
-    #         print("Error: No schools found in configuration", file=sys.stderr)
-    #         sys.exit(1)
-
-    #     logger.info(f"Found {len(schools)} school(s) in configuration")
-
-    # TODO: Implement the actual query functionality
-    #     for school in schools:
-    #         school_name = school.get("name", "Unknown")
-    #         print(f"Processing request for {school_name}")
-    #         logger.info(f"Processing request for {school_name}")
-
-    #     logger.info("Bulk query command finished")
-
-    # except Exception as e:
-    #     logger.exception(f"Unexpected error: {e}")
-    #     print(f"Error: {e}", file=sys.stderr)
-    #     sys.exit(1)
+    logger.info("Bulk query command finished")
 
 
 def handle_get_vaccinations_command(args: argparse.Namespace, config: Dict) -> None:
@@ -202,83 +333,6 @@ def handle_get_vaccinations_command(args: argparse.Namespace, config: Dict) -> N
         config: Loaded configuration
     """
     raise NotImplementedError
-    # logger = logging.getLogger(__name__)
-    # logger.info("Get vaccinations command started")
-
-    # try:
-    #     username = args.username
-
-    #     # Get password
-    #     password = get_password_from_env_or_prompt()
-
-    #     # Get API configuration
-    #     api_config = config.get("api", {})
-    #     auth_url = api_config.get("auth_base_url")
-    #     api_url = api_config.get("aisr_api_base_url")
-
-    #     if not auth_url or not api_url:
-    #         logger.error("Missing API URLs in configuration")
-    #         print("Error: Missing API URLs in configuration", file=sys.stderr)
-    #         sys.exit(1)
-
-    #     # Ensure output folder exists
-    #     output_folder = config["paths"].get("output_folder")
-    #     if not output_folder:
-    #         logger.error("Missing output folder in configuration")
-    #         print("Error: Missing output folder in configuration", file=sys.stderr)
-    #         sys.exit(1)
-
-    #     output_folder.mkdir(parents=True, exist_ok=True)
-
-    #     # Log which schools will be queried
-    #     schools = config.get("schools", [])
-    #     if not schools:
-    #         logger.error("No schools found in configuration")
-    #         print("Error: No schools found in configuration", file=sys.stderr)
-    #         sys.exit(1)
-
-    #     logger.info(f"Found {len(schools)} school(s) in configuration")
-
-    #     # TODO: Implement the actual download functionality
-    #     for school in schools:
-    #         school_name = school.get("name", "Unknown")
-    #         print(f"Downloading vaccination records for {school_name}")
-    #         logger.info(f"Downloading vaccination records for {school_name}")
-
-    #     logger.info("Get vaccinations command finished")
-
-    # except Exception as e:
-    #     logger.exception(f"Unexpected error: {e}")
-    #     print(f"Error: {e}", file=sys.stderr)
-    #     sys.exit(1)
-
-
-# def run(config):
-#     """
-#     Gather CL args, set up the project and run the ETL
-#     """
-#     logger = logging.getLogger(__name__)
-
-#     logger.info("Program started")
-
-#     # Create the ETL pipeline with injected dependencies
-#     etl_pipeline = create_file_to_file_etl_pipeline(
-#         extract=read_from_aisr_csv,
-#         transform=transform_data_from_aisr_to_infinite_campus,
-#         load=write_to_infinite_campus_csv,
-#     )
-
-#     etl_pipeline_with_metadata = run_etl_with_metadata_generation(
-#         Path(args.output_folder) / "metadata"
-#     )(etl_pipeline)
-
-#     run_etl_on_folder(
-#         input_folder=args.input_folder,
-#         output_folder=args.output_folder,
-#         etl_fn=etl_pipeline_with_metadata,
-#     )
-
-#     logger.info("Program finished")
 
 
 def handle_transform_command(config: Dict) -> None:
@@ -289,7 +343,6 @@ def handle_transform_command(config: Dict) -> None:
         config: Loaded configuration
     """
 
-    logger = logging.getLogger(__name__)
     logger.info("Transform command started")
 
     # Get paths from config
@@ -299,7 +352,6 @@ def handle_transform_command(config: Dict) -> None:
 
     if not input_folder or not output_folder:
         logger.error("Missing input or output folder in configuration")
-        print("Error: Missing input or output folder in configuration", file=sys.stderr)
         sys.exit(1)
 
     # Ensure output folder exists

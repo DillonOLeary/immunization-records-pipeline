@@ -68,7 +68,7 @@ def create_mock_app():
             return response
         return JSONResponse(
             content={"message": "Invalid credentials", "is_successful": False},
-            status_code=200,
+            status_code=401,
         )
 
     @app.get(
@@ -168,7 +168,7 @@ def create_mock_app():
         if not expected_headers.issubset(set(headers.keys())):
             raise HTTPException(status_code=400, detail="Missing required headers")
         return Response(status_code=200)
-    
+
     @app.post("/signing/geturl")
     async def signing_geturl(request: Request):
         """
@@ -183,7 +183,7 @@ def create_mock_app():
             content={"url": "http://127.0.0.1:8000/test-s3-get-location"},
             status_code=200,
         )
-    
+
     @app.get("/test-s3-get-location")
     async def get_file():
         """
@@ -192,7 +192,7 @@ def create_mock_app():
         """
         content = "id_1|id_2|name|dob|vaccine_group_name|vaccination_date\n123|456|John Doe|2010-01-01|COVID-19|11/17/2024\n789|101|Jane Smith|2011-02-02|Flu|11/16/2024"
         return Response(content=content, media_type="text/csv")
-        
+
     @app.get("/school/query/{school_id}")
     async def get_vaccination_records(school_id: str, request: Request):
         """
@@ -201,7 +201,7 @@ def create_mock_app():
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Unauthorized")
-            
+
         # Return mock vaccination records
         return [
             {
@@ -218,7 +218,7 @@ def create_mock_app():
                 "covidVaccineFileName": "covid/test.covid.txt",
                 "matchFileName": "match/test.match.xlsx",
                 "statsFileName": "stats/test.stats.txt",
-                "s3FileName": "intake/test.csv"
+                "s3FileName": "intake/test.csv",
             }
         ]
 

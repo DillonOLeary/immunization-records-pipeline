@@ -39,17 +39,22 @@ class TokenRequestError(Exception):
         return self.message
 
 
+class AuthenticationError(Exception):
+    """Custom exception for authentication failures."""
+
+    def __init__(self, message):
+        self.message = message
+
+    def __str__(self):
+        return self.message
+
+
 @dataclass
 class AISRAuthResponse:
     """
-    Dataclass to hold auth related response from interactions with AISR.
+    Dataclass to hold successful authentication details.
     """
-
-    # FIXME just get rid of this and through an error if auth fails
-
-    is_successful: bool
-    message: str
-    access_token: Optional[str] = None
+    access_token: str
 
 
 def _get_session_code_and_tab_id(
@@ -128,6 +133,12 @@ def login(
 ) -> AISRAuthResponse:
     """
     Login with AISR.
+    
+    Returns:
+        AISRAuthResponse with access token on success
+        
+    Raises:
+        AuthenticationError: If login fails for any reason
     """
     logger.info("Logging into MIIC with username %s", username)
     session_code, tab_id = _get_session_code_and_tab_id(session, base_url)
@@ -144,29 +155,28 @@ def login(
 
     if response.status_code == 302 and "KEYCLOAK_IDENTITY" in session.cookies:
         logger.info("Logged in successfully")
-        return AISRAuthResponse(
-            is_successful=True,
-            message="Logged in successfully",
-            access_token=_get_access_token_using_response_code(
-                session, base_url, _get_code_from_response(response)
-            ),
+        access_token = _get_access_token_using_response_code(
+            session, base_url, _get_code_from_response(response)
         )
+        return AISRAuthResponse(access_token=access_token)
+    
+    # Handle authentication failures
+    if response.status_code == 401:
+        # Generic error message without revealing authentication details
+        error_msg = "Login failed: Invalid credentials"
+        logger.error(error_msg)
+        raise AuthenticationError(error_msg)
 
-    logger.error("Login failed or KEYCLOAK_IDENTITY cookie is missing")
-    return AISRAuthResponse(
-        is_successful=False,
-        message="Login failed or KEYCLOAK_IDENTITY cookie is missing",
-    )
+    error_msg = "Login failed or KEYCLOAK_IDENTITY cookie is missing"
+    logger.error(error_msg)
+    raise AuthenticationError(error_msg)
 
 
-def logout(session: requests.Session, base_url: str) -> AISRAuthResponse:
+def logout(session: requests.Session, base_url: str) -> None:
     """
     Log out of AISR.
     """
     # pylint: disable-next=line-too-long
     url = f"{base_url}/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout?client_id=aisr-app"
     session.request("GET", url, headers={}, data={})
-    return AISRAuthResponse(
-        is_successful=True,
-        message="Logged out successfully",
-    )
+    logger.info("Logged out successfully")
