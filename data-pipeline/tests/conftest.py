@@ -61,7 +61,7 @@ def setup_test_environment(tmp_path):
     # Clean up after test
     for file in input_folder.glob("*"):
         file.unlink()
-        
+
     # Handle output folder with possible directories
     for item in output_folder.glob("*"):
         if item.is_file():
@@ -72,18 +72,20 @@ def setup_test_environment(tmp_path):
                 if subitem.is_file():
                     subitem.unlink()
             # Remove directories in reverse depth order
-            for subdir in sorted(item.glob("**/*"), key=lambda p: str(p).count('/'), reverse=True):
+            for subdir in sorted(
+                item.glob("**/*"), key=lambda p: str(p).count("/"), reverse=True
+            ):
                 if subdir.is_dir():
                     subdir.rmdir()
             item.rmdir()
-            
+
     for file in logs_folder.glob("*"):
         file.unlink()
-        
+
     for file in bulk_query_folder.glob("**/*"):
         if file.is_file():
             file.unlink()
-            
+
     # Remove school directories in bulk_query_folder
     for dir_path in bulk_query_folder.glob("*"):
         if dir_path.is_dir():
