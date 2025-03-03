@@ -188,9 +188,9 @@ def create_mock_app():
     async def get_file():
         """
         This endpoint mocks an S3 signed URL download.
-        It returns a sample CSV file content.
+        It returns a sample CSV file content in the expected AISR format (pipe-delimited).
         """
-        content = "id,name,dob\n1,John Doe,2010-01-01\n2,Jane Smith,2011-02-02"
+        content = "id_1|id_2|name|dob|vaccine_group_name|vaccination_date\n123|456|John Doe|2010-01-01|COVID-19|11/17/2024\n789|101|Jane Smith|2011-02-02|Flu|11/16/2024"
         return Response(content=content, media_type="text/csv")
         
     @app.get("/school/query/{school_id}")

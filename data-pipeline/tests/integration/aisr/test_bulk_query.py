@@ -1,5 +1,5 @@
 """
-Test the CLI query command.
+Integration tests for AISR bulk query operations.
 """
 
 from data_pipeline.aisr.actions import SchoolQueryInformation
@@ -13,9 +13,14 @@ USERNAME = "test_user"
 PASSWORD = "test_password"
 
 
-def test_cli_query_can_upload_a_file(fastapi_server, tmp_path):
+def test_aisr_can_upload_a_file(fastapi_server, tmp_path):
     """
-    Test CLI by injecting dependencies.
+    Test uploading a file to AISR for bulk query.
+
+    This test verifies:
+    1. Log in to AISR
+    2. Upload a file for bulk querying
+    3. Verify the upload was successful
     """
     auth_base_url = f"{fastapi_server}/mock-auth-server"
     aisr_base_url = fastapi_server
