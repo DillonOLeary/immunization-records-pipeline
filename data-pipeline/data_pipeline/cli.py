@@ -230,7 +230,7 @@ def get_school_query_information(
             logger.error(
                 "Query file not found for school %s: %s", school_name, query_file
             )
-            continue
+            raise ValueError(f"No query file for {school_name}")
 
         logger.info("Processing request for %s", school_name)
 

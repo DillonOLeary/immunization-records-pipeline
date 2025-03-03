@@ -128,7 +128,7 @@ class SchoolQueryInformation:
     classification: str
     school_id: str
     email_contact: str
-    query_file_path: str | None = None
+    query_file_path: str
 
 
 def get_latest_vaccination_records_url(
@@ -139,59 +139,56 @@ def get_latest_vaccination_records_url(
 ) -> Optional[str]:
     """
     Get the URL for the latest full vaccination records file.
-    
+
     This function fetches the list of vaccination records for a school
     and returns the URL for the most recent full vaccination file.
-    
+
     Returns None if no records are available.
     """
     url = f"{base_url}/school/query/{school_id}"
-    
+
     headers = {
         "Authorization": f"Bearer {access_token}",
     }
 
     res = session.get(url, headers=headers, timeout=60)
-    
+
     if res.status_code != 200:
         raise AISRActionFailedException(
             f"Failed to get vaccination records: {res.status_code} - {res.text}"
         )
-    
+
     records_list = json.loads(res.content.decode("utf-8"))
-    
+
     # Get the latest record URL
     if not records_list or len(records_list) == 0:
         return None
-        
+
     # Get the last (most recent) record
     latest_record = records_list[-1]
     return latest_record.get("fullVaccineFileUrl")
 
 
 def download_vaccination_records(
-    session: requests.Session, 
-    file_url: str,
-    output_path: Path
+    session: requests.Session, file_url: str, output_path: Path
 ) -> AISRFileUploadResponse:
     """
     Download a vaccination records file from the provided URL and save it to the specified path.
-    
+
     Returns a response indicating success or failure.
     """
     res = session.get(file_url, timeout=60)
-    
+
     if res.status_code != 200:
         raise AISRActionFailedException(
             f"Failed to download file: {res.status_code} - {res.text}"
         )
-    
+
     with open(output_path, "w", encoding="utf-8") as file:
         file.write(res.content.decode("utf-8"))
-    
+
     return AISRFileUploadResponse(
-        is_successful=True,
-        message=f"File downloaded successfully to {output_path}"
+        is_successful=True, message=f"File downloaded successfully to {output_path}"
     )
 
 

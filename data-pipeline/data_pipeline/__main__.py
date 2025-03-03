@@ -51,15 +51,20 @@ def run():
     logs_folder = config.get("paths", {}).get("logs_folder", Path("logs"))
     setup_logging("dev", log_dir=logs_folder)
 
-    if args.command == "transform":
-        handle_transform_command(config)
-    elif args.command == "bulk-query":
-        handle_bulk_query_command(args, config)
-    elif args.command == "get-vaccinations":
-        handle_get_vaccinations_command(args, config)
-    else:
-        parser.print_help()
-        sys.exit(1)
+    logger = logging.getLogger(__name__)
+
+    try:
+        if args.command == "transform":
+            handle_transform_command(config)
+        elif args.command == "bulk-query":
+            handle_bulk_query_command(args, config)
+        elif args.command == "get-vaccinations":
+            handle_get_vaccinations_command(args, config)
+        else:
+            parser.print_help()
+            sys.exit(1)
+    except Exception as e:
+        logger.error("Program failed with error %s", e)
 
 
 if __name__ == "__main__":
