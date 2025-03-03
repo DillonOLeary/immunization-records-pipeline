@@ -11,7 +11,7 @@ from tests.test_utils import execute_transform_subprocess
 
 def test_cli_runs_for_all_test_files(tmp_path, test_env):
     # Unpack test environment
-    _, _, _, config_path = test_env
+    _, _, _, _, config_path = test_env
 
     result = execute_transform_subprocess(config_path)
 
@@ -27,7 +27,7 @@ def test_cli_runs_for_all_test_files(tmp_path, test_env):
 
 def test_cli_creates_non_existent_output_folder(test_env):
     # Unpack test environment
-    _, output_folder, _, config_path = test_env
+    _, output_folder, _, _, config_path = test_env
 
     # Remove output folder if it exists
     if output_folder.exists():
@@ -48,7 +48,7 @@ def test_cli_creates_non_existent_output_folder(test_env):
 
 def test_cli_correct_output_file_contents(test_env):
     # Unpack test environment
-    _, output_folder, _, config_path = test_env
+    _, output_folder, _, _, config_path = test_env
 
     # Run transform
     result = execute_transform_subprocess(config_path)
@@ -77,7 +77,7 @@ def test_cli_correct_output_file_contents(test_env):
 
 def test_cli_runs_for_multiple_test_files(test_env):
     # Unpack test environment
-    input_folder, output_folder, _, config_path = test_env
+    input_folder, output_folder, _, _, config_path = test_env
 
     # Clear the input folder (remove the default test file)
     for file in input_folder.iterdir():
@@ -125,7 +125,7 @@ def test_cli_runs_for_multiple_test_files(test_env):
 
 def test_cli_creates_metadata_file_with_correct_fields(test_env):
     # Unpack test environment
-    _, output_folder, _, config_path = test_env
+    _, output_folder, _, _, config_path = test_env
 
     # Run transform
     result = execute_transform_subprocess(config_path)
@@ -159,7 +159,7 @@ def test_cli_creates_metadata_file_with_correct_fields(test_env):
 
 def test_cli_creates_execution_metadata(test_env):
     # Unpack test environment
-    _, output_folder, _, config_path = test_env
+    _, output_folder, _, _, config_path = test_env
 
     # Run transform
     result = execute_transform_subprocess(config_path)

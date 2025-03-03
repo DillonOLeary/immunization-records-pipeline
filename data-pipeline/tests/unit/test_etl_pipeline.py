@@ -105,7 +105,7 @@ def test_pipeline_calls_data_load_function():
 
 
 def test_run_etl_on_folder_creates_output_folder(test_env):
-    input_folder, output_folder, _, _ = test_env
+    input_folder, output_folder, _, _, _ = test_env
 
     run_etl_on_folder(input_folder, output_folder, lambda input_file, output_dir: "")
 
@@ -114,7 +114,7 @@ def test_run_etl_on_folder_creates_output_folder(test_env):
 
 
 def test_run_etl_on_folder_calls_etl_fn(test_env):
-    input_folder, output_folder, _, _ = test_env
+    input_folder, output_folder, _, _, _ = test_env
 
     test_file = input_folder / "test_file.csv"
     # File is already created by test_env fixture
@@ -128,7 +128,7 @@ def test_run_etl_on_folder_calls_etl_fn(test_env):
 
 
 def test_run_etl_on_folder_no_input_files(test_env):
-    input_folder, output_folder, _, _ = test_env
+    input_folder, output_folder, _, _, _ = test_env
 
     # Clear input folder first
     for file in input_folder.glob("*"):
@@ -142,7 +142,7 @@ def test_run_etl_on_folder_no_input_files(test_env):
 
 
 def test_run_etl_on_folder_handles_extract_exception(test_env, caplog):
-    input_folder, output_folder, _, _ = test_env
+    input_folder, output_folder, _, _, _ = test_env
 
     def failing_etl_fn(input_file, output_folder):
         raise ETLExecutionFailureError("Mock extract error")

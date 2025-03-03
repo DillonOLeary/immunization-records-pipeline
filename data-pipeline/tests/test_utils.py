@@ -5,6 +5,7 @@ Utils used for testing the data pipeline.
 import json
 import os
 import subprocess
+from pathlib import Path
 
 
 def execute_transform_subprocess(config_path=None):
@@ -58,12 +59,22 @@ def create_test_config(config_path, fastapi_server):
     auth_base_url = f"{fastapi_server}/mock-auth-server"
     api_base_url = fastapi_server
 
+    # Get the bulk_query_folder from config
+    bulk_query_folder = config["paths"]["bulk_query_folder"]
+    query_file_path = Path(bulk_query_folder) / "query.csv"
+
+    with open(query_file_path, "w", encoding="utf-8") as f:
+        f.write("student_id,first_name,last_name,dob\n")
+        f.write("12345,John,Doe,2010-01-01\n")
+        f.write("67890,Jane,Smith,2011-02-02\n")
+
     # School configuration
     school_config = {
         "name": "Friendly Hills",
         "id": "1234",
         "classification": "N",
         "email": "test@example.com",
+        "bulk_query_file": str(query_file_path),
     }
 
     config.update(
@@ -76,16 +87,6 @@ def create_test_config(config_path, fastapi_server):
     # Write updated config
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
-
-    # Create a query file with the expected naming pattern
-    input_folder = config["paths"]["input_folder"]
-    school_id = school_config["id"]
-    query_file_path = os.path.join(input_folder, f"{school_id}_query.csv")
-
-    with open(query_file_path, "w", encoding="utf-8") as f:
-        f.write("student_id,first_name,last_name,dob\n")
-        f.write("12345,John,Doe,2010-01-01\n")
-        f.write("67890,Jane,Smith,2011-02-02\n")
 
     return config_path
 

@@ -27,8 +27,9 @@ def setup_test_environment(tmp_path):
     input_folder = tmp_path / "input"
     output_folder = tmp_path / "output"
     logs_folder = tmp_path / "logs"
+    bulk_query_folder = tmp_path / "bulk_query"
 
-    for folder in [input_folder, output_folder, logs_folder]:
+    for folder in [input_folder, output_folder, logs_folder, bulk_query_folder]:
         folder.mkdir(exist_ok=True)
 
     # Create a sample input file
@@ -48,6 +49,7 @@ def setup_test_environment(tmp_path):
             "input_folder": str(input_folder),
             "output_folder": str(output_folder),
             "logs_folder": str(logs_folder),
+            "bulk_query_folder": str(bulk_query_folder),
         }
     }
 
@@ -55,7 +57,7 @@ def setup_test_environment(tmp_path):
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
 
-    yield input_folder, output_folder, logs_folder, config_path
+    yield input_folder, output_folder, logs_folder, bulk_query_folder, config_path
 
     # Clean up after test
     for file in input_folder.glob("*"):
@@ -63,6 +65,8 @@ def setup_test_environment(tmp_path):
     for file in output_folder.glob("*"):
         file.unlink()
     for file in logs_folder.glob("*"):
+        file.unlink()
+    for file in bulk_query_folder.glob("*"):
         file.unlink()
 
 

@@ -11,12 +11,12 @@ USERNAME = "test_user"
 PASSWORD = "test_password"
 
 
-def test_cli_query_executes_successfully(fastapi_server, tmp_path, test_env):
+def test_cli_query_executes_successfully(fastapi_server, test_env):
     """
     Test that the CLI query command runs successfully.
     """
     # Unpack test environment
-    _, _, _, config_path = test_env
+    _, _, _, _, config_path = test_env
 
     # Add API configuration
     config_path = create_test_config(config_path, fastapi_server)
@@ -31,12 +31,12 @@ def test_cli_query_executes_successfully(fastapi_server, tmp_path, test_env):
     assert "Processing request for Friendly Hills" in result.stdout.decode()
 
 
-def test_cli_query_with_env_password(fastapi_server, tmp_path, test_env):
+def test_cli_query_with_env_password(fastapi_server, test_env):
     """
     Test that the CLI query command works with password provided via environment variable.
     """
     # Unpack test environment
-    _, _, _, config_path = test_env
+    _, _, _, _, config_path = test_env
 
     # Add API configuration
     config_path = create_test_config(config_path, fastapi_server)
@@ -65,7 +65,7 @@ def test_cli_query_authentication_failure(fastapi_server, test_env):
     Test that the CLI shows appropriate error message on authentication failure.
     """
     # Unpack test environment
-    _, _, _, config_path = test_env
+    _, _, _, _, config_path = test_env
 
     # Add API configuration
     config_path = create_test_config(config_path, fastapi_server)
