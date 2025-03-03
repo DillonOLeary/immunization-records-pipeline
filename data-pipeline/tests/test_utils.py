@@ -2,6 +2,7 @@
 Utils used for testing the data pipeline.
 """
 
+# pylint: disable=duplicate-code
 import json
 import os
 import subprocess
