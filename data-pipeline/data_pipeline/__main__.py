@@ -28,19 +28,19 @@ def parse_args():
         description="Run the immunization data pipeline, transforming and saving data."
     )
     parser.add_argument(
-        "--input_folder",
+        "--input-folder",
         type=Path,
         required=True,
         help="Path to the input folder containing CSV files (AISR data)",
     )
     parser.add_argument(
-        "--output_folder",
+        "--output-folder",
         type=Path,
         required=True,
         help="Path to the folder where transformed files will be saved",
     )
     parser.add_argument(
-        "--logs_folder",
+        "--logs-folder",
         type=Path,
         required=False,
         default="logs",
