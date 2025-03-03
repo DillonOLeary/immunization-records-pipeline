@@ -39,18 +39,20 @@ def execute_transform_subprocess(config_path=None):
     return result
 
 
-def create_test_config(config_path, fastapi_server):
+def create_test_config(config_path, fastapi_server, tmp_path=None):
     """
     Add API server configuration to a test config file and create necessary query files.
 
     Args:
-        tmp_path: Pytest's temporary path fixture
         config_path: Path to existing configuration file
         fastapi_server: URL to the mock FastAPI server
+        tmp_path: Pytest's temporary path fixture. If None, uses the directory from config_path.
 
     Returns:
         Path to the updated configuration file
     """
+    if tmp_path is None:
+        tmp_path = Path(config_path).parent
     # Read existing config
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
@@ -59,9 +61,14 @@ def create_test_config(config_path, fastapi_server):
     auth_base_url = f"{fastapi_server}/mock-auth-server"
     api_base_url = fastapi_server
 
-    # Get the bulk_query_folder from config
-    bulk_query_folder = config["paths"]["bulk_query_folder"]
-    query_file_path = Path(bulk_query_folder) / "query.csv"
+    # Create a query file in the bulk_query_folder with a school-specific subfolder
+    query_folder = Path(tmp_path) / "bulk_query"
+    query_folder.mkdir(exist_ok=True)
+    
+    # Create a school-specific folder
+    school_folder = query_folder / "Friendly Hills"
+    school_folder.mkdir(exist_ok=True)
+    query_file_path = school_folder / "query.csv"
 
     with open(query_file_path, "w", encoding="utf-8") as f:
         f.write("student_id,first_name,last_name,dob\n")

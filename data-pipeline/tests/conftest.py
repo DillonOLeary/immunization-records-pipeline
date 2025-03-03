@@ -49,7 +49,6 @@ def setup_test_environment(tmp_path):
             "input_folder": str(input_folder),
             "output_folder": str(output_folder),
             "logs_folder": str(logs_folder),
-            "bulk_query_folder": str(bulk_query_folder),
         }
     }
 
@@ -66,8 +65,15 @@ def setup_test_environment(tmp_path):
         file.unlink()
     for file in logs_folder.glob("*"):
         file.unlink()
-    for file in bulk_query_folder.glob("*"):
-        file.unlink()
+    for file in bulk_query_folder.glob("**/*"):
+        if file.is_file():
+            file.unlink()
+    # Remove school directories in bulk_query_folder
+    for dir_path in bulk_query_folder.glob("*"):
+        if dir_path.is_dir():
+            for f in dir_path.glob("*"):
+                f.unlink()
+            dir_path.rmdir()
 
 
 # Removed folders fixture in favor of test_env fixture

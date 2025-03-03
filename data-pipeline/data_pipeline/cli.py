@@ -88,8 +88,7 @@ def load_config(config_path: Path) -> Dict:
         "paths": {
             "input_folder": "/path/to/input",
             "output_folder": "/path/to/output",
-            "logs_folder": "/path/to/logs",
-            "bulk_query_folder": "/path/to/bulk_query"
+            "logs_folder": "/path/to/logs"
         },
         "api": {
             "auth_base_url": "https://authenticator4.web.health.state.mn.us",
@@ -100,7 +99,8 @@ def load_config(config_path: Path) -> Dict:
                 "name": "Friendly Hills",
                 "id": "1234",
                 "classification": "N",
-                "email": "test@example.com"
+                "email": "test@example.com",
+                "bulk_query_file": "/path/to/query_files/Friendly Hills/query.csv"
             }
         ]
     }
@@ -126,7 +126,7 @@ def load_config(config_path: Path) -> Dict:
 
     # Convert string paths to Path objects
     paths = config["paths"]
-    for key in ["input_folder", "output_folder", "logs_folder", "bulk_query_folder"]:
+    for key in ["input_folder", "output_folder", "logs_folder"]:
         if key in paths and isinstance(paths[key], str):
             paths[key] = Path(paths[key])
 
@@ -197,39 +197,16 @@ def validate_input_folder(config: Dict) -> Path:
     return Path(input_folder)
 
 
-def validate_bulk_query_folder(config: Dict) -> Path:
-    """
-    Validate the bulk query folder exists.
-
-    The bulk_query_folder is where query files for AISR bulk queries are stored.
-
-    Args:
-        config: Configuration dictionary
-
-    Returns:
-        Path to bulk query folder
-
-    Raises:
-        ValueError: If bulk query folder is missing or doesn't exist
-    """
-    bulk_query_folder = config["paths"].get("bulk_query_folder")
-    if not bulk_query_folder or not Path(bulk_query_folder).exists():
-        raise ValueError(
-            "Bulk query folder (bulk_query_folder) doesn't exist or is not configured"
-        )
-
-    return Path(bulk_query_folder)
 
 
 def get_school_query_information(
-    schools: list, query_folder: Path
+    schools: list
 ) -> list[SchoolQueryInformation]:
     """
     Create SchoolQueryInformation objects for each school.
 
     Args:
-        schools: List of school configurations
-        query_folder: Path to bulk query folder containing query files
+        schools: List of school configurations with bulk_query_file paths
 
     Returns:
         List of SchoolQueryInformation objects
@@ -254,14 +231,14 @@ def get_school_query_information(
             logger.error("School %s is missing required information", school_name)
             continue
 
-        # Convert string path to Path object
+        # Convert string path to Path object and check if it exists
         query_file = Path(query_file_str)
         if not query_file.exists():
             logger.error(
                 "Query file not found for school %s: %s", school_name, query_file
             )
             raise ValueError(
-                f"No query file for {school_name} in bulk query folder"
+                f"No query file found at {query_file} for {school_name}"
             )
 
         logger.info("Processing request for %s", school_name)
@@ -343,14 +320,10 @@ def handle_bulk_query_command(args: argparse.Namespace, config: Dict) -> None:
 
     # Validate configuration
     auth_url, api_url = validate_api_config(config)
-    
-    # Use the bulk query folder for query files
-    bulk_query_folder = validate_bulk_query_folder(config)
-    logger.info("Using bulk query folder: %s", bulk_query_folder)
 
-    # Get school query information
+    # Get school query information directly from school configurations
     school_info_list = get_school_query_information(
-        config.get("schools", []), bulk_query_folder
+        config.get("schools", [])
     )
 
     # Execute the bulk query
