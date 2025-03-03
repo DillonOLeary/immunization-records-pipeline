@@ -174,20 +174,23 @@ def validate_api_config(config: Dict) -> tuple[str, str]:
 
 def validate_input_folder(config: Dict) -> Path:
     """
-    Validate the input folder exists.
+    Validate the input folder (AISR downloads folder) exists.
+    
+    The input_folder is where AISR downloaded files are stored before processing.
+    For bulk-query command, this folder should contain query files.
 
     Args:
         config: Configuration dictionary
 
     Returns:
-        Path to input folder
+        Path to input folder (AISR downloads)
 
     Raises:
         ValueError: If input folder is missing or doesn't exist
     """
     input_folder = config["paths"].get("input_folder")
     if not input_folder or not Path(input_folder).exists():
-        raise ValueError("Input folder doesn't exist or is not configured")
+        raise ValueError("AISR downloads folder (input_folder) doesn't exist or is not configured")
 
     return Path(input_folder)
 
@@ -200,7 +203,7 @@ def get_school_query_information(
 
     Args:
         schools: List of school configurations
-        input_folder: Path to input folder
+        input_folder: Path to AISR downloads folder containing query files
 
     Returns:
         List of SchoolQueryInformation objects
@@ -224,13 +227,13 @@ def get_school_query_information(
             logger.error("School %s is missing required information", school_name)
             continue
 
-        # Use the school ID to find a matching query file
+        # Use the school ID to find a matching query file in the AISR downloads folder
         query_file = input_folder / f"{school_id}_query.csv"
         if not query_file.exists():
             logger.error(
                 "Query file not found for school %s: %s", school_name, query_file
             )
-            raise ValueError(f"No query file for {school_name}")
+            raise ValueError(f"No query file for {school_name} in AISR downloads folder")
 
         logger.info("Processing request for %s", school_name)
 
@@ -347,11 +350,11 @@ def handle_transform_command(config: Dict) -> None:
 
     # Get paths from config
     paths = config.get("paths", {})
-    input_folder = paths.get("input_folder")
+    input_folder = paths.get("input_folder")  # AISR downloads folder
     output_folder = paths.get("output_folder")
 
     if not input_folder or not output_folder:
-        logger.error("Missing input or output folder in configuration")
+        logger.error("Missing AISR downloads folder (input_folder) or output folder in configuration")
         sys.exit(1)
 
     # Ensure output folder exists

@@ -47,8 +47,10 @@ def run_etl_on_folder(
     input_folder: Path, output_folder: Path, etl_fn: Callable[[Path, Path], str]
 ):
     """
-    Runs the ETL pipeline for all CSV files in the input folder
+    Runs the ETL pipeline for all CSV files in the input folder (AISR downloads)
     and saves the results to the output folder.
+    
+    The input_folder should contain CSV files downloaded from AISR.
     """
     logger.info("Starting ETL on folder: %s", input_folder)
 

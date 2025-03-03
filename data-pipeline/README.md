@@ -15,9 +15,9 @@ Create a JSON configuration file with the following structure:
 ```json
 {
   "paths": {
-    "input_folder": "path/to/input",
-    "output_folder": "path/to/output",
-    "logs_folder": "path/to/logs"
+    "input_folder": "path/to/aisr_downloads",  # Folder containing AISR downloaded files
+    "output_folder": "path/to/output",         # Folder where transformed files will be saved
+    "logs_folder": "path/to/logs"              # Folder for application logs
   },
   "api": {
     "auth_base_url": "https://authenticator-url",
