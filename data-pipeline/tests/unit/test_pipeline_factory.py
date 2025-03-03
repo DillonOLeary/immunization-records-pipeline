@@ -3,7 +3,7 @@ Unit tests for the pipeline factory
 """
 
 import requests
-from data_pipeline.aisr.authenticate import AISRAuthResponse, login, logout
+from data_pipeline.aisr.authenticate import login, logout
 from data_pipeline.pipeline_factory import (
     SchoolQueryInformation,
     create_aisr_actions_for_school_bulk_queries,
