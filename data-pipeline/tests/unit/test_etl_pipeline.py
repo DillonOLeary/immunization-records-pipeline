@@ -104,21 +104,20 @@ def test_pipeline_calls_data_load_function():
     assert called, "The load function was not called"
 
 
-def test_run_etl_on_folder_creates_output_folder(folders):
-    input_folder, output_folder, _ = folders
+def test_run_etl_on_folder_creates_output_folder(test_env):
+    input_folder, output_folder, _, _ = test_env
 
-    run_etl_on_folder(input_folder, output_folder, lambda: "")
+    run_etl_on_folder(input_folder, output_folder, lambda input_file, output_dir: "")
 
     # Assert that the output folder was created
     assert output_folder.exists(), "Output folder was not created"
 
 
-def test_run_etl_on_folder_calls_etl_fn(folders):
-    input_folder, output_folder, _ = folders
+def test_run_etl_on_folder_calls_etl_fn(test_env):
+    input_folder, output_folder, _, _ = test_env
 
     test_file = input_folder / "test_file.csv"
-    with open(test_file, "w", encoding="utf-8") as f:
-        f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
+    # File is already created by test_env fixture
 
     # Create a mock function and track its calls
     mock_etl_fn = MagicMock()
@@ -128,21 +127,22 @@ def test_run_etl_on_folder_calls_etl_fn(folders):
     mock_etl_fn.assert_called_once_with(test_file, output_folder)
 
 
-def test_run_etl_on_folder_no_input_files(folders):
-    input_folder, output_folder, _ = folders
+def test_run_etl_on_folder_no_input_files(test_env):
+    input_folder, output_folder, _, _ = test_env
+
+    # Clear input folder first
+    for file in input_folder.glob("*"):
+        file.unlink()
 
     # Run the ETL process with no files in input folder
-    run_etl_on_folder(input_folder, output_folder, lambda: "")
+    run_etl_on_folder(input_folder, output_folder, lambda input_file, output_dir: "")
 
     # Assert that no output files were created
     assert len(os.listdir(output_folder)) == 0, "Output files were created unexpectedly"
 
 
-def test_run_etl_on_folder_handles_extract_exception(folders, caplog):
-    input_folder, output_folder, _ = folders
-
-    dummy_csv = input_folder / "test.csv"
-    dummy_csv.touch()
+def test_run_etl_on_folder_handles_extract_exception(test_env, caplog):
+    input_folder, output_folder, _, _ = test_env
 
     def failing_etl_fn(input_file, output_folder):
         raise ETLExecutionFailureError("Mock extract error")

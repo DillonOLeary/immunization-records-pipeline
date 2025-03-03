@@ -9,36 +9,36 @@ from tests.test_utils import execute_transform_subprocess
 # pylint: disable=missing-function-docstring
 
 
-def test_cli_runs_for_all_test_files(folders):
-    input_folder, output_folder, logs_folder = folders
+def test_cli_runs_for_all_test_files(tmp_path, test_env):
+    # Unpack test environment
+    _, _, _, config_path = test_env
 
-    test_file = os.path.join(input_folder, "test_file.csv")
-    with open(test_file, "w", encoding="utf-8") as f:
-        f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
-        f.write("123|456|COVID-19|11/17/2024\n")
-        f.write("789|101|Flu|11/16/2024\n")
-        f.write("112|131|COVID-19|11/15/2024\n")
+    result = execute_transform_subprocess(tmp_path, config_path)
 
-    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
-
+    # Check if command executed successfully
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
+
+    # Check if output files were created
+    output_folder = tmp_path / "output"
     assert (
         len(os.listdir(output_folder)) > 0
     ), "No files were created in the output folder"
 
 
-def test_cli_creates_non_existent_output_folder(folders):
-    input_folder, output_folder, logs_folder = folders
+def test_cli_creates_non_existent_output_folder(tmp_path, test_env):
+    # Unpack test environment
+    _, output_folder, _, config_path = test_env
 
-    test_file = os.path.join(input_folder, "test_file.csv")
-    with open(test_file, "w", encoding="utf-8") as f:
-        f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
-        f.write("123|456|COVID-19|11/17/2024\n")
-        f.write("789|101|Flu|11/16/2024\n")
-        f.write("112|131|COVID-19|11/15/2024\n")
+    # Remove output folder if it exists
+    if output_folder.exists():
+        for file in output_folder.iterdir():
+            file.unlink()
+        output_folder.rmdir()
 
-    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
+    # Run transform
+    result = execute_transform_subprocess(tmp_path, config_path)
 
+    # Check results
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
     assert output_folder.exists(), "Output folder was not created."
     assert (
@@ -46,20 +46,17 @@ def test_cli_creates_non_existent_output_folder(folders):
     ), "No files were created in the output folder."
 
 
-def test_cli_correct_output_file_contents(folders):
-    input_folder, output_folder, logs_folder = folders
+def test_cli_correct_output_file_contents(tmp_path, test_env):
+    # Unpack test environment
+    _, output_folder, _, config_path = test_env
 
-    test_file = os.path.join(input_folder, "test_file.csv")
-    with open(test_file, "w", encoding="utf-8") as f:
-        f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
-        f.write("123|456|COVID-19|11/17/2024\n")
-        f.write("789|101|Flu|11/16/2024\n")
-        f.write("112|131|COVID-19|11/15/2024\n")
+    # Run transform
+    result = execute_transform_subprocess(tmp_path, config_path)
 
-    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
-
+    # Check if command executed successfully
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
 
+    # Verify output file contents
     output_files = list(output_folder.glob("*.csv"))
     assert (
         len(output_files) == 1
@@ -78,14 +75,19 @@ def test_cli_correct_output_file_contents(folders):
     assert lines == expected_lines, f"Output file contents are incorrect: {lines}"
 
 
-def test_cli_runs_for_multiple_test_files(folders):
-    input_folder, output_folder, logs_folder = folders
+def test_cli_runs_for_multiple_test_files(tmp_path, test_env):
+    # Unpack test environment
+    input_folder, output_folder, _, config_path = test_env
+
+    # Clear the input folder (remove the default test file)
+    for file in input_folder.iterdir():
+        file.unlink()
 
     # Create multiple test CSV files
     test_files = [
-        os.path.join(input_folder, "test_file_1.csv"),
-        os.path.join(input_folder, "test_file_2.csv"),
-        os.path.join(input_folder, "test_file_3.csv"),
+        input_folder / "test_file_1.csv",
+        input_folder / "test_file_2.csv",
+        input_folder / "test_file_3.csv",
     ]
 
     # Write data to each test file
@@ -96,7 +98,8 @@ def test_cli_runs_for_multiple_test_files(folders):
             f.write(f"789{i}|101|Flu|11/16/2024\n")
             f.write(f"112{i}|131|COVID-19|11/15/2024\n")
 
-    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
+    # Run the transform command, using the existing config file
+    result = execute_transform_subprocess(tmp_path, config_path)
 
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
 
@@ -120,20 +123,17 @@ def test_cli_runs_for_multiple_test_files(folders):
         assert lines == expected_lines, f"Output file contents are incorrect: {lines}"
 
 
-def test_cli_creates_metadata_file_with_correct_fields(folders):
-    input_folder, output_folder, logs_folder = folders
+def test_cli_creates_metadata_file_with_correct_fields(tmp_path, test_env):
+    # Unpack test environment
+    _, output_folder, _, config_path = test_env
 
-    test_file = os.path.join(input_folder, "test_file.csv")
-    with open(test_file, "w", encoding="utf-8") as f:
-        f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
-        f.write("123|456|COVID-19|11/17/2024\n")
-        f.write("789|101|Flu|11/16/2024\n")
-        f.write("112|131|COVID-19|11/15/2024\n")
+    # Run transform
+    result = execute_transform_subprocess(tmp_path, config_path)
 
-    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
-
+    # Check if command executed successfully
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
 
+    # Verify metadata file
     metadata_files = list(
         (output_folder / "metadata").glob("*.json")
     )  # Assuming metadata is a JSON file
@@ -157,19 +157,22 @@ def test_cli_creates_metadata_file_with_correct_fields(folders):
     ), "metadata file does not contain 'result_message'."
 
 
-def test_cli_creates_log_file(folders):
-    input_folder, output_folder, logs_folder = folders
+def test_cli_creates_execution_metadata(tmp_path, test_env):
+    # Unpack test environment
+    _, output_folder, _, config_path = test_env
 
-    test_file = os.path.join(input_folder, "test_file.csv")
-    with open(test_file, "w", encoding="utf-8") as f:
-        f.write("id_1|id_2|vaccine_group_name|vaccination_date\n")
-        f.write("123|456|COVID-19|11/17/2024\n")
-        f.write("789|101|Flu|11/16/2024\n")
-        f.write("112|131|COVID-19|11/15/2024\n")
+    # Run transform
+    result = execute_transform_subprocess(tmp_path, config_path)
 
-    result = execute_transform_subprocess(input_folder, output_folder, logs_folder)
-
+    # Check if command executed successfully
     assert result.returncode == 0, f"CLI failed with error: {result.stderr.decode()}"
-    assert (
-        len(os.listdir(logs_folder)) > 0
-    ), "No files were created in the output folder"
+
+    # Verify execution metadata file was created
+    metadata_folder = output_folder / "metadata"
+
+    # Check if metadata folder exists
+    assert metadata_folder.exists(), "Metadata folder was not created"
+
+    # Look for files that start with execution_metadata
+    execution_metadata_files = list(metadata_folder.glob("execution_metadata*.json"))
+    assert len(execution_metadata_files) > 0, "No execution metadata files were created"
