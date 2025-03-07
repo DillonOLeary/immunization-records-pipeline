@@ -207,7 +207,7 @@ def create_mock_app():
         return [
             {
                 "id": 16386,
-                "schoolId": int(school_id),
+                "schoolId": school_id,
                 "uploadDateTime": 1740764967763,
                 "fileName": "test-file.csv",
                 "s3FileUrl": "https://example.com/test.csv",

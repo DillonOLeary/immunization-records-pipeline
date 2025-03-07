@@ -49,7 +49,7 @@ def run_etl_on_folder(
     """
     Runs the ETL pipeline for all CSV files in the input folder (AISR downloads)
     and saves the results to the output folder.
-    
+
     The input_folder should contain CSV files downloaded from AISR.
     """
     logger.info("Starting ETL on folder: %s", input_folder)

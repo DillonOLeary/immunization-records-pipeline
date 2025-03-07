@@ -15,6 +15,7 @@ from data_pipeline.aisr.actions import (
     bulk_query_aisr,
     download_vaccination_records,
     get_latest_vaccination_records_url,
+    get_and_download_vaccination_records,
 )
 
 UPLOAD_FILE_NAME = "test_file.csv"
@@ -106,6 +107,27 @@ def test_download_vaccination_records(fastapi_server, tmp_path):
         response = download_vaccination_records(
             session=local_session,
             file_url=url,
+            output_path=test_output_path,
+        )
+
+    assert response.is_successful, "File download should be successful"
+    assert test_output_path.exists(), "Output file should exist"
+
+    with open(test_output_path, "r", encoding="utf-8") as file:
+        content = file.read()
+
+    assert "John Doe" in content, "Downloaded content should contain expected data"
+
+
+def test_get_and_download_vaccination_records(fastapi_server, tmp_path):
+    test_output_path = tmp_path / "downloaded_vaccinations_combined.csv"
+
+    with requests.Session() as local_session:
+        response = get_and_download_vaccination_records(
+            session=local_session,
+            access_token="mocked-access-token",
+            base_url=fastapi_server,
+            school_id="1234",
             output_path=test_output_path,
         )
 
