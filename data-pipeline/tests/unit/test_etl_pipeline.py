@@ -160,16 +160,12 @@ def test_aisr_runs_bulk_queries():
     called_query_1 = False
     called_query_2 = False
 
-    def mock_query_function_1(
-        session: requests.Session, access_token: str
-    ) -> None:
+    def mock_query_function_1(session: requests.Session, access_token: str) -> None:
         # pylint: disable=unused-argument
         nonlocal called_query_1
         called_query_1 = True
 
-    def mock_query_function_2(
-        session: requests.Session, access_token: str
-    ) -> None:
+    def mock_query_function_2(session: requests.Session, access_token: str) -> None:
         # pylint: disable=unused-argument
         nonlocal called_query_2
         called_query_2 = True
@@ -208,9 +204,7 @@ def test_aisr_login_logout():
 
 
 def test_aisr_bulk_queries_handles_exceptions():
-    def mock_query_function(
-        session: requests.Session, access_token: str
-    ) -> None:
+    def mock_query_function(session: requests.Session, access_token: str) -> None:
         raise AISRActionFailedException("Mock query failure")
 
     run_aisr_workflow(
