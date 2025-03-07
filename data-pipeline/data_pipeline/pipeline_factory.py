@@ -2,12 +2,18 @@
 Factory for creating the pipeline and related tools
 """
 
+import uuid
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import requests
-from data_pipeline.aisr.actions import SchoolQueryInformation, bulk_query_aisr
+from data_pipeline.aisr.actions import (
+    SchoolQueryInformation,
+    bulk_query_aisr,
+    get_and_download_vaccination_records,
+)
 from data_pipeline.aisr.authenticate import AISRAuthResponse
 from data_pipeline.etl_workflow import run_aisr_workflow, run_etl
 
@@ -89,3 +95,59 @@ def create_aisr_workflow(
         )
 
     return aisr_fn
+
+
+def generate_vaccination_record_filename(school_name: str) -> str:
+    """
+    Generate a filename for downloaded vaccination records.
+
+    Args:
+        school_name: Name of the school
+
+    Returns:
+        A filename string with the format 'vaccinations_SchoolName_YYYYMMDD_HHMMSS_uniqueID.csv'
+    """
+    # Clean up school name for filename (replace spaces with underscores)
+    clean_school_name = school_name.replace(" ", "_")
+
+    # Add timestamp and unique ID
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = uuid.uuid4().hex[:8]  # Shortened UUID for brevity
+
+    return f"vaccinations_{clean_school_name}_{timestamp}_{unique_id}.csv"
+
+
+def create_aisr_download_actions(
+    school_info_list: list[SchoolQueryInformation],
+    output_folder: Path,
+) -> list[Callable[..., None]]:
+    """
+    Creates a list of download functions for each school in the provided list.
+    Each function will download vaccination records for a school to a file in the output folder.
+
+    Args:
+        school_info_list: List of SchoolQueryInformation objects
+        output_folder: Folder where downloaded files will be saved
+
+    Returns:
+        List of functions that can be used to download vaccination records
+    """
+    function_list = []
+    for school_info in school_info_list:
+        # Create a specific output file for this school with a unique filename
+        output_filename = generate_vaccination_record_filename(school_info.school_name)
+        output_file = output_folder / output_filename
+
+        # Create a download function for this school - binding both the function and parameters
+        function_list.append(
+            # pylint: disable-next=line-too-long
+            lambda session, access_token, base_url, school_id=school_info.school_id, output_path=output_file, func=get_and_download_vaccination_records: func(
+                session=session,
+                access_token=access_token,
+                base_url=base_url,
+                school_id=school_id,
+                output_path=output_path,
+            )
+        )
+
+    return function_list

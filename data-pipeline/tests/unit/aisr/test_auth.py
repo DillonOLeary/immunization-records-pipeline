@@ -70,7 +70,9 @@ def test_login_failure(fastapi_server):
             assert False, "Login should raise an exception with invalid credentials"
         except AuthenticationError as e:
             assert "Login failed" in str(e), "Exception should mention login failure"
-            assert "Invalid credentials" in str(e), "Exception should mention invalid credentials"
+            assert "Invalid credentials" in str(
+                e
+            ), "Exception should mention invalid credentials"
 
 
 def test_logout_successful(fastapi_server):

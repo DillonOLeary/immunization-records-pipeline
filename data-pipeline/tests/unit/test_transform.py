@@ -2,7 +2,7 @@
 Tests for the transformation of the data files
 """
 
-# pylint: disable=missing-function-docstring,duplicate-code
+# pylint: disable=missing-function-docstring,duplicate-code,R0801
 
 from datetime import datetime
 
