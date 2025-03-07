@@ -189,29 +189,29 @@ def download_vaccination_records(
         file.write(content)
 
     return AISRFileDownloadResponse(
-        is_successful=True, 
+        is_successful=True,
         message=f"File downloaded successfully to {output_path}",
-        content=content
+        content=content,
     )
 
 
 def get_and_download_vaccination_records(
     session: requests.Session,
-    access_token: str, 
+    access_token: str,
     base_url: str,
     school_id: str,
-    output_path: Path
+    output_path: Path,
 ) -> AISRFileDownloadResponse:
     """
     Get the latest vaccination records URL and download the file to the specified path.
-    
+
     Args:
         session: Requests session with authentication
         access_token: AISR access token
         base_url: AISR API base URL
         school_id: School ID to get vaccination records for
         output_path: Path to save the downloaded file
-        
+
     Returns:
         AISRFileDownloadResponse containing success status and message
     """
@@ -220,19 +220,17 @@ def get_and_download_vaccination_records(
         session=session,
         base_url=base_url,
         access_token=access_token,
-        school_id=school_id
+        school_id=school_id,
     )
-    
+
     if not url:
         raise AISRActionFailedException(
             f"No vaccination records available for school ID {school_id}"
         )
-    
+
     # Download the file
     return download_vaccination_records(
-        session=session,
-        file_url=url,
-        output_path=output_path
+        session=session, file_url=url, output_path=output_path
     )
 
 

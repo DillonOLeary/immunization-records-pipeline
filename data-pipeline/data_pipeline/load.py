@@ -2,9 +2,7 @@
 Functions for loading data
 """
 
-import uuid
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -13,7 +11,7 @@ import pandas as pd
 def default_filename_generator(input_file_name: str) -> str:
     """Generate a transformed filename by adding a 'transformed_' prefix."""
     input_file_path = Path(input_file_name)
-    
+
     # Simply add 'transformed_' prefix to the original filename
     return f"transformed_{input_file_path.name}"
 

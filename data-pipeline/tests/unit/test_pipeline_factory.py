@@ -75,20 +75,19 @@ def test_generate_download_functions(fastapi_server, tmp_path):
             "dummy_file_path",
         ),
     ]
-    
+
     # Create download folder
     download_folder = tmp_path / "downloads"
     download_folder.mkdir(exist_ok=True)
-    
+
     # Generate download functions
     download_functions = create_aisr_download_actions(
-        school_info_list=school_information_list,
-        output_folder=download_folder
+        school_info_list=school_information_list, output_folder=download_folder
     )
-    
+
     # Check that we got the right number of functions
     assert len(download_functions) == 2, "Should create one function per school"
-    
+
     # Test the functions
     with requests.Session() as session:
         for download_function in download_functions:
@@ -98,16 +97,19 @@ def test_generate_download_functions(fastapi_server, tmp_path):
                 "mocked-access-token",
                 fastapi_server,
             )
-    
+
     # Verify files were created - they should follow our naming pattern
     files = list(download_folder.glob("vaccinations_*.csv"))
     assert len(files) == 2, "Should create one file per school"
-    
+
     # Check file contents
     for file_path in files:
         # Verify the filename pattern
-        assert "vaccinations_test_school_" in file_path.name or "vaccinations_test_school_2_" in file_path.name
-        
+        assert (
+            "vaccinations_test_school_" in file_path.name
+            or "vaccinations_test_school_2_" in file_path.name
+        )
+
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
             # The mock server returns content with "John Doe"

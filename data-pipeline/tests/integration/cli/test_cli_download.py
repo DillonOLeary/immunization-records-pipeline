@@ -2,6 +2,8 @@
 Integration tests for the CLI download command.
 """
 
+# pylint: disable=duplicate-code,R0801
+
 import os
 
 from tests.test_utils import create_test_config, execute_download_subprocess

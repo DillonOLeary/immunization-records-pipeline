@@ -357,37 +357,36 @@ def handle_get_vaccinations_command(args: argparse.Namespace, config: Dict) -> N
 
     # Get output folder for downloads
     paths = config.get("paths", {})
-    aisr_downloads_folder = paths.get("aisr_downloads_folder", paths.get("input_folder"))
-    
+    aisr_downloads_folder = paths.get(
+        "aisr_downloads_folder", paths.get("input_folder")
+    )
+
     if not aisr_downloads_folder:
         logger.error("Missing AISR downloads folder in configuration")
         sys.exit(1)
-        
+
     # Ensure folder exists
     aisr_downloads_folder = Path(aisr_downloads_folder)
     aisr_downloads_folder.mkdir(parents=True, exist_ok=True)
-    
+
     # Get school query information
     school_info_list = get_school_query_information(config.get("schools", []))
-    
+
     # Create download actions for each school
     download_actions = create_aisr_download_actions(
-        school_info_list=school_info_list,
-        output_folder=aisr_downloads_folder
+        school_info_list=school_info_list, output_folder=aisr_downloads_folder
     )
-    
+
     # Create the workflow function
     download_workflow = create_aisr_workflow(
-        login=login,
-        aisr_function_list=download_actions,
-        logout=logout
+        login=login, aisr_function_list=download_actions, logout=logout
     )
-    
+
     # Execute the workflow
     try:
         download_workflow(auth_url, api_url, username, password)
         logger.info("Vaccination records downloaded successfully")
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to download vaccination records: %s", str(e))
         sys.exit(1)
 
