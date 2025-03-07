@@ -104,7 +104,6 @@ def execute_query_subprocess(config_path, username, password=None):
     Execute the CLI bulk-query command as a subprocess.
 
     Args:
-        fastapi_server: URL to the mock FastAPI server
         config_path: Path to configuration file
         username: AISR username
         password: Password for testing. In real usage, password will be prompted
@@ -127,6 +126,48 @@ def execute_query_subprocess(config_path, username, password=None):
         "--config",
         str(config_path),
         "bulk-query",
+        "--username",
+        username,
+    ]
+
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        check=False,
+    )
+
+    return result
+
+
+def execute_download_subprocess(config_path, username, password=None):
+    """
+    Execute the CLI get-vaccinations command as a subprocess.
+
+    Args:
+        config_path: Path to configuration file
+        username: AISR username
+        password: Password for testing. In real usage, password will be prompted
+                 interactively or read from AISR_PASSWORD env var if set.
+
+    Returns:
+        CompletedProcess object with stdout and stderr
+    """
+    env = os.environ.copy()
+
+    # For testing purposes, we need to provide the password via environment variable
+    if password:
+        env["AISR_PASSWORD"] = password
+
+    cmd = [
+        "poetry",
+        "run",
+        "python",
+        "data_pipeline",
+        "--config",
+        str(config_path),
+        "get-vaccinations",
         "--username",
         username,
     ]
