@@ -171,7 +171,7 @@ def get_latest_vaccination_records_url(
 
 def download_vaccination_records(
     session: requests.Session, file_url: str, output_path: Path
-) -> AISRFileUploadResponse:
+) -> AISRFileDownloadResponse:
     """
     Download a vaccination records file from the provided URL and save it to the specified path.
 
@@ -184,11 +184,53 @@ def download_vaccination_records(
             f"Failed to download file: {res.status_code} - {res.text}"
         )
 
+    content = res.content.decode("utf-8")
     with open(output_path, "w", encoding="utf-8") as file:
-        file.write(res.content.decode("utf-8"))
+        file.write(content)
 
-    return AISRFileUploadResponse(
-        is_successful=True, message=f"File downloaded successfully to {output_path}"
+    return AISRFileDownloadResponse(
+        is_successful=True,
+        message=f"File downloaded successfully to {output_path}",
+        content=content,
+    )
+
+
+def get_and_download_vaccination_records(
+    session: requests.Session,
+    access_token: str,
+    base_url: str,
+    school_id: str,
+    output_path: Path,
+) -> AISRFileDownloadResponse:
+    """
+    Get the latest vaccination records URL and download the file to the specified path.
+
+    Args:
+        session: Requests session with authentication
+        access_token: AISR access token
+        base_url: AISR API base URL
+        school_id: School ID to get vaccination records for
+        output_path: Path to save the downloaded file
+
+    Returns:
+        AISRFileDownloadResponse containing success status and message
+    """
+    # Get the URL for the latest vaccination records
+    url = get_latest_vaccination_records_url(
+        session=session,
+        base_url=base_url,
+        access_token=access_token,
+        school_id=school_id,
+    )
+
+    if not url:
+        raise AISRActionFailedException(
+            f"No vaccination records available for school ID {school_id}"
+        )
+
+    # Download the file
+    return download_vaccination_records(
+        session=session, file_url=url, output_path=output_path
     )
 
 
