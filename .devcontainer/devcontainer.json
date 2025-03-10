@@ -5,7 +5,9 @@
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	"image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
 	"features": {
-		"ghcr.io/devcontainers-extra/features/poetry:2": {}
+		"ghcr.io/devcontainers-extra/features/poetry:2": {},
+		"ghcr.io/dhoeric/features/google-cloud-cli:1": {},
+		"ghcr.io/devcontainers/features/terraform:1": {}
 	},
 	"customizations": {
 		"vscode": {
@@ -17,7 +19,8 @@
 				"ms-python.mypy-type-checker",
 				"ms-python.black-formatter",
 				"ms-python.isort",
-				"mechatroner.rainbow-csv"
+				"mechatroner.rainbow-csv",
+				"HashiCorp.terraform"
 			]
 		}
 	},
