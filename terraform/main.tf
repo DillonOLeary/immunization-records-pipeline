@@ -19,9 +19,24 @@ resource "google_project_service" "storage" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "cloudfunctions" {
+  service            = "cloudfunctions.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "cloudbuild" {
+  service            = "cloudbuild.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "artifactregistry" {
+  service            = "artifactregistry.googleapis.com"
+  disable_on_destroy = false
+}
+
 # Create storage buckets
 resource "google_storage_bucket" "bulk_query_files" {
-  name          = "${var.project_id}b-ulk-query-files"
+  name          = "${var.project_id}-bulk-query-files"
   location      = "US"
   force_destroy = true
   
