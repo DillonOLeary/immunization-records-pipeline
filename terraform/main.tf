@@ -1,13 +1,49 @@
+variable "project_id" {
+  description = "The Google Cloud project ID"
+  default     = "immunization-records-pipeline"
+}
+
 provider "google" {
-  project = "immunization-records-pipeline"
+  project = "${var.project_id}"
   region  = "us-central1"
 }
 
-# Enable Cloud Scheduler API
+# Enable required APIs
 resource "google_project_service" "scheduler" {
   service            = "cloudscheduler.googleapis.com"
   disable_on_destroy = false
 }
+
+resource "google_project_service" "storage" {
+  service            = "storage.googleapis.com"
+  disable_on_destroy = false
+}
+
+# Create storage buckets
+resource "google_storage_bucket" "bulk_query_files" {
+  name          = "${var.project_id}b-ulk-query-files"
+  location      = "US"
+  force_destroy = true
+  
+  uniform_bucket_level_access = true
+}
+
+resource "google_storage_bucket" "aisr_downloads" {
+  name          = "${var.project_id}-aisr-downloads"
+  location      = "US"
+  force_destroy = true
+  
+  uniform_bucket_level_access = true
+}
+
+resource "google_storage_bucket" "transformed_output" {
+  name          = "${var.project_id}-transformed-output"
+  location      = "US"
+  force_destroy = true
+  
+  uniform_bucket_level_access = true
+}
+
 # Enable Pub/Sub API
 resource "google_project_service" "pubsub" {
   service            = "pubsub.googleapis.com"
