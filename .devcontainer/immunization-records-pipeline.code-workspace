@@ -1,0 +1,51 @@
+{
+	"folders": [
+		{
+			"path": "..",
+			"name": "Project Root"
+		},
+		{
+			"path": "../minnesota-immunization-core",
+			"name": "Immunization Pipeline Core"
+		},
+		{
+			"path": "../minnesota-immunization-cli",
+			"name": "Immunization Pipeline CLI"
+		},
+		{
+			"path": "../minnesota-immunization-cloud",
+			"name": "Immunization Pipeline Cloud"
+		},
+		{
+			"path": "../terraform",
+			"name": "Terraform"
+		}
+	],
+	"settings": {
+		// Shared settings
+		"editor.formatOnSave": true,
+		"terminal.integrated.defaultProfile.osx": "bash",
+		"terminal.integrated.defaultProfile.linux": "bash",
+		// UV settings
+		"uv.installStrategy": "best",
+		// Ruff settings
+		"ruff.enable": true,
+		"ruff.organizeImports": true,
+		"ruff.fixAll": true,
+		// Project-specific settings (will be overridden by workspace-specific settings)
+		"[python]": {
+			"editor.defaultFormatter": "charliermarsh.ruff",
+			"editor.codeActionsOnSave": {
+				"source.organizeImports.ruff": "explicit",
+				"source.fixAll.ruff": "explicit"
+			}
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"charliermarsh.ruff",
+			"ms-python.python",
+			"ms-python.vscode-pylance"
+		]
+	}
+}

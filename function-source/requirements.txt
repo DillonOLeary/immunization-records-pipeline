@@ -1,3 +1,0 @@
-# For now, no requirements are needed for the Hello World function
-# When you integrate with your package, add:
-# immunization-records-pipeline==x.y.z
