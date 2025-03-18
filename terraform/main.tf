@@ -138,8 +138,8 @@ resource "google_cloudfunctions2_function" "pipeline_function" {
 resource "google_cloud_scheduler_job" "pipeline_scheduler" {
   project     = var.project_id
   name        = "immunization-pipeline-scheduler"
-  description = "Trigger the immunization data pipeline function"
-  schedule    = "0 0 * * *"  # Run daily at midnight
+  description = "Trigger the immunization data pipeline function every other Monday"
+  schedule    = "40 0 * * 1"  # Run every Monday around midnight FIXME add jitter if there are more users
   time_zone   = "America/Chicago"
   region      = var.region
 
