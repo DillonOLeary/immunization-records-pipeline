@@ -32,6 +32,18 @@
 		"ruff.enable": true,
 		"ruff.organizeImports": true,
 		"ruff.fixAll": true,
+		// Python settings
+		// "python.terminal.activateEnvironment": true,
+		// "python.testing.pytestEnabled": true,
+		// "python.testing.unittestEnabled": false,
+		// Multi-root environment variables for terminal
+		// "terminal.integrated.env.osx": {
+		// 	"PYTHONPATH": "${workspaceFolder:Immunization Pipeline Core}:${workspaceFolder:Immunization Pipeline CLI}:${workspaceFolder:Immunization Pipeline Cloud}"
+		// },
+		// "terminal.integrated.env.linux": {
+		// 	"PYTHONPATH": "${workspaceFolder:Immunization Pipeline Core}:${workspaceFolder:Immunization Pipeline CLI}:${workspaceFolder:Immunization Pipeline Cloud}",
+		// 	"UV_PROJECT_ENVIRONMENT": null // Override the container variable that forces a single venv
+		// },
 		// Project-specific settings (will be overridden by workspace-specific settings)
 		"[python]": {
 			"editor.defaultFormatter": "charliermarsh.ruff",
@@ -45,7 +57,40 @@
 		"recommendations": [
 			"charliermarsh.ruff",
 			"ms-python.python",
-			"ms-python.vscode-pylance"
+			"ms-python.vscode-pylance",
+			"HashiCorp.terraform"
+		]
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "Core - Current File",
+				"type": "debugpy",
+				"request": "launch",
+				"program": "${file}",
+				"console": "integratedTerminal",
+				"justMyCode": true,
+				"python": "${workspaceFolder:Immunization Pipeline Core}/.venv/bin/python"
+			},
+			{
+				"name": "CLI - Current File",
+				"type": "debugpy",
+				"request": "launch",
+				"program": "${file}",
+				"console": "integratedTerminal",
+				"justMyCode": true,
+				"python": "${workspaceFolder:Immunization Pipeline CLI}/.venv/bin/python"
+			},
+			{
+				"name": "Cloud - Current File",
+				"type": "debugpy",
+				"request": "launch",
+				"program": "${file}",
+				"console": "integratedTerminal",
+				"justMyCode": true,
+				"python": "${workspaceFolder:Immunization Pipeline Cloud}/.venv/bin/python"
+			}
 		]
 	}
 }

@@ -1,7 +1,26 @@
 [project]
 name = "minnesota-immunization-cli"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.12"
-dependencies = []
+description = "CLI for Minnesota immunization data pipeline"
+authors = [{ name = "Dillon O'Leary", email = "dillon.oleary@icloud.com" }]
+requires-python = ">=3.11"
+dependencies = ["minnesota-immunization-core @ {root:uri}/../minnesota-immunization-core"]
+
+[project.scripts]
+minnesota-immunization = "minnesota_immunization_cli.__main__:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/minnesota_immunization_cli"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = ["E", "F", "I", "UP", "N", "B", "A", "C4", "SIM", "ERA"]
+ignore = []
