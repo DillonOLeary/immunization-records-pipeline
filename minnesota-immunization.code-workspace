@@ -1,0 +1,20 @@
+{
+  "folders": [
+    {
+      "path": "minnesota-immunization-core",
+      "name": "Core Library"
+    },
+    {
+      "path": "minnesota-immunization-cli",
+      "name": "CLI Application"
+    },
+    {
+      "path": "minnesota-immunization-cloud",
+      "name": "Cloud Function"
+    },
+    {
+      "path": "minnesota-immunization-infra",
+      "name": "Infrastructure (Terraform)"
+    }
+  ],
+}
