@@ -3,6 +3,15 @@ name: Publish Minnesota Immunization Core to PyPI
 on:
   release:
     types: [published]
+  
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      test_pypi:
+        description: 'Publish to Test PyPI instead of PyPI'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   run-tests:
@@ -74,9 +83,11 @@ jobs:
       run: uv build
 
     - name: Test publish to PyPI
+      if: ${{ github.event.inputs.test_pypi == 'true' || github.event_name == 'workflow_dispatch' }}
       run: |
         uv publish --token ${{ secrets.PYPI_TEST_API_TOKEN }} --publish-url https://test.pypi.org/legacy/
 
     - name: Publish to PyPI
+      if: ${{ github.event.inputs.test_pypi != 'true' && github.event_name == 'release' }}
       run: |
         uv publish --token ${{ secrets.PYPI_API_TOKEN }}
