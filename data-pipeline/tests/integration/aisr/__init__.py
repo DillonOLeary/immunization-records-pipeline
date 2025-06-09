@@ -1,3 +1,0 @@
-"""
-AISR Integration tests package
-"""

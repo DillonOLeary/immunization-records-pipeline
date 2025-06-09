@@ -1,0 +1,41 @@
+[project]
+name = "minnesota-immunization-cli"
+version = "0.1.0"
+description = "CLI application for Minnesota immunization records processing"
+readme = "README.md"
+authors = [
+    { name = "Dillon O'Leary", email = "doleary@wisc.edu" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "minnesota-immunization-core",
+]
+
+[project.scripts]
+minnesota-immunization-cli = "minnesota_immunization_cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = ["E", "F", "I", "W", "N", "B", "UP", "C4"]
+
+[tool.ruff.isort]
+known-first-party = ["minnesota_immunization_cli"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.uv.sources]
+minnesota-immunization-core = { path="../minnesota-immunization-core", editable=true }

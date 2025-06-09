@@ -1,0 +1,46 @@
+[project]
+name = "minnesota-immunization-cloud"
+version = "0.1.0"
+description = "Cloud function for Minnesota immunization records processing"
+readme = "README.md"
+authors = [
+    { name = "Dillon O'Leary", email = "doleary@wisc.edu" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "google-cloud-storage",
+    "requests",
+    "functions-framework",
+    "minnesota-immunization-core",
+    "google-cloud-secret-manager",
+]
+
+[project.scripts]
+minnesota-immunization-cloud = "minnesota_immunization_cloud:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "functions-framework",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+minnesota-immunization-core = { path="../minnesota-immunization-core", editable=true }
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = ["E", "F", "I", "W", "N", "B", "UP", "C4"]
+
+[tool.ruff.isort]
+known-first-party = ["minnesota_immunization_cloud"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

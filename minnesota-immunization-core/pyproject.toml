@@ -1,0 +1,46 @@
+[project]
+name = "minnesota-immunization-core"
+version = "0.1.0"
+description = "Core library for Minnesota immunization records processing"
+readme = "README.md"
+authors = [
+    { name = "Dillon O'Leary", email = "doleary@wisc.edu" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "requests",
+    "beautifulsoup4",
+    "httpx>=0.28.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "faker",
+    "pytest-cov",
+    "ruff",
+    "types-requests",
+    "fastapi",
+    "uvicorn",
+    "pytest-cov",
+    "python-multipart"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = ["E", "F", "I", "W", "N", "B", "UP", "C4"]
+
+[tool.ruff.isort]
+known-first-party = ["minnesota_immunization_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+pythonpath = ["src"]
+
