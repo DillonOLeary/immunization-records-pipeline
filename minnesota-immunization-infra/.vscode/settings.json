@@ -1,0 +1,15 @@
+{
+  "[terraform]": {
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "files.trimTrailingWhitespace": true,
+    "files.autoSave": "onWindowChange",
+    "editor.rulers": [120]
+  },
+  "terraform.languageServer": "terraform-ls",
+  "terraform.linting.enabled": true,
+  "terraform.linting.tool": "tflint",
+  "terraform.linting.tflintExecutable": "tflint",
+  "terraform.tflint.configFile": "./.tflint.hcl",
+}

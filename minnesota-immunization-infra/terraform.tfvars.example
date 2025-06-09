@@ -1,0 +1,37 @@
+# Example Terraform variables file
+# Copy this file to terraform.tfvars and update the values
+
+# Project variables
+project_id = "immunization-records-pipeline"  # Replace with your GCP project ID
+region     = "us-central1"
+environment = "dev"  # Options: dev, staging, prod
+
+# Labels
+labels = {
+  "owner"       = "your-name",
+  "application" = "minnesota-immunization-pipeline",
+  "environment" = "dev"
+}
+
+# Security variables
+enable_cmek = false  # Set to true for production to enable Customer Managed Encryption Keys
+
+# Storage variables
+source_data_retention_days      = 365  # 1 year
+processing_data_retention_days  = 90   # 3 months
+output_data_retention_days      = 1095 # 3 years
+
+# Function variables
+function_source_dir  = "../minnesota-immunization-cloud/src"
+function_entry_point = "process_pipeline"
+max_instances        = 3
+min_instances        = 0
+function_memory      = "512M"
+function_timeout     = 540  # 9 minutes
+
+# Scheduler variables
+schedule  = "0 0 * * 1"  # Every Monday at midnight
+time_zone = "America/Chicago"
+
+# Uncomment if you have a VPC connector
+# vpc_connector_id = "projects/your-project/locations/your-region/connectors/your-connector"
