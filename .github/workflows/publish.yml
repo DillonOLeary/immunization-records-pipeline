@@ -1,0 +1,82 @@
+name: Publish Minnesota Immunization Core to PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        enable-cache: true
+    
+    - name: Install dependencies
+      run: uv sync --dev
+    
+    - name: Run tests
+      run: uv run pytest
+
+  run-linting:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        enable-cache: true
+    
+    - name: Install dependencies
+      run: uv sync --dev
+    
+    - name: Run linting
+      run: uv run ruff check .
+
+  publish:
+    needs: [run-tests, run-linting]
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        enable-cache: true
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Build package
+      run: uv build
+
+    - name: Test publish to PyPI
+      run: |
+        uv publish --token ${{ secrets.PYPI_TEST_API_TOKEN }} --publish-url https://test.pypi.org/legacy/
+
+    - name: Publish to PyPI
+      run: |
+        uv publish --token ${{ secrets.PYPI_API_TOKEN }}
