@@ -206,29 +206,31 @@ resource "google_cloudfunctions2_function" "download_function" {
 }
 
 # Cloud Scheduler job - Upload trigger (every Monday at 9am)
-resource "google_cloud_scheduler_job" "upload_schedule" {
-  name      = "immunization-upload-schedule"
-  schedule  = "0 9 * * 1"
-  time_zone = "America/Chicago"
-
-  pubsub_target {
-    topic_name = google_pubsub_topic.upload_trigger.id
-    data       = base64encode("{\"action\": \"upload\"}")
-  }
-
-  depends_on = [google_project_service.required_apis]
-}
+# COMMENTED OUT - Disable automatic triggering until ready for production
+# resource "google_cloud_scheduler_job" "upload_schedule" {
+#   name      = "immunization-upload-schedule"
+#   schedule  = "0 9 * * 1"
+#   time_zone = "America/Chicago"
+#
+#   pubsub_target {
+#     topic_name = google_pubsub_topic.upload_trigger.id
+#     data       = base64encode("{\"action\": \"upload\"}")
+#   }
+#
+#   depends_on = [google_project_service.required_apis]
+# }
 
 # Cloud Scheduler job - Download trigger (every Wednesday at 9am, 2 days after Monday)
-resource "google_cloud_scheduler_job" "download_schedule" {
-  name      = "immunization-download-schedule"
-  schedule  = "0 9 * * 3"
-  time_zone = "America/Chicago"
-
-  pubsub_target {
-    topic_name = google_pubsub_topic.download_trigger.id
-    data       = base64encode("{\"action\": \"download\"}")
-  }
-
-  depends_on = [google_project_service.required_apis]
-}
+# COMMENTED OUT - Disable automatic triggering until ready for production
+# resource "google_cloud_scheduler_job" "download_schedule" {
+#   name      = "immunization-download-schedule"
+#   schedule  = "0 9 * * 3"
+#   time_zone = "America/Chicago"
+#
+#   pubsub_target {
+#     topic_name = google_pubsub_topic.download_trigger.id
+#     data       = base64encode("{\"action\": \"download\"}")
+#   }
+#
+#   depends_on = [google_project_service.required_apis]
+# }
