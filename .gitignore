@@ -162,3 +162,13 @@ cython_debug/
 #.idea/
 
 .DS_Store
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform.tfstate.lock.info
+*.zip

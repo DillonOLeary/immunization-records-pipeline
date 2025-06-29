@@ -6,7 +6,20 @@ readme = "README.md"
 authors = [
     { name = "Dillon O'Leary", email = "doleary@wisc.edu" }
 ]
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+keywords = ["immunization", "vaccination", "etl", "minnesota", "aisr"]
 dependencies = [
     "pandas",
     "requests",
@@ -42,5 +55,5 @@ known-first-party = ["minnesota_immunization_core"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 
