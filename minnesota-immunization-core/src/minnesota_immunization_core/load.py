@@ -23,7 +23,8 @@ def write_to_infinite_campus_csv(
     filename_generator: Callable = default_filename_generator,
 ) -> None:
     """
-    Write a DataFrame to a CSV file formatted for Infinite Campus with a unique filename.
+    Write a DataFrame to a CSV file formatted for Infinite Campus with a unique
+    filename.
     """
     output_filename = filename_generator(input_file_name)
     output_file = output_folder / output_filename

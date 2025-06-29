@@ -1,25 +1,46 @@
 """
-Basic Cloud Functions for Minnesota Immunization Pipeline Demo
-Demonstrates the pattern: External API -> Cloud Storage
+Cloud Functions for Minnesota Immunization Pipeline
+Integrates with AISR system for real immunization data processing
 """
 
 import json
 import os
-import base64
 from datetime import datetime
+from pathlib import Path
+import tempfile
 
-# Handle imports gracefully for local testing
-try:
-    import requests
-    from google.cloud import storage
-    import functions_framework
-except ImportError as e:
-    print(f"Import warning: {e} - some functionality may not work in local testing")
+from google.cloud import storage
+from google.cloud import secretmanager
+
+from minnesota_immunization_core.aisr.actions import SchoolQueryInformation
+from minnesota_immunization_core.aisr.authenticate import login, logout
+from minnesota_immunization_core.etl_workflow import run_etl_on_folder
+from minnesota_immunization_core.extract import read_from_aisr_csv
+from minnesota_immunization_core.load import write_to_infinite_campus_csv
+from minnesota_immunization_core.pipeline_factory import (
+    create_aisr_actions_for_school_bulk_queries,
+    create_aisr_download_actions,
+    create_aisr_workflow,
+    create_file_to_file_etl_pipeline,
+)
+from minnesota_immunization_core.transform import (
+    transform_data_from_aisr_to_infinite_campus,
+)
 
 
 def get_storage_client():
     """Get Google Cloud Storage client"""
     return storage.Client()
+
+
+def get_secret(secret_name: str) -> str:
+    """Retrieve secret from Google Cloud Secret Manager"""
+    client = secretmanager.SecretManagerServiceClient()
+    project_id = os.environ.get("GCP_PROJECT", "mn-immun-bd9001")
+    name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+    
+    response = client.access_secret_version(request={"name": name})
+    return response.payload.data.decode("UTF-8")
 
 
 def upload_to_storage(bucket_name: str, blob_name: str, data: str):
@@ -31,183 +52,220 @@ def upload_to_storage(bucket_name: str, blob_name: str, data: str):
     print(f"Uploaded to gs://{bucket_name}/{blob_name}")
 
 
+def upload_file_to_storage(bucket_name: str, blob_name: str, file_path: str):
+    """Upload file to Google Cloud Storage"""
+    client = get_storage_client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_filename(file_path)
+    print(f"Uploaded file to gs://{bucket_name}/{blob_name}")
+
+
+def download_from_storage(bucket_name: str, blob_name: str, destination_path: str):
+    """Download file from Google Cloud Storage"""
+    client = get_storage_client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    blob.download_to_filename(destination_path)
+    print(f"Downloaded gs://{bucket_name}/{blob_name} to {destination_path}")
+
+
 def upload_handler(event, context):
     """
     Cloud Function triggered by Pub/Sub (Monday scheduler)
-    Simulates uploading student data to external system (Wikipedia search)
+    Submits bulk queries to AISR for immunization records
     """
     print("🚀 Upload function triggered!")
-    print(f"Event: {event}")
-    print(f"Context: {context}")
     
-    # Get bucket name from environment
-    bucket_name = os.environ.get('DATA_BUCKET')
-    if not bucket_name:
-        bucket_name = "mn-immun-bd9001-immunization-data"  # fallback for testing
-        print(f"Using fallback bucket: {bucket_name}")
+    # Get configuration from environment
+    bucket_name = os.environ['DATA_BUCKET']
+    username = get_secret(os.environ['AISR_USERNAME_SECRET'])
+    password = get_secret(os.environ['AISR_PASSWORD_SECRET'])
     
-    # Simulate fetching student data (in real world: read from CSV, query database, etc.)
-    students = [
-        {"id": "12345", "name": "Student A", "grade": "K"},
-        {"id": "67890", "name": "Student B", "grade": "1"},
-    ]
+    # API URLs
+    auth_url = "https://authenticator4.web.health.state.mn.us"
+    api_url = "https://aisr-api.web.health.state.mn.us"
     
-    # Simulate uploading to external system (AISR)
-    # For demo: search Wikipedia for immunization info
-    search_results = []
+    # Download school configuration from storage
+    storage_client = get_storage_client()
+    bucket = storage_client.bucket(bucket_name)
+    config_blob = bucket.blob("config/config.json")
     
-    for student in students:
-        try:
-            # Wikipedia API search for immunization info
-            response = requests.get(
-                "https://en.wikipedia.org/api/rest_v1/page/summary/Vaccination",
-                timeout=10
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_file = Path(temp_dir) / "config.json"
+        config_blob.download_to_filename(str(config_file))
+        
+        with open(config_file) as f:
+            config = json.load(f)
+        
+        # Create SchoolQueryInformation objects
+        school_info_list = []
+        for school in config["schools"]:
+            # Download query file from storage
+            query_blob = bucket.blob(f"query_files/{school['name']}/query.csv")
+            query_file = Path(temp_dir) / f"{school['name']}_query.csv"
+            query_blob.download_to_filename(str(query_file))
+            
+            school_info = SchoolQueryInformation(
+                school_name=school["name"],
+                classification=school["classification"],
+                school_id=school["id"],
+                email_contact=school["email"],
+                query_file_path=str(query_file),
             )
-            response.raise_for_status()
-            
-            wiki_data = response.json()
-            search_results.append({
-                "student_id": student["id"],
-                "query_time": datetime.now().isoformat(),
-                "external_response": {
-                    "title": wiki_data.get("title"),
-                    "extract": wiki_data.get("extract", "")[:200] + "..."
-                }
-            })
-            print(f"✅ Processed student {student['id']}")
-            
-        except Exception as e:
-            print(f"❌ Error processing student {student['id']}: {e}")
-            search_results.append({
-                "student_id": student["id"],
-                "error": str(e),
-                "query_time": datetime.now().isoformat()
-            })
-    
-    # Store upload results in Cloud Storage
-    upload_data = {
-        "upload_time": datetime.now().isoformat(),
-        "students_processed": len(students),
-        "results": search_results,
-        "status": "completed"
-    }
-    
-    filename = f"uploads/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_upload_results.json"
-    upload_to_storage(bucket_name, filename, json.dumps(upload_data, indent=2))
-    
-    print(f"📤 Upload completed: {len(students)} students processed")
-    return {"status": "success", "students_processed": len(students)}
+            school_info_list.append(school_info)
+        
+        # Create bulk query actions using pipeline factory
+        action_list = create_aisr_actions_for_school_bulk_queries(school_info_list)
+        
+        # Create AISR workflow with injected dependencies
+        query_workflow = create_aisr_workflow(login, action_list, logout)
+        
+        # Execute bulk query workflow
+        print("🔄 Starting AISR bulk queries...")
+        query_workflow(auth_url, api_url, username, password)
+        
+        # Store completion status
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        results_data = {
+            "upload_time": datetime.now().isoformat(),
+            "schools_processed": len(school_info_list),
+            "status": "completed"
+        }
+        
+        results_filename = f"uploads/{timestamp}_bulk_query_results.json"
+        upload_to_storage(bucket_name, results_filename, json.dumps(results_data, indent=2))
+        
+        print(f"📤 Upload completed: {len(school_info_list)} schools processed")
+        return {"status": "success", "schools_processed": len(school_info_list)}
 
 
 def download_handler(event, context):
     """
     Cloud Function triggered by Pub/Sub (Wednesday scheduler)
-    Simulates downloading vaccination results from external system
+    Downloads vaccination records from AISR and transforms them via ETL pipeline
     """
     print("📥 Download function triggered!")
-    print(f"Event: {event}")
-    print(f"Context: {context}")
     
-    # Get bucket name from environment
-    bucket_name = os.environ.get('DATA_BUCKET')
-    if not bucket_name:
-        bucket_name = "mn-immun-bd9001-immunization-data"  # fallback for testing
-        print(f"Using fallback bucket: {bucket_name}")
+    # Get configuration from environment
+    bucket_name = os.environ['DATA_BUCKET']
+    username = get_secret(os.environ['AISR_USERNAME_SECRET'])
+    password = get_secret(os.environ['AISR_PASSWORD_SECRET'])
     
-    # Simulate downloading vaccination records from external system
-    # For demo: get different Wikipedia content
-    vaccination_records = []
+    # API URLs
+    auth_url = "https://authenticator4.web.health.state.mn.us"
+    api_url = "https://aisr-api.web.health.state.mn.us"
     
-    topics = ["Immunization", "Vaccine", "Public_health"]
+    # Download school configuration from storage
+    storage_client = get_storage_client()
+    bucket = storage_client.bucket(bucket_name)
+    config_blob = bucket.blob("config/config.json")
     
-    for topic in topics:
-        try:
-            response = requests.get(
-                f"https://en.wikipedia.org/api/rest_v1/page/summary/{topic}",
-                timeout=10
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        
+        # Create directories
+        input_folder = temp_path / "input"
+        output_folder = temp_path / "output"
+        input_folder.mkdir(exist_ok=True)
+        output_folder.mkdir(exist_ok=True)
+        
+        # Download and parse school configuration
+        config_file = temp_path / "config.json"
+        config_blob.download_to_filename(str(config_file))
+        
+        with open(config_file) as f:
+            config = json.load(f)
+        
+        # Create SchoolQueryInformation objects
+        school_info_list = []
+        for school in config["schools"]:
+            school_info = SchoolQueryInformation(
+                school_name=school["name"],
+                classification=school["classification"],
+                school_id=school["id"],
+                email_contact=school["email"],
+                query_file_path="",  # Not needed for downloads
             )
-            response.raise_for_status()
-            
-            wiki_data = response.json()
-            vaccination_records.append({
-                "student_id": f"demo_{topic.lower()}",
-                "vaccination_date": datetime.now().isoformat(),
-                "vaccine_info": {
-                    "source": wiki_data.get("title"),
-                    "description": wiki_data.get("extract", "")[:150] + "...",
-                    "url": wiki_data.get("content_urls", {}).get("desktop", {}).get("page", "")
-                }
-            })
-            print(f"✅ Downloaded info for {topic}")
-            
-        except Exception as e:
-            print(f"❌ Error downloading {topic}: {e}")
-    
-    # Transform data (in real world: convert AISR format to Infinite Campus CSV)
-    transformed_records = []
-    for record in vaccination_records:
-        transformed_records.append({
-            "StudentID": record["student_id"],
-            "VaccinationDate": record["vaccination_date"],
-            "VaccineType": record["vaccine_info"]["source"],
-            "Notes": record["vaccine_info"]["description"],
-            "DataSource": "Demo Wikipedia API"
-        })
-    
-    # Store download and transformation results
-    download_data = {
-        "download_time": datetime.now().isoformat(),
-        "records_downloaded": len(vaccination_records),
-        "records_transformed": len(transformed_records),
-        "raw_records": vaccination_records,
-        "transformed_records": transformed_records,
-        "status": "completed"
-    }
-    
-    # Store both raw and transformed data
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    
-    # Raw download data
-    raw_filename = f"downloads/{timestamp}_raw_vaccination_data.json"
-    upload_to_storage(bucket_name, raw_filename, json.dumps(download_data, indent=2))
-    
-    # Transformed CSV-like data (what would go to school district)
-    csv_data = "StudentID,VaccinationDate,VaccineType,Notes,DataSource\n"
-    for record in transformed_records:
-        csv_data += f"{record['StudentID']},{record['VaccinationDate']},{record['VaccineType']},\"{record['Notes']}\",{record['DataSource']}\n"
-    
-    csv_filename = f"output/{timestamp}_school_district_vaccination_records.csv"
-    upload_to_storage(bucket_name, csv_filename, csv_data)
-    
-    print(f"📥 Download completed: {len(vaccination_records)} records processed")
-    return {
-        "status": "success", 
-        "records_downloaded": len(vaccination_records),
-        "records_transformed": len(transformed_records)
-    }
+            school_info_list.append(school_info)
+        
+        # Create download actions using pipeline factory
+        download_actions = create_aisr_download_actions(
+            school_info_list=school_info_list, 
+            output_folder=input_folder
+        )
+        
+        # Create AISR download workflow with injected dependencies
+        download_workflow = create_aisr_workflow(
+            login=login, 
+            aisr_function_list=download_actions, 
+            logout=logout
+        )
+        
+        # Execute download workflow
+        print("🔄 Starting AISR vaccination record download...")
+        download_workflow(auth_url, api_url, username, password)
+        
+        # Create ETL pipeline with injected dependencies
+        etl_pipeline = create_file_to_file_etl_pipeline(
+            extract=read_from_aisr_csv,
+            transform=transform_data_from_aisr_to_infinite_campus,
+            load=write_to_infinite_campus_csv,
+        )
+        
+        # Run ETL transformation on downloaded files
+        print("🔄 Starting ETL transformation...")
+        run_etl_on_folder(
+            input_folder=input_folder,
+            output_folder=output_folder,
+            etl_fn=etl_pipeline,
+        )
+        
+        # Upload transformed files back to storage
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        output_files = list(output_folder.glob("*.csv"))
+        
+        for output_file in output_files:
+            blob_name = f"output/{timestamp}_{output_file.name}"
+            upload_file_to_storage(bucket_name, blob_name, str(output_file))
+        
+        # Store completion metadata
+        metadata = {
+            "download_time": datetime.now().isoformat(),
+            "schools_processed": len(school_info_list),
+            "files_transformed": len(output_files),
+            "status": "completed"
+        }
+        
+        metadata_filename = f"downloads/{timestamp}_download_metadata.json"
+        upload_to_storage(bucket_name, metadata_filename, json.dumps(metadata, indent=2))
+        
+        print(f"📥 Download and ETL completed: {len(output_files)} files processed")
+        return {
+            "status": "success",
+            "schools_processed": len(school_info_list),
+            "files_transformed": len(output_files)
+        }
 
 
 if __name__ == "__main__":
-    # For local testing
     print("🧪 Testing functions locally...")
+    print("⚠️  Note: Local testing requires environment variables:")
+    print("   - DATA_BUCKET")
+    print("   - AISR_USERNAME_SECRET") 
+    print("   - AISR_PASSWORD_SECRET")
+    print("   - GCP_PROJECT (optional)")
     
     # Mock event and context
-    mock_event = {"data": "eyJhY3Rpb24iOiAidGVzdCJ9"}  # base64 encoded test data
+    mock_event = {"data": "eyJhY3Rpb24iOiAidGVzdCJ9"}
     mock_context = type('MockContext', (), {'timestamp': '2023-01-01T00:00:00Z'})()
     
-    # Test upload function
-    print("\n--- Testing Upload Function ---")
-    try:
-        result = upload_handler(mock_event, mock_context)
-        print(f"Upload result: {result}")
-    except Exception as e:
-        print(f"Upload test failed: {e}")
+    print("\n--- Testing Upload Function (AISR Bulk Query) ---")
+    result = upload_handler(mock_event, mock_context)
+    print(f"Upload result: {result}")
     
-    print("\n--- Testing Download Function ---") 
-    try:
-        result = download_handler(mock_event, mock_context)
-        print(f"Download result: {result}")
-    except Exception as e:
-        print(f"Download test failed: {e}")
+    print("\n--- Testing Download Function (AISR Download + ETL) ---") 
+    result = download_handler(mock_event, mock_context)
+    print(f"Download result: {result}")
     
     print("\n✅ Local testing completed!")
