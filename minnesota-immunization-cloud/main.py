@@ -101,8 +101,8 @@ def upload_handler(event, context):
         # Create SchoolQueryInformation objects
         school_info_list = []
         for school in config["schools"]:
-            # Download query file from storage
-            query_blob = bucket.blob(f"query_files/{school['name']}/query.csv")
+            # Download query file from storage using the path specified in config
+            query_blob = bucket.blob(school["bulk_query_file"])
             query_file = Path(temp_dir) / f"{school['name']}_query.csv"
             query_blob.download_to_filename(str(query_file))
             
