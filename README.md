@@ -7,3 +7,6 @@ The repo is broken up into 4 workspaces.
 2. CLI: This is the command line interface to the core library
 3. Cloud Function: This allows the core library to be run as a cloud function on GCP.
 4. Terraform: This is the infrastructure as code workspace that can deploy the complete application to GCP.
+
+# Requirements
+Install [UV](https://docs.astral.sh/uv/)
