@@ -15,6 +15,10 @@
     {
       "path": "minnesota-immunization-infra",
       "name": "Infrastructure (Terraform)"
+    },
+    {
+      "path": "minnesota-immunization-mock",
+      "name": "Mock AISR Server"
     }
   ],
 }

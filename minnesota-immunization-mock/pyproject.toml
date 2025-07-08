@@ -1,0 +1,13 @@
+[project]
+name = "minnesota-immunization-mock"
+version = "0.1.0"
+description = "Mock AISR server for testing Minnesota Immunization Pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[project.scripts]
+mock-server = "minnesota_immunization_mock.main:run"

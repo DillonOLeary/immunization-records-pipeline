@@ -45,3 +45,8 @@ known-first-party = ["minnesota_immunization_cloud"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+
+[tool.uv.workspace]
+members = [
+    "../minnesota-immunization-mock",
+]
