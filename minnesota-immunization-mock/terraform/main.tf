@@ -65,42 +65,8 @@ resource "google_artifact_registry_repository" "mock_server_repo" {
   depends_on = [google_project_service.artifact_registry_api]
 }
 
-# Build and push container image using Cloud Build
-resource "google_cloudbuild_trigger" "mock_server_build" {
-  name        = "minnesota-immunization-mock-build"
-  description = "Build and push mock AISR server container"
-  
-  trigger_template {
-    branch_name = "main"
-    repo_name   = "minnesota-immunization-records-pipeline"
-  }
-  
-  build {
-    step {
-      name = "gcr.io/cloud-builders/docker"
-      args = [
-        "build",
-        "-t",
-        "${var.region}-docker.pkg.dev/${var.project_id}/minnesota-immunization-mock/mock-server:latest",
-        "minnesota-immunization-mock/"
-      ]
-    }
-    
-    step {
-      name = "gcr.io/cloud-builders/docker"
-      args = [
-        "push",
-        "${var.region}-docker.pkg.dev/${var.project_id}/minnesota-immunization-mock/mock-server:latest"
-      ]
-    }
-    
-    options {
-      logging = "CLOUD_LOGGING_ONLY"
-    }
-  }
-  
-  depends_on = [google_artifact_registry_repository.mock_server_repo]
-}
+# Note: Build and push container manually using:
+# gcloud builds submit --tag us-central1-docker.pkg.dev/PROJECT_ID/minnesota-immunization-mock/mock-server:latest minnesota-immunization-mock/
 
 # Deploy to Cloud Run
 resource "google_cloud_run_service" "mock_server" {
@@ -116,10 +82,6 @@ resource "google_cloud_run_service" "mock_server" {
           container_port = 8080
         }
         
-        env {
-          name  = "MOCK_SERVER_URL"
-          value = "https://${var.service_name}-${random_id.service_suffix.hex}-${var.region}-run.app"
-        }
         
         resources {
           limits = {

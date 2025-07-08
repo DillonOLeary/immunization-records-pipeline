@@ -4,7 +4,7 @@ Integration tests for the CLI
 
 import os
 
-from tests.utils import execute_transform_subprocess
+from .utils import execute_transform_subprocess
 
 
 def test_cli_runs_for_all_test_files(tmp_path, test_env):
