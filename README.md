@@ -109,9 +109,11 @@ graph TB
 ## Prerequisites
 
 - [UV](https://docs.astral.sh/uv/) package manager (handles Python installation automatically)
-- Git
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
 
-## Quick Start
+## Installation
 
 1. **Clone the repository**
    ```bash
@@ -169,11 +171,11 @@ For end-to-end testing, a mock AISR server is available. Contact Dillon for the 
 ## Workspace Details
 
 Each workspace has its own README with specific setup and usage instructions:
-- Core: See `minnesota-immunization-core/README.md`
-- CLI: See `minnesota-immunization-cli/README.md`
-- Cloud: See `minnesota-immunization-cloud/README.md`
-- Infrastructure: See `minnesota-immunization-infra/README.md`
+- Core: See [`minnesota-immunization-core/README.md`](minnesota-immunization-core/README.md)
+- CLI: See [`minnesota-immunization-cli/README.md`](minnesota-immunization-cli/README.md)
+- Cloud: See [`minnesota-immunization-cloud/README.md`](minnesota-immunization-cloud/README.md)
+- Infrastructure: See [`minnesota-immunization-infra/README.md`](minnesota-immunization-infra/README.md)
 
 ## License
 
-GNU General Public License v3.0 or later
+[GNU General Public License v3.0](/LICENSE)
