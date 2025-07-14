@@ -30,6 +30,9 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/minnesota_immunization_cloud"]
+
 # Using published PyPI version instead of local path
 # [tool.uv.sources]
 # minnesota-immunization-core = { path="../minnesota-immunization-core", editable=true }
@@ -37,10 +40,6 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-select = ["E", "F", "I", "W", "N", "B", "UP", "C4"]
-
-[tool.ruff.isort]
-known-first-party = ["minnesota_immunization_cloud"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
