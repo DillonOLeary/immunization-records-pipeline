@@ -28,7 +28,7 @@ jobs:
         enable-cache: true
     
     - name: Install dependencies
-      run: uv sync --dev
+      run: uv pip install ".[dev]"
     
     - name: Run tests
       run: uv run pytest
@@ -57,7 +57,7 @@ jobs:
         enable-cache: true
     
     - name: Install dependencies
-      run: uv sync --dev
+      run: uv pip install ".[dev]"
     
     - name: Run tests
       run: uv run pytest
@@ -86,7 +86,7 @@ jobs:
         enable-cache: true
     
     - name: Install dependencies
-      run: uv sync --dev
+      run: uv pip install ".[dev]"
     
     - name: Run tests
       run: uv run pytest
