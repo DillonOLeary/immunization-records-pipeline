@@ -88,7 +88,15 @@ graph TB
     style input fill:#f8f9fa,stroke:#dee2e6,stroke-width:2px,rx:10,ry:10
     style cli fill:#f8f9fa,stroke:#dee2e6,stroke-width:2px,rx:10,ry:10
     style cloud fill:#f8f9fa,stroke:#dee2e6,stroke-width:2px,rx:10,ry:10
+    
+    %% External/Manual elements
+    style IC fill:#e1bee7,stroke:#8e24aa,stroke-width:2px,rx:10,ry:10
 ```
+
+**Color Key:**
+- 🔵 **Blue**: Functions, code, and infrastructure components
+- 🟢 **Green**: Data files and configuration
+- 🟣 **Purple**: External systems requiring manual interaction
 
 ## Repository Structure
 
