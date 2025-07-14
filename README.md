@@ -107,7 +107,7 @@ graph TB
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/DillonOLeary/immunization-records-pipeline
    cd immunization-records-pipeline
    ```
 
@@ -143,17 +143,11 @@ VSCode is configured to run discovered tests automatically when you open the wor
 # Run all tests for a package
 cd minnesota-immunization-core
 uv run pytest
-
-# Run with verbose output
-uv run pytest -v
-
-# Run specific test file
-uv run pytest tests/test_transform.py
 ```
 
 ### Linting
 ```bash
-# Check code style
+# Check code style within a pyproject
 uv run ruff .
 
 # Auto-fix issues
@@ -162,7 +156,7 @@ uv run ruff . --fix
 
 ### Mock Server
 
-For end-to-end testing, a mock AISR server is available. Contact the maintainer for the current Cloud Run endpoint.
+For end-to-end testing, a mock AISR server is available. Contact Dillon for the current Cloud Run endpoint.
 
 ## Workspace Details
 
