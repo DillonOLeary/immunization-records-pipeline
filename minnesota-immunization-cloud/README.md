@@ -1,6 +1,6 @@
 # Minnesota Immunization Cloud
 
-Allows the core library to be run as a cloud function on GCP
+Allows the core library to be run as a cloud function on GCP.
 
 ## Development
 
