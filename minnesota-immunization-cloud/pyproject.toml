@@ -40,10 +40,6 @@ packages = ["src/minnesota_immunization_cloud"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-select = ["E", "F", "I", "W", "N", "B", "UP", "C4"]
-
-[tool.ruff.isort]
-known-first-party = ["minnesota_immunization_cloud"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
