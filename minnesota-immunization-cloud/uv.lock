@@ -697,7 +697,7 @@ wheels = [
 [[package]]
 name = "minnesota-immunization-mock"
 version = "0.1.0"
-source = { virtual = "../minnesota-immunization-mock" }
+source = { editable = "../minnesota-immunization-mock" }
 dependencies = [
     { name = "fastapi" },
     { name = "python-multipart" },
