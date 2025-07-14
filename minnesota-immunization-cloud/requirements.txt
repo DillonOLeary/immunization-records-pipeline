@@ -72,9 +72,9 @@ click==8.2.1 \
     # via
     #   flask
     #   functions-framework
-cloudevents==1.11.1 \
-    --hash=sha256:74bc7739cda90c5fabaadeb3ee8995edb8faea3a6669775df8c26d368a9cfa71 \
-    --hash=sha256:9fa882aefe277f1295319f2945ac62a10daac783ccc3c3c431000774a61c99e3
+cloudevents==1.12.0 \
+    --hash=sha256:49196267f5f963d87ae156f93fc0fa32f4af69485f2c8e62e0db8b0b4b8b8921 \
+    --hash=sha256:ebd5544ceb58c8378a0787b657a2ae895e929b80a82d6675cba63f0e8c5539e0
     # via functions-framework
 colorama==0.4.6 ; sys_platform == 'win32' \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
