@@ -13,8 +13,9 @@
     ],
     "_mock_server": [
         "For end-to-end testing, a mock server is available:",
-        "auth_base_url: https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app/mock-auth-server",
-        "aisr_api_base_url: https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app"
+        "Local development: auth_base_url: http://localhost:8080/mock-auth-server, aisr_api_base_url: http://localhost:8080",
+        "Cloud deployment: auth_base_url: https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app/mock-auth-server, aisr_api_base_url: https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app",
+        "Mock server has hardcoded school IDs: 2542 (Friendly Hills Mid), 2543 (Garlough Elementary)"
     ],
     "api": {
         "auth_base_url": "https://authenticator4.web.health.state.mn.us",
@@ -22,18 +23,18 @@
     },
     "schools": [
         {
-            "name": "EXAMPLE ELEMENTARY",
-            "id": "1234", 
+            "name": "Friendly Hills Mid (Mock Server)",
+            "id": "2542", 
             "classification": "N",
-            "email": "school.nurse@example.org",
-            "bulk_query_file": "data/queries/example_elementary_students.csv"
+            "email": "nurse@friendlyhills.example.org",
+            "bulk_query_file": "data/queries/friendly_hills_students.csv"
         },
         {
-            "name": "EXAMPLE MIDDLE SCHOOL",
-            "id": "5678",
+            "name": "Garlough Elementary (Mock Server)",
+            "id": "2543",
             "classification": "N", 
-            "email": "health.office@example.org",
-            "bulk_query_file": "data/queries/example_middle_students.csv"
+            "email": "health@garlough.example.org",
+            "bulk_query_file": "data/queries/garlough_students.csv"
         }
     ],
     "paths": {
