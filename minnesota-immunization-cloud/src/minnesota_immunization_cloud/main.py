@@ -100,9 +100,7 @@ def upload_files_to_destinations(
                     str(output_file), drive_filename, drive_folder_id
                 )
             except Exception as e:
-                print(
-                    f"Warning: Failed to upload {output_file.name} to Google Drive: {e}"
-                )
+                print(f"WARNING: Failed to upload {output_file.name} to Google Drive: {e}")
 
 
 def store_completion_metadata(bucket_name: str, metadata: dict, filename: str) -> None:
@@ -126,7 +124,7 @@ def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id: str =
             folder_id=folder_id,
         )
     except Exception as e:
-        print(f"Error uploading to Google Drive: {str(e)}")
+        print(f"ERROR: Google Drive upload failed for {filename}: {str(e)}")
         raise
 
 
@@ -135,7 +133,7 @@ def upload_handler(event, context):
     Cloud Function triggered by Pub/Sub (Monday scheduler)
     Submits bulk queries to AISR for immunization records
     """
-    print("🚀 Upload function triggered!")
+    print("Upload function triggered")
 
     bucket_name = os.environ["DATA_BUCKET"]
     username, password = get_aisr_credentials()
@@ -151,12 +149,15 @@ def upload_handler(event, context):
         school_info_list = create_school_info_list(
             config, bucket_name, temp_path, include_query_files=True
         )
+        
+        school_names = [school.school_name for school in school_info_list]
+        print(f"Loaded configuration for {len(school_info_list)} schools: {', '.join(school_names)}")
 
         # Create and execute bulk query workflow
         action_list = create_aisr_actions_for_school_bulk_queries(school_info_list)
         query_workflow = create_aisr_workflow(login, action_list, logout)
 
-        print("🔄 Starting AISR bulk queries...")
+        print("Starting AISR bulk queries")
         query_workflow(auth_url, api_url, username, password)
 
         # Store completion metadata
@@ -170,7 +171,7 @@ def upload_handler(event, context):
         results_filename = f"uploads/{timestamp}_bulk_query_results.json"
         store_completion_metadata(bucket_name, results_data, results_filename)
 
-        print(f"📤 Upload completed: {len(school_info_list)} schools processed")
+        print(f"Upload completed: {len(school_info_list)} schools processed")
         return {"status": "success", "schools_processed": len(school_info_list)}
 
 
@@ -179,7 +180,7 @@ def download_handler(event, context):
     Cloud Function triggered by Pub/Sub (Wednesday scheduler)
     Downloads vaccination records from AISR and transforms them via ETL pipeline
     """
-    print("📥 Download function triggered!")
+    print("Download function triggered")
 
     bucket_name = os.environ["DATA_BUCKET"]
     username, password = get_aisr_credentials()
@@ -199,6 +200,9 @@ def download_handler(event, context):
         school_info_list = create_school_info_list(
             config, bucket_name, temp_path, include_query_files=False
         )
+        
+        school_names = [school.school_name for school in school_info_list]
+        print(f"Loaded configuration for {len(school_info_list)} schools: {', '.join(school_names)}")
 
         # Create and execute download workflow
         download_actions = create_aisr_download_actions(
@@ -208,7 +212,7 @@ def download_handler(event, context):
             login=login, aisr_function_list=download_actions, logout=logout
         )
 
-        print("🔄 Starting AISR vaccination record download...")
+        print("Starting AISR vaccination record download")
         download_workflow(auth_url, api_url, username, password)
 
         # Run ETL transformation on downloaded files
@@ -218,7 +222,7 @@ def download_handler(event, context):
             load=write_to_infinite_campus_csv,
         )
 
-        print("🔄 Starting ETL transformation...")
+        print("Starting ETL transformation")
         run_etl_on_folder(
             input_folder=input_folder,
             output_folder=output_folder,
@@ -228,7 +232,13 @@ def download_handler(event, context):
         # Upload transformed files to destinations
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         output_files = list(output_folder.glob("*.csv"))
-        upload_files_to_destinations(output_files, bucket_name, timestamp)
+        
+        if output_files:
+            print(f"Uploading {len(output_files)} transformed files to storage and Google Drive")
+            upload_files_to_destinations(output_files, bucket_name, timestamp)
+            print("File uploads completed successfully")
+        else:
+            print("WARNING: No output files generated from ETL process")
 
         # Store completion metadata
         metadata = {
@@ -240,7 +250,7 @@ def download_handler(event, context):
         metadata_filename = f"downloads/{timestamp}_download_metadata.json"
         store_completion_metadata(bucket_name, metadata, metadata_filename)
 
-        print(f"📥 Download and ETL completed: {len(output_files)} files processed")
+        print(f"Download and ETL completed: {len(output_files)} files processed")
         return {
             "status": "success",
             "schools_processed": len(school_info_list),

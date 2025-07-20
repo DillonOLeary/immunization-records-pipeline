@@ -23,7 +23,6 @@ def upload_to_storage(bucket_name: str, blob_name: str, data: str) -> None:
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     blob.upload_from_string(data, content_type="text/plain")
-    print(f"Uploaded to gs://{bucket_name}/{blob_name}")
 
 
 def upload_file_to_storage(bucket_name: str, blob_name: str, file_path: str) -> None:
@@ -39,7 +38,6 @@ def upload_file_to_storage(bucket_name: str, blob_name: str, file_path: str) -> 
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     blob.upload_from_filename(file_path)
-    print(f"Uploaded file to gs://{bucket_name}/{blob_name}")
 
 
 def download_from_storage(
@@ -57,4 +55,3 @@ def download_from_storage(
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     blob.download_to_filename(destination_path)
-    print(f"Downloaded gs://{bucket_name}/{blob_name} to {destination_path}")

@@ -54,6 +54,4 @@ def upload_to_google_drive(
         .execute()
     )
 
-    file_id = file.get("id")
-    print(f"Uploaded {filename} to Google Drive with ID: {file_id}")
-    return file_id
+    return file.get("id")
