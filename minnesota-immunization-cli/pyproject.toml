@@ -39,3 +39,8 @@ python_files = "test_*.py"
 
 [tool.uv.sources]
 minnesota-immunization-core = { path="../minnesota-immunization-core", editable=true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+]

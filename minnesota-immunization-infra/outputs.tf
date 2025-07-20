@@ -20,3 +20,9 @@ output "service_account_email" {
   description = "Email of the service account used by Cloud Functions"
   value       = google_service_account.function_sa.email
 }
+
+# Google Drive service account email
+# output "drive_service_account_email" {
+#   description = "Email of the Google Drive service account - share your Drive folder with this email"
+#   value       = google_service_account.drive_sa.email
+# }

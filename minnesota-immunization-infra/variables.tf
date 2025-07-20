@@ -16,3 +16,10 @@ variable "function_source_dir" {
   type        = string
   default     = "../minnesota-immunization-cloud"
 }
+
+# Google Drive configuration
+variable "google_drive_folder_id" {
+  description = "Google Drive folder ID for uploading output files (optional)"
+  type        = string
+  default     = ""
+}

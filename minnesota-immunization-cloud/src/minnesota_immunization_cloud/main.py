@@ -10,6 +10,9 @@ from datetime import datetime
 from pathlib import Path
 
 from google.cloud import secretmanager, storage
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from minnesota_immunization_core.aisr.actions import SchoolQueryInformation
 from minnesota_immunization_core.aisr.authenticate import login, logout
 from minnesota_immunization_core.etl_workflow import run_etl_on_folder
@@ -59,6 +62,59 @@ def upload_file_to_storage(bucket_name: str, blob_name: str, file_path: str):
     print(f"Uploaded file to gs://{bucket_name}/{blob_name}")
 
 
+def upload_to_google_drive(file_path: str, filename: str, folder_id: str = None):
+    """Upload file to Google Drive using OAuth credentials"""
+    try:
+        # Get OAuth credentials from Secret Manager
+        print("🔍 DEBUG: Starting Google Drive upload...")
+        refresh_token = get_secret("drive-refresh-token")
+        client_id = get_secret("drive-client-id")
+        client_secret = get_secret("drive-client-secret")
+
+        print(f"🔍 DEBUG: Retrieved secrets - Client ID: {client_id[:20]}...")
+        print(f"🔍 DEBUG: Refresh token length: {len(refresh_token)}")
+        print(f"🔍 DEBUG: Client secret length: {len(client_secret)}")
+
+        # Create credentials from OAuth tokens
+        print("🔍 DEBUG: Creating OAuth credentials object...")
+        credentials = Credentials(
+            token=None,  # Will be refreshed automatically
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=["https://www.googleapis.com/auth/drive.file"],
+        )
+
+        # Build the Drive API service
+        print("🔍 DEBUG: Building Google Drive API service...")
+        service = build("drive", "v3", credentials=credentials)
+        print("🔍 DEBUG: Drive service built successfully!")
+
+        # File metadata
+        file_metadata = {"name": filename}
+        if folder_id:
+            file_metadata["parents"] = [folder_id]
+
+        # Upload the file
+        print(f"🔍 DEBUG: Attempting to upload {filename} to folder {folder_id}")
+        media = MediaFileUpload(file_path, resumable=True)
+        print("🔍 DEBUG: MediaFileUpload object created")
+        file = (
+            service.files()
+            .create(body=file_metadata, media_body=media, fields="id")
+            .execute()
+        )
+        print("🔍 DEBUG: File upload completed successfully")
+
+        print(f"Uploaded {filename} to Google Drive with ID: {file.get('id')}")
+        return file.get("id")
+
+    except Exception as e:
+        print(f"Error uploading to Google Drive: {str(e)}")
+        raise
+
+
 def download_from_storage(bucket_name: str, blob_name: str, destination_path: str):
     """Download file from Google Cloud Storage"""
     client = get_storage_client()
@@ -77,8 +133,8 @@ def upload_handler(event, context):
 
     # Get configuration from environment
     bucket_name = os.environ["DATA_BUCKET"]
-    username = get_secret(os.environ["AISR_USERNAME_SECRET"])
-    password = get_secret(os.environ["AISR_PASSWORD_SECRET"])
+    username = get_secret("aisr-username")
+    password = get_secret("aisr-password")
 
     # API URLs
     # FIXME - use mock server for testing. These should be configurable via env vars
@@ -152,8 +208,8 @@ def download_handler(event, context):
 
     # Get configuration from environment
     bucket_name = os.environ["DATA_BUCKET"]
-    username = get_secret(os.environ["AISR_USERNAME_SECRET"])
-    password = get_secret(os.environ["AISR_PASSWORD_SECRET"])
+    username = get_secret("aisr-username")
+    password = get_secret("aisr-password")
 
     # API URLs
     auth_url = "https://authenticator4.web.health.state.mn.us"
@@ -229,6 +285,20 @@ def download_handler(event, context):
             blob_name = f"output/{timestamp}_{output_file.name}"
             upload_file_to_storage(bucket_name, blob_name, str(output_file))
 
+            # Also upload to Google Drive if configured
+            drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+            if drive_folder_id:
+                try:
+                    drive_filename = f"{timestamp}_{output_file.name}"
+                    upload_to_google_drive(
+                        str(output_file), drive_filename, drive_folder_id
+                    )
+                except Exception as e:
+                    print(
+                        f"Warning: Failed to upload {output_file.name} to Google Drive: {e}"
+                    )
+                    # Continue processing other files even if Drive upload fails
+
         # Store completion metadata
         metadata = {
             "download_time": datetime.now().isoformat(),
@@ -254,9 +324,10 @@ if __name__ == "__main__":
     print("🧪 Testing functions locally...")
     print("⚠️  Note: Local testing requires environment variables:")
     print("   - DATA_BUCKET")
-    print("   - AISR_USERNAME_SECRET")
-    print("   - AISR_PASSWORD_SECRET")
     print("   - GCP_PROJECT (optional)")
+    print(
+        "   - Secrets: aisr-username, aisr-password, drive-refresh-token, drive-client-id, drive-client-secret"
+    )
 
     # Mock event and context
     mock_event = {"data": "eyJhY3Rpb24iOiAidGVzdCJ9"}
