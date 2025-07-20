@@ -1,0 +1,44 @@
+{
+    "_comment": "Configuration for Minnesota Immunization CLI",
+    "_instructions": [
+        "To get the school values (id, classification, email), inspect network calls in AISR:",
+        "1. Log into AISR website and navigate to a school",
+        "2. Open browser developer tools -> Network tab and filter by 'Fetch/XHR'",
+        "3. Click 'Bulk Query' for the school you want to configure", 
+        "4. Look for a GET request to 'https://aisr-api.web.health.state.mn.us/school/<school_id>'",
+        "5. This request response contains the id, classification, and email values needed",
+        "6. The 'name' field can be any descriptive name, but id, classification, and email must match AISR exactly",
+        "7. The bulk_query_file should point to your CSV file with student data exported from Infinite Campus",
+        "8. Update the file paths to match your local directory structure"
+    ],
+    "_mock_server": [
+        "For end-to-end testing, a mock server is available:",
+        "auth_base_url: https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app/mock-auth-server",
+        "aisr_api_base_url: https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app"
+    ],
+    "api": {
+        "auth_base_url": "https://authenticator4.web.health.state.mn.us",
+        "aisr_api_base_url": "https://aisr-api.web.health.state.mn.us"
+    },
+    "schools": [
+        {
+            "name": "EXAMPLE ELEMENTARY",
+            "id": "1234", 
+            "classification": "N",
+            "email": "school.nurse@example.org",
+            "bulk_query_file": "data/queries/example_elementary_students.csv"
+        },
+        {
+            "name": "EXAMPLE MIDDLE SCHOOL",
+            "id": "5678",
+            "classification": "N", 
+            "email": "health.office@example.org",
+            "bulk_query_file": "data/queries/example_middle_students.csv"
+        }
+    ],
+    "paths": {
+        "input_folder": "data/input",
+        "output_folder": "data/output", 
+        "log_file": "data/logs/immunization_pipeline.log"
+    }
+}
