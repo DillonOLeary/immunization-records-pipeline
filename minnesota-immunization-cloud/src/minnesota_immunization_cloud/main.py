@@ -25,7 +25,7 @@ from minnesota_immunization_core.transform import (
 )
 
 from .cloud_storage import get_storage_client, upload_file_to_storage, upload_to_storage
-from .google_drive import upload_to_google_drive
+from .google_drive import upload_to_google_drive, upload_to_school_folder
 from .secrets import get_secret
 
 
@@ -85,9 +85,12 @@ def get_aisr_urls_from_config(config: dict) -> tuple[str, str]:
 
 
 def upload_files_to_destinations(
-    output_files: list[Path], bucket_name: str, timestamp: str
+    output_files: list[Path],
+    bucket_name: str,
+    timestamp: str,
+    school_info_list: list[SchoolQueryInformation],
 ) -> None:
-    """Upload transformed files to both Cloud Storage and Google Drive"""
+    """Upload transformed files to both Cloud Storage and Google Drive organized by school"""
     for output_file in output_files:
         blob_name = f"output/{timestamp}_{output_file.name}"
         upload_file_to_storage(bucket_name, blob_name, str(output_file))
@@ -95,12 +98,42 @@ def upload_files_to_destinations(
         drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
         if drive_folder_id:
             try:
-                drive_filename = f"{timestamp}_{output_file.name}"
-                upload_to_drive_with_secrets(
-                    str(output_file), drive_filename, drive_folder_id
-                )
+                # Find school by matching filename pattern
+                school_name = None
+                for school in school_info_list:
+                    # Check if filename contains the school name (with underscores)
+                    clean_school_name = school.school_name.replace(" ", "_")
+                    if clean_school_name in output_file.name:
+                        school_name = school.school_name
+                        break
+
+                # Fallback to root folder if no school match found
+                if not school_name:
+                    print(
+                        f"WARNING: Could not determine school for {output_file.name}, uploading to root folder"
+                    )
+                    drive_filename = f"{timestamp}_{output_file.name}"
+                    upload_to_drive_with_secrets(
+                        str(output_file), drive_filename, drive_folder_id
+                    )
+                else:
+                    drive_filename = f"{timestamp}_{output_file.name}"
+                    upload_to_school_folder(
+                        file_path=str(output_file),
+                        filename=drive_filename,
+                        school_name=school_name,
+                        refresh_token=get_secret("drive-refresh-token"),
+                        client_id=get_secret("drive-client-id"),
+                        client_secret=get_secret("drive-client-secret"),
+                        parent_folder_id=drive_folder_id,
+                    )
+                    print(
+                        f"Uploaded {output_file.name} to {school_name} folder in Google Drive"
+                    )
             except Exception as e:
-                print(f"WARNING: Failed to upload {output_file.name} to Google Drive: {e}")
+                print(
+                    f"WARNING: Failed to upload {output_file.name} to Google Drive: {e}"
+                )
 
 
 def store_completion_metadata(bucket_name: str, metadata: dict, filename: str) -> None:
@@ -149,9 +182,11 @@ def upload_handler(event, context):
         school_info_list = create_school_info_list(
             config, bucket_name, temp_path, include_query_files=True
         )
-        
+
         school_names = [school.school_name for school in school_info_list]
-        print(f"Loaded configuration for {len(school_info_list)} schools: {', '.join(school_names)}")
+        print(
+            f"Loaded configuration for {len(school_info_list)} schools: {', '.join(school_names)}"
+        )
 
         # Create and execute bulk query workflow
         action_list = create_aisr_actions_for_school_bulk_queries(school_info_list)
@@ -200,9 +235,11 @@ def download_handler(event, context):
         school_info_list = create_school_info_list(
             config, bucket_name, temp_path, include_query_files=False
         )
-        
+
         school_names = [school.school_name for school in school_info_list]
-        print(f"Loaded configuration for {len(school_info_list)} schools: {', '.join(school_names)}")
+        print(
+            f"Loaded configuration for {len(school_info_list)} schools: {', '.join(school_names)}"
+        )
 
         # Create and execute download workflow
         download_actions = create_aisr_download_actions(
@@ -232,10 +269,14 @@ def download_handler(event, context):
         # Upload transformed files to destinations
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         output_files = list(output_folder.glob("*.csv"))
-        
+
         if output_files:
-            print(f"Uploading {len(output_files)} transformed files to storage and Google Drive")
-            upload_files_to_destinations(output_files, bucket_name, timestamp)
+            print(
+                f"Uploading {len(output_files)} transformed files to storage and Google Drive"
+            )
+            upload_files_to_destinations(
+                output_files, bucket_name, timestamp, school_info_list
+            )
             print("File uploads completed successfully")
         else:
             print("WARNING: No output files generated from ETL process")
