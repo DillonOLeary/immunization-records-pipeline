@@ -13,10 +13,13 @@ dependencies = [
     "functions-framework",
     "minnesota-immunization-core",
     "google-cloud-secret-manager",
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
 ]
 
 [project.scripts]
-minnesota-immunization-cloud = "minnesota_immunization_cloud:main"
+minnesota-immunization-cloud = "src.minnesota_immunization_cloud:main"
 
 [project.optional-dependencies]
 dev = [
@@ -48,4 +51,9 @@ python_files = "test_*.py"
 [tool.uv.workspace]
 members = [
     "../minnesota-immunization-mock",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
 ]

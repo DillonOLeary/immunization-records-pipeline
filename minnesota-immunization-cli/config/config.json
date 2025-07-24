@@ -1,0 +1,43 @@
+{
+  "api": {
+    "auth_base_url": "https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app/mock-auth-server",
+    "aisr_api_base_url": "https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app"
+  },
+  "schools": [
+    {
+      "name": "FRIENDLY HILLS MID",
+      "id": "2542",
+      "classification": "N",
+      "email": "RACHAEL.JACKSON@ISD197.ORG",
+      "bulk_query_file": "queries/friendly_hills_students.csv"
+    },
+    {
+      "name": "GARLOUGH EL",
+      "id": "887",
+      "classification": "N",
+      "email": "ERIK.NATHAN@ISD197.ORG",
+      "bulk_query_file": "queries/garlough_students.csv"
+    },
+    {
+      "name": "HERITAGE MID",
+      "id": "1958",
+      "classification": "N",
+      "email": "KAREN.TOMES@ISD197.ORG",
+      "bulk_query_file": "queries/heritage_students.csv"
+    },
+    {
+      "name": "MENDOTA EL",
+      "id": "888",
+      "classification": "N",
+      "email": "laura.grulkowski@isd197.org",
+      "bulk_query_file": "queries/mendota_students.csv"
+    },
+    {
+      "name": "MORELAND EL",
+      "id": "889",
+      "classification": "N",
+      "email": "JULIE.HANKS@ISD197.ORG",
+      "bulk_query_file": "queries/moreland_students.csv"
+    }
+  ]
+}
