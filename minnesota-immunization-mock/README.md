@@ -175,16 +175,6 @@ To add new test scenarios:
 
 ## Architecture
 
-```
-Cloud Functions (with MOCK_MODE=true)
-        �
-Mock AISR Server (Cloud Run)
-        �
-Sample Data Generator
-        �
-Realistic Test Data
-```
-
 The mock server replicates the exact API contract of the real AISR system, allowing the pipeline to be tested end-to-end without requiring production credentials or access.
 
 ## License
