@@ -10,7 +10,7 @@ A mock AISR (Automated Immunization School Registry) server for testing the Minn
 - **Public deployment**: No authentication required for testing
 - **Cloud Run ready**: Containerized and deployable to Google Cloud
 
-## Quick Start
+## Development
 
 ### Local Development
 
@@ -175,28 +175,8 @@ To add new test scenarios:
 
 ## Architecture
 
-```
-Cloud Functions (with MOCK_MODE=true)
-        “
-Mock AISR Server (Cloud Run)
-        “
-Sample Data Generator
-        “
-Realistic Test Data
-```
-
 The mock server replicates the exact API contract of the real AISR system, allowing the pipeline to be tested end-to-end without requiring production credentials or access.
 
-## Cost
+## License
 
-The Cloud Run deployment is very cost-effective:
-- **No minimum charges** (scales to zero when not in use)
-- **Pay per request** only
-- **Estimated cost**: <$1/month for typical testing usage
-
-## Security
-
-- **No authentication required** for testing convenience
-- **No sensitive data** - all data is synthetic
-- **Public access** enabled for contributor testing
-- **Stateless design** - no data persistence
+[GNU General Public License](../LICENSE)

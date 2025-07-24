@@ -200,3 +200,6 @@ For issues or questions, check the logs first:
 - Cloud Functions logs in Google Cloud Console
 - Secret Manager for credential issues
 - Storage bucket for data delivery verification
+
+## License
+[GNU General Public License](../LICENSE)
