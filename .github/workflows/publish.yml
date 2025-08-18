@@ -20,7 +20,7 @@ jobs:
       run:
         working-directory: minnesota-immunization-core
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -45,7 +45,7 @@ jobs:
       run:
         working-directory: minnesota-immunization-core
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -72,7 +72,7 @@ jobs:
         working-directory: minnesota-immunization-core
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set up Python
       uses: actions/setup-python@v5
