@@ -5,6 +5,7 @@ Infrastructure as Code for automated immunization record processing between AISR
 ## Architecture Overview
 
 This system automates the weekly immunization data workflow:
+
 - **Monday**: Upload student query data to AISR
 - **Wednesday**: Download vaccination records and transform for school systems
 - **Output**: Files delivered to both Google Cloud Storage and Google Drive
@@ -21,17 +22,20 @@ This system automates the weekly immunization data workflow:
 ### Step 1: Deploy Terraform Infrastructure
 
 1. **Clone and configure**:
+
    ```bash
    git clone <repo-url>
    cd minnesota-immunization-infra
    cp terraform.tfvars.example terraform.tfvars
    ```
 
-2. **Edit terraform.tfvars**:
+2. **Edit terraform.tfvars and generate requirements.txt**:
+
    ```hcl
    project_id = "your-gcp-project-id"
    region = "us-central1"
    google_drive_folder_id = ""  # Leave empty for now, fill in Step 3
+   uv export --format requirements-txt --no-editable -o requirements.txt
    ```
 
 3. **Deploy infrastructure**:
@@ -41,7 +45,7 @@ This system automates the weekly immunization data workflow:
    terraform apply
    ```
 
-### Step 2: Configure Google Drive OAuth
+### Step 2: Configure Google Drive OAuth and Folder (Optional)
 
 Google Drive integration requires OAuth 2.0 credentials for user account access.
 
@@ -51,7 +55,7 @@ Google Drive integration requires OAuth 2.0 credentials for user account access.
 2. Click **"+ CREATE CREDENTIALS"** → **"OAuth 2.0 Client ID"**
 3. **Application type**: Select **"Web application"**
 4. **Name**: "Immunization Pipeline OAuth Client"
-5. **Authorized redirect URIs**: 
+5. **Authorized redirect URIs**:
    - Click "ADD URI"
    - Enter: `http://localhost:8080/`
    - **This is required for the OAuth setup script to work**
@@ -80,6 +84,7 @@ uv run scripts/setup_google_drive_oauth.py path/to/your/oauth_credentials.json
 ```
 
 This will:
+
 1. Open your browser for OAuth flow
 2. Let you authenticate with your chosen Google account
 3. Generate refresh token and client credentials
@@ -96,7 +101,7 @@ echo "904454...client_id" | gcloud secrets versions add drive-client-id --data-f
 echo "GOCSPX-...client_secret" | gcloud secrets versions add drive-client-secret --data-file=-
 ```
 
-### Step 3: Configure Google Drive Folder
+### 2.5 Configure Google Drive Folder
 
 1. **Create a Google Drive folder** for immunization records
 2. **Copy the folder ID** from the URL:
@@ -111,7 +116,7 @@ echo "GOCSPX-...client_secret" | gcloud secrets versions add drive-client-secret
    terraform apply
    ```
 
-### Step 4: Configure AISR Credentials
+### Step 3: Configure AISR Credentials
 
 Add your AISR system credentials to Secret Manager:
 
@@ -120,7 +125,7 @@ echo "your_aisr_username" | gcloud secrets versions add aisr-username --data-fil
 echo "your_aisr_password" | gcloud secrets versions add aisr-password --data-file=-
 ```
 
-### Step 5: Upload School Configuration
+### Step 4: Upload School Configuration
 
 1. **Create config.json** based on the examples in the cloud function
 2. **Upload to Google Cloud Storage**:
@@ -132,14 +137,14 @@ echo "your_aisr_password" | gcloud secrets versions add aisr-password --data-fil
 
 ### Manual Testing
 
-Trigger functions manually for testing:
+Trigger functions for testing:
 
 ```bash
 # Upload function (Monday workflow)
-gcloud functions call immunization-upload --region=us-central1
+gcloud pubsub topics publish immunization-upload-trigger --message='{"action": "upload"}'
 
-# Download function (Wednesday workflow)  
-gcloud functions call immunization-download --region=us-central1
+# Download function (Wednesday workflow)
+gcloud pubsub topics publish immunization-download-trigger --message='{"action": "download"}'
 ```
 
 ### Production Scheduling
@@ -171,6 +176,7 @@ The system automatically organizes files by school:
 ### Google Drive Authentication Issues
 
 1. **"The OAuth client was not found"**:
+
    - Check OAuth consent screen: Ensure your Google account is added as a test user
    - Verify OAuth client exists in Google Cloud Console → APIs & Services → Credentials
    - Ensure authorized redirect URI includes `http://localhost:8080/`
@@ -183,6 +189,7 @@ The system automatically organizes files by school:
 ### Function Errors
 
 View logs in Google Cloud Console:
+
 ```bash
 gcloud functions logs read immunization-download --region=us-central1
 ```
@@ -191,15 +198,9 @@ gcloud functions logs read immunization-download --region=us-central1
 
 - All secrets stored in Google Secret Manager
 - HIPAA-compliant storage with encryption at rest
-- Minimal IAM permissions (principle of least privilege)
-- 3-year data retention policy
-
-## Support
-
-For issues or questions, check the logs first:
-- Cloud Functions logs in Google Cloud Console
-- Secret Manager for credential issues
-- Storage bucket for data delivery verification
+- Minimal IAM permissions
+- 3-year data retention policy - objects in GCS are kept for 3 years
 
 ## License
+
 [GNU General Public License](../LICENSE)

@@ -2,7 +2,7 @@
 
 CLI for interacting with the core library.
 
-## Development
+## Installation and Development
 
 ```bash
 # Install with development dependencies
@@ -14,6 +14,8 @@ uv run pytest
 # Run linting
 ruff .
 ```
+
+## Usage
 
 ## License
 

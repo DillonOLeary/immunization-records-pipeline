@@ -29,12 +29,16 @@ uv run pytest
 ruff .
 ```
 
+## Usage
+
+You'll interact with the core library throught the CLI or Google Cloud modules. Refer to the readmes in those directories for usage information.
+
 ## Architecture
 
 The library implements a functional dependency injection pattern:
 
 - `pipeline_factory.py`: Creates pipeline functions by injecting components
-- `etl_workflow.py`: Defines high-level workflow orchestration  
+- `etl_workflow.py`: Defines high-level workflow orchestration
 - `extract.py`, `transform.py`, `load.py`: Implement specific data operations
 - `aisr/`: Handles Minnesota Immunization Information Connection integration
 
