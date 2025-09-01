@@ -12,47 +12,36 @@ A Python library for processing Minnesota immunization records through ETL (Extr
 ## Installation
 
 ```bash
-pip install minnesota-immunization-core
+uv venv
+uv pip install minnesota-immunization-core
 ```
 
-## Quick Start
+## Development
 
-```python
-from minnesota_immunization_core import pipeline_factory
-from minnesota_immunization_core.etl_workflow import run_etl_workflow
+```bash
+# Install with development dependencies
+uv pip install -e ".[dev]"
 
-# Create ETL pipeline
-config = {
-    "input_file": "path/to/aisr_data.csv",
-    "output_file": "path/to/transformed_data.csv"
-}
+# Run tests
+uv run pytest
 
-extract, transform, load = pipeline_factory.create_etl_pipeline(config)
-run_etl_workflow(extract, transform, load)
+# Run linting
+ruff .
 ```
+
+## Usage
+
+You'll interact with the core library throught the CLI or Google Cloud modules. Refer to the readmes in those directories for usage information.
 
 ## Architecture
 
 The library implements a functional dependency injection pattern:
 
 - `pipeline_factory.py`: Creates pipeline functions by injecting components
-- `etl_workflow.py`: Defines high-level workflow orchestration  
+- `etl_workflow.py`: Defines high-level workflow orchestration
 - `extract.py`, `transform.py`, `load.py`: Implement specific data operations
 - `aisr/`: Handles Minnesota Immunization Information Connection integration
 
-## Development
-
-```bash
-# Install with development dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Run linting
-ruff .
-```
-
 ## License
 
-GNU General Public License v3.0 or later
+[GNU General Public License](../LICENSE)
