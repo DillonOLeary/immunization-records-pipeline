@@ -711,6 +711,7 @@ dependencies = [
     { name = "google-cloud-secret-manager" },
     { name = "google-cloud-storage" },
     { name = "minnesota-immunization-core" },
+    { name = "pandas" },
     { name = "requests" },
 ]
 
@@ -737,6 +738,7 @@ requires-dist = [
     { name = "google-cloud-secret-manager" },
     { name = "google-cloud-storage" },
     { name = "minnesota-immunization-core" },
+    { name = "pandas", specifier = ">=2.3.1" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "requests" },

@@ -403,7 +403,9 @@ pandas==2.3.1 \
     --hash=sha256:ec6c851509364c59a5344458ab935e6451b31b818be467eb24b0fe89bd05b6b9 \
     --hash=sha256:fe37e757f462d31a9cd7580236a82f353f5713a80e059a29753cf938c6775d96 \
     --hash=sha256:fe7317f578c6a153912bd2292f02e40c1d8f253e93c599e82620c7f69755c74f
-    # via minnesota-immunization-core
+    # via
+    #   minnesota-immunization-cloud
+    #   minnesota-immunization-core
 pluggy==1.6.0 \
     --hash=sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3 \
     --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
