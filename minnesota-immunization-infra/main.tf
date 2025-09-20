@@ -226,32 +226,64 @@ resource "google_cloudfunctions2_function" "download_function" {
   depends_on = [google_project_service.required_apis]
 }
 
-# Cloud Scheduler job - Upload trigger (every Monday at 9am)
-# COMMENTED OUT - Disable automatic triggering until ready for production
-# resource "google_cloud_scheduler_job" "upload_schedule" {
-#   name      = "immunization-upload-schedule"
-#   schedule  = "0 9 * * 1"
-#   time_zone = "America/Chicago"
-#
-#   pubsub_target {
-#     topic_name = google_pubsub_topic.upload_trigger.id
-#     data       = base64encode("{\"action\": \"upload\"}")
-#   }
-#
-#   depends_on = [google_project_service.required_apis]
-# }
+# Cloud Scheduler job - Upload trigger (every Monday at 2:09am)
+resource "google_cloud_scheduler_job" "upload_schedule" {
+  name      = "immunization-upload-schedule"
+  schedule  = "9 2 * * 1"
+  time_zone = "America/Chicago"
 
-# Cloud Scheduler job - Download trigger (every Wednesday at 9am, 2 days after Monday)
-# COMMENTED OUT - Disable automatic triggering until ready for production
-# resource "google_cloud_scheduler_job" "download_schedule" {
-#   name      = "immunization-download-schedule"
-#   schedule  = "0 9 * * 3"
-#   time_zone = "America/Chicago"
-#
-#   pubsub_target {
-#     topic_name = google_pubsub_topic.download_trigger.id
-#     data       = base64encode("{\"action\": \"download\"}")
-#   }
-#
-#   depends_on = [google_project_service.required_apis]
-# }
+  pubsub_target {
+    topic_name = google_pubsub_topic.upload_trigger.id
+    data       = base64encode("{\"action\": \"upload\"}")
+  }
+
+  depends_on = [google_project_service.required_apis]
+}
+
+# Cloud Scheduler job - Download trigger (every Wednesday at 2:09am)
+resource "google_cloud_scheduler_job" "download_schedule" {
+  name      = "immunization-download-schedule"
+  schedule  = "9 2 * * 3"
+  time_zone = "America/Chicago"
+
+  pubsub_target {
+    topic_name = google_pubsub_topic.download_trigger.id
+    data       = base64encode("{\"action\": \"download\"}")
+  }
+
+  depends_on = [google_project_service.required_apis]
+}
+
+# Email notification channel for alerts
+resource "google_monitoring_notification_channel" "email" {
+  display_name = "Email Alerts"
+  type         = "email"
+  labels = {
+    email_address = var.alert_email
+  }
+}
+
+# Alert policy for cloud function errors
+resource "google_monitoring_alert_policy" "function_errors" {
+  display_name = "Cloud Function Errors"
+  combiner     = "OR"
+  enabled      = true
+
+  conditions {
+    display_name = "Function error logs"
+    condition_matched_log {
+      filter = "resource.type=\"cloud_function\" AND (resource.labels.function_name=\"immunization-upload\" OR resource.labels.function_name=\"immunization-download\") AND severity>=ERROR"
+    }
+  }
+
+  notification_channels = [google_monitoring_notification_channel.email.id]
+
+  alert_strategy {
+    auto_close = "86400s"  # 24 hours
+    notification_rate_limit {
+      period = "300s"  # 5 minutes
+    }
+  }
+
+  depends_on = [google_project_service.required_apis]
+}

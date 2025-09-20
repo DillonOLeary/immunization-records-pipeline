@@ -23,3 +23,9 @@ variable "google_drive_folder_id" {
   type        = string
   default     = ""
 }
+
+# Alerting configuration
+variable "alert_email" {
+  description = "Email address for error alerts"
+  type        = string
+}
