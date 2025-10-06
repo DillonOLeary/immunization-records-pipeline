@@ -11,7 +11,7 @@ dependencies = [
     "google-cloud-storage",
     "requests",
     "functions-framework",
-    "minnesota-immunization-core>=0.1.1",
+    "minnesota-immunization-core>=0.1.2",
     "google-cloud-secret-manager",
     "google-api-python-client",
     "google-auth-httplib2",

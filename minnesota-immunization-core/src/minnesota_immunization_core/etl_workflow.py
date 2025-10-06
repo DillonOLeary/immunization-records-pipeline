@@ -3,6 +3,7 @@ This file runs the immunization data pipeline.
 """
 
 import logging
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -71,14 +72,26 @@ def run_aisr_workflow(
     login: Callable[[requests.Session], AISRAuthResponse],
     aisr_actions: Sequence[Callable[..., None]],
     logout: Callable[[requests.Session], None],
+    delay_between_actions: float = 2.0,
 ) -> None:
     """
     Logs into MIIC, runs a series of actions, and logs out of MIIC.
+
+    Args:
+        login: Function to log into AISR
+        aisr_actions: Sequence of actions to perform
+        logout: Function to log out of AISR
+        delay_between_actions: Seconds to wait between actions to avoid rate limiting (default: 2.0)
     """
     with requests.Session() as session:
         aisr_response = login(session)
 
-        for action in aisr_actions:
+        for i, action in enumerate(aisr_actions):
+            # Add delay before each action except the first one
+            # This helps avoid AISR rate limiting and cold-start issues
+            if i > 0 and delay_between_actions > 0:
+                time.sleep(delay_between_actions)
+
             try:
                 action(session, aisr_response.access_token)
             except AISRActionFailedError as e:
