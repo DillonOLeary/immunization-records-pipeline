@@ -140,6 +140,9 @@ def create_aisr_download_actions(
     Returns:
         List of functions that can be used to download vaccination records
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     function_list = []
     for school_info in school_info_list:
         # Create a specific output file for this school with a unique filename
@@ -148,19 +151,29 @@ def create_aisr_download_actions(
 
         # Create a download function for this school -
         # binding both the function and parameters
+        def create_download_func(school_name, school_id, output_path):
+            def download_func(session, access_token, base_url):
+                logger.info(f"Downloading vaccination records for {school_name} (ID: {school_id})")
+                try:
+                    result = get_and_download_vaccination_records(
+                        session=session,
+                        access_token=access_token,
+                        base_url=base_url,
+                        school_id=school_id,
+                        output_path=output_path,
+                    )
+                    logger.info(f"Successfully downloaded vaccination records for {school_name}")
+                    return result
+                except Exception as e:
+                    logger.error(f"Failed to download vaccination records for {school_name}: {e}")
+                    raise
+            return download_func
+
         function_list.append(
-            # pylint: disable-next=line-too-long
-            lambda session,
-            access_token,
-            base_url,
-            school_id=school_info.school_id,
-            output_path=output_file,
-            func=get_and_download_vaccination_records: func(
-                session=session,
-                access_token=access_token,
-                base_url=base_url,
-                school_id=school_id,
-                output_path=output_path,
+            create_download_func(
+                school_info.school_name,
+                school_info.school_id,
+                output_file
             )
         )
 

@@ -306,9 +306,9 @@ markupsafe==3.0.2 \
     #   flask
     #   jinja2
     #   werkzeug
-minnesota-immunization-core==0.1.0 \
-    --hash=sha256:3f91ac1a6eb1f5d08aa5b91da647d27f6c06a7cbcfe14304ab6e630ad2bac0c2 \
-    --hash=sha256:8e74a1937baae87e7817c9b894d001979bacc361eabad07d5728b3d2aa6530a1
+minnesota-immunization-core==0.1.1 \
+    --hash=sha256:03021cbaa4a42740b6feac676dd965111a6670b211eaaefd2ae51ea02bc06fc7 \
+    --hash=sha256:b711f2e111be62fbec7293c41d33d9d9dc41380faadc3b26ddca964da87aa1dd
     # via minnesota-immunization-cloud
 numpy==2.3.1 \
     --hash=sha256:0025048b3c1557a20bc80d06fdeb8cc7fc193721484cca82b2cfa072fec71a93 \
@@ -489,6 +489,10 @@ soupsieve==2.7 \
     --hash=sha256:6e60cc5c1ffaf1cebcc12e8188320b72071e922c2e897f737cadce79ad5d30c4 \
     --hash=sha256:ad282f9b6926286d2ead4750552c8a6142bc4c783fd66b0293547c8fe6ae126a
     # via beautifulsoup4
+tenacity==9.1.2 \
+    --hash=sha256:1169d376c297e7de388d18b4481760d478b0e99a777cad3a9c86e556f4b697cb \
+    --hash=sha256:f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138
+    # via minnesota-immunization-core
 typing-extensions==4.14.1 \
     --hash=sha256:38b39f4aeeab64884ce9f74c94263ef78f3c22467c8724005483154c26648d36 \
     --hash=sha256:d1e1e3b58374dc93031d6eda2420a48ea44a36c2b4766a4fdeb3710755731d76

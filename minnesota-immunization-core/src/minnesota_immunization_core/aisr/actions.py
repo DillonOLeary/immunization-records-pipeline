@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,12 @@ class SchoolQueryInformation:
     query_file_path: str
 
 
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=2, max=5),
+    retry=retry_if_exception_type((requests.exceptions.Timeout, requests.exceptions.ConnectionError)),
+    reraise=True,
+)
 def get_latest_vaccination_records_url(
     session: requests.Session,
     base_url: str,
@@ -143,6 +150,8 @@ def get_latest_vaccination_records_url(
     and returns the URL for the most recent full vaccination file.
 
     Returns None if no records are available.
+
+    Retries once with 2-5 second backoff on timeout/connection errors.
     """
     url = f"{base_url}/school/query/{school_id}"
 
@@ -150,7 +159,7 @@ def get_latest_vaccination_records_url(
         "Authorization": f"Bearer {access_token}",
     }
 
-    res = session.get(url, headers=headers, timeout=60)
+    res = session.get(url, headers=headers, timeout=120)
 
     if res.status_code != 200:
         raise AISRActionFailedError(
@@ -168,6 +177,12 @@ def get_latest_vaccination_records_url(
     return latest_record.get("fullVaccineFileUrl")
 
 
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=2, max=5),
+    retry=retry_if_exception_type((requests.exceptions.Timeout, requests.exceptions.ConnectionError)),
+    reraise=True,
+)
 def download_vaccination_records(
     session: requests.Session, file_url: str, output_path: Path
 ) -> AISRFileDownloadResponse:
@@ -176,8 +191,10 @@ def download_vaccination_records(
     and save it to the specified path.
 
     Returns a response indicating success or failure.
+
+    Retries once with 2-5 second backoff on timeout/connection errors.
     """
-    res = session.get(file_url, timeout=60)
+    res = session.get(file_url, timeout=300)
 
     if res.status_code != 200:
         raise AISRActionFailedError(
