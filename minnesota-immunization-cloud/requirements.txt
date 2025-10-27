@@ -94,9 +94,9 @@ functions-framework==3.8.3 \
     --hash=sha256:95827698469e3979518d52e32def2f11230465877fef32afd49045013b2a469c \
     --hash=sha256:fd352272c02ee08b4a3445e234213e43fbdd350365d98e2cce13e1575490bffe
     # via minnesota-immunization-cloud
-google-api-core==2.25.1 \
-    --hash=sha256:8a2a56c1fef82987a524371f99f3bd0143702fecc670c72e600c1cda6bf8dbb7 \
-    --hash=sha256:d2aaa0b13c78c61cb3f4282c464c046e45fbd75755683c9c525e6e8f7ed0a5e8
+google-api-core==2.27.0 \
+    --hash=sha256:779a380db4e21a4ee3d717cf8efbf324e53900bf37e1ffb273e5348a9916dd42 \
+    --hash=sha256:d32e2f5dd0517e91037169e75bf0a9783b255aff1d11730517c0b2b29e9db06a
     # via
     #   google-api-python-client
     #   google-cloud-core
