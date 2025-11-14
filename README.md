@@ -1,39 +1,43 @@
 # Minnesota Immunization Records Pipeline
 
-This data engineering project processes student immunization records from Minnesota's AISR system and generates CSV files for school administrators to upload to Infinite Campus.
+This system automates the processing of student immunization records from Minnesota's AISR system and generates CSV files for school administrators to upload to Infinite Campus.
 
-## Process Overview
+## How It Works
 
-The pipeline consists of three main functions:
+The system performs three main steps:
 
-1. **Upload Query Files** - Upload student lists (query files) to AISR system
-2. **Download Results** - Download immunization records from AISR based on queries
-3. **Transform Data** - Convert AISR format to Infinite Campus CSV format
+1. **Upload Query Files** - Uploads your student lists (query files) to AISR system
+2. **Download Results** - Downloads immunization records from AISR (2 days later)
+3. **Transform Data** - Converts AISR format to Infinite Campus CSV format
 
-These can be run individually via CLI or automated together via Google Cloud.
+These steps can be run individually via CLI or automated together via Google Cloud on a weekly schedule, with final files delivered to Google Drive.
 
 ## Architecture
+
+The diagram below shows how the three pipeline steps map to components:
+- **Step 1 (Upload)**: CLI or CloudFn uploads Query Files to AISR
+- **Step 2 (Download)**: CLI or CloudFn downloads vaccination records from AISR
+- **Step 3 (Transform)**: Core library processes downloaded data into Infinite Campus format
 
 ```mermaid
 graph TB
     subgraph ext ["External Systems"]
         AISR[AISR Live System]
-        Mock[Mock Server<br/>*minnesota-immunization-mock*<br/>Testing]
     end
-    
+
     subgraph input ["Input Files"]
-        Config[Config File<br/>• AISR/Mock endpoints<br/>• School settings<br/>• Query file locations]
+        Config[Config File<br/>• AISR endpoints<br/>• School settings<br/>• Query file locations]
         Query[Query Files<br/>Student lists updated yearly]
     end
-    
+
     Core[ETL Pipeline Library<br/>*minnesota-immunization-core*]
-    
+
     subgraph cli ["CLI Tool"]
         CLI[Command Line<br/>*minnesota-immunization-cli*]
         LocalConfig[Required files<br/>stored locally]
         LocalCSV[CSV Files<br/>Local machine]
     end
-    
+
     subgraph cloud ["Google Cloud (*minnesota-immunization-infra*)"]
         CloudFn[Cloud Function<br/>*minnesota-immunization-cloud*]
         Scheduler[Weekly Scheduler<br/>Upload function → 2 days → Download & Transform function]
@@ -41,62 +45,46 @@ graph TB
         Secrets[Secret Manager]
         Drive[Google Drive]
     end
-    
+
     AISR --> Config
-    Mock -.-> Config
-    
+
     Config --> LocalConfig
     Config --> GCS
     Query --> LocalConfig
     Query --> GCS
-    
+
     LocalConfig --> CLI
     CLI --> Core
     GCS --> CloudFn
     CloudFn --> Core
-    
+
     CLI --> LocalCSV
     CloudFn --> Drive
-    
-    
+
+
     Scheduler --> CloudFn
     CloudFn <--> GCS
     Secrets --> CloudFn
-    
+
     LocalCSV -.-> IC[Infinite Campus<br/>Manual Upload]
     Drive -.-> IC
-    
-    %% Functions/Code/Infrastructure
-    style Core fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    style CLI fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    style CloudFn fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    style Mock fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    style Scheduler fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    style GCS fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    style Secrets fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    style Drive fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    style AISR fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,rx:10,ry:10
-    
-    %% Data/Files
-    style Config fill:#f1f8e9,stroke:#689f38,stroke-width:2px,rx:10,ry:10
-    style LocalConfig fill:#f1f8e9,stroke:#689f38,stroke-width:2px,rx:10,ry:10
-    style Query fill:#f1f8e9,stroke:#689f38,stroke-width:2px,rx:10,ry:10
-    style LocalCSV fill:#f1f8e9,stroke:#689f38,stroke-width:2px,rx:10,ry:10
-    
+
     %% Subgraph backgrounds
     style ext fill:#f8f9fa,stroke:#dee2e6,stroke-width:2px,rx:10,ry:10
     style input fill:#f8f9fa,stroke:#dee2e6,stroke-width:2px,rx:10,ry:10
     style cli fill:#f8f9fa,stroke:#dee2e6,stroke-width:2px,rx:10,ry:10
     style cloud fill:#f8f9fa,stroke:#dee2e6,stroke-width:2px,rx:10,ry:10
-    
-    %% External/Manual elements
+
+    %% Manual action required
+    style Query fill:#e1bee7,stroke:#8e24aa,stroke-width:2px,rx:10,ry:10
     style IC fill:#e1bee7,stroke:#8e24aa,stroke-width:2px,rx:10,ry:10
 ```
 
-**Color Key:**
-- 🔵 **Blue**: Functions, code, and infrastructure components
-- 🟢 **Green**: Data files and configuration
-- 🟣 **Purple**: External systems requiring manual interaction
+**Purple** highlights what requires your action (Query files updated yearly, CSV upload to Infinite Campus weekly)
+
+## Getting Started
+
+To run this system with real data, you need credentials for Minnesota's AISR system (MDH) and access to Infinite Campus for uploading the final CSV files. You can run the pipeline locally using the CLI tool (see [CLI README](minnesota-immunization-cli/README.md)) or deploy it to Google Cloud for automated weekly processing (see [Infrastructure README](minnesota-immunization-infra/README.md)). The cloud deployment is recommended for production use as it handles scheduling and file delivery automatically.
 
 ## Repository Structure
 
@@ -106,14 +94,28 @@ graph TB
 - **`minnesota-immunization-infra/`** - Terraform infrastructure code for GCP deployment
 - **`minnesota-immunization-mock/`** - Mock server for end-to-end testing
 
-## Prerequisites
+## Workspace Details
+
+Each workspace has its own README with specific setup and usage instructions:
+- Core: See [`minnesota-immunization-core/README.md`](minnesota-immunization-core/README.md)
+- CLI: See [`minnesota-immunization-cli/README.md`](minnesota-immunization-cli/README.md)
+- Cloud: See [`minnesota-immunization-cloud/README.md`](minnesota-immunization-cloud/README.md)
+- Infrastructure: See [`minnesota-immunization-infra/README.md`](minnesota-immunization-infra/README.md)
+
+---
+
+## Developer Setup
+
+This section is for developers who want to contribute to or modify the codebase.
+
+### Prerequisites
 
 - [UV](https://docs.astral.sh/uv/) package manager (handles Python installation automatically)
     ```bash
     curl -LsSf https://astral.sh/uv/install.sh | sh
     ```
 
-## Installation
+### Installation
 
 1. **Clone the repository**
    ```bash
@@ -146,16 +148,16 @@ graph TB
    ```
 VSCode is configured to run discovered tests automatically when you open the workspace.
 
-## Development
+### Development
 
-### Running Tests
+#### Running Tests
 ```bash
 # Run all tests for a package
 cd minnesota-immunization-core
 uv run pytest
 ```
 
-### Linting
+#### Linting
 ```bash
 # Check code style within a pyproject
 uv run ruff .
@@ -164,17 +166,9 @@ uv run ruff .
 uv run ruff . --fix
 ```
 
-### Mock Server
+#### Mock Server
 
 For end-to-end testing, a mock AISR server is available. Contact Dillon for the current Cloud Run endpoint.
-
-## Workspace Details
-
-Each workspace has its own README with specific setup and usage instructions:
-- Core: See [`minnesota-immunization-core/README.md`](minnesota-immunization-core/README.md)
-- CLI: See [`minnesota-immunization-cli/README.md`](minnesota-immunization-cli/README.md)
-- Cloud: See [`minnesota-immunization-cloud/README.md`](minnesota-immunization-cloud/README.md)
-- Infrastructure: See [`minnesota-immunization-infra/README.md`](minnesota-immunization-infra/README.md)
 
 ## License
 
