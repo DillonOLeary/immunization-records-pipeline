@@ -8,7 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    retry_if_exception,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,9 +138,17 @@ class SchoolQueryInformation:
 
 
 @retry(
-    stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=1, min=2, max=5),
-    retry=retry_if_exception_type((requests.exceptions.Timeout, requests.exceptions.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    retry=(
+        retry_if_exception_type(
+            (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
+        )
+        | retry_if_exception(
+            lambda e: isinstance(e, AISRActionFailedError)
+            and any(code in str(e) for code in ["502", "503", "504"])
+        )
+    ),
     reraise=True,
 )
 def get_latest_vaccination_records_url(
@@ -151,7 +165,9 @@ def get_latest_vaccination_records_url(
 
     Returns None if no records are available.
 
-    Retries once with 2-5 second backoff on timeout/connection errors.
+    Retries up to 5 times with exponential backoff (4-60s) on:
+    - Connection/timeout errors
+    - HTTP 502/503/504 server errors
     """
     url = f"{base_url}/school/query/{school_id}"
 
@@ -178,9 +194,17 @@ def get_latest_vaccination_records_url(
 
 
 @retry(
-    stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=1, min=2, max=5),
-    retry=retry_if_exception_type((requests.exceptions.Timeout, requests.exceptions.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    retry=(
+        retry_if_exception_type(
+            (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
+        )
+        | retry_if_exception(
+            lambda e: isinstance(e, AISRActionFailedError)
+            and any(code in str(e) for code in ["502", "503", "504"])
+        )
+    ),
     reraise=True,
 )
 def download_vaccination_records(
@@ -192,7 +216,9 @@ def download_vaccination_records(
 
     Returns a response indicating success or failure.
 
-    Retries once with 2-5 second backoff on timeout/connection errors.
+    Retries up to 5 times with exponential backoff (4-60s) on:
+    - Connection/timeout errors
+    - HTTP 502/503/504 server errors
     """
     res = session.get(file_url, timeout=300)
 
