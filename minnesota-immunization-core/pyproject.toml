@@ -1,6 +1,6 @@
 [project]
 name = "minnesota-immunization-core"
-version = "0.1.2"
+version = "0.1.3"
 description = "Core library for Minnesota immunization records processing"
 readme = "README.md"
 authors = [
