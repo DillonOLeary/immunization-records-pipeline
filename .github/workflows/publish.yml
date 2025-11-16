@@ -33,9 +33,12 @@ jobs:
         version: "latest"
         enable-cache: true
     
+    - name: Create virtual environment
+      run: uv venv
+
     - name: Install dependencies
-      run: uv sync --dev
-    
+      run: uv pip install -e ".[dev]"
+
     - name: Run tests
       run: uv run pytest
 
@@ -58,9 +61,12 @@ jobs:
         version: "latest"
         enable-cache: true
     
+    - name: Create virtual environment
+      run: uv venv
+
     - name: Install dependencies
-      run: uv sync --dev
-    
+      run: uv pip install -e ".[dev]"
+
     - name: Run linting
       run: uv run ruff check .
 
@@ -85,8 +91,11 @@ jobs:
         version: "latest"
         enable-cache: true
 
+    - name: Create virtual environment
+      run: uv venv
+
     - name: Install dependencies
-      run: uv sync
+      run: uv pip install -e .
 
     - name: Build package
       run: uv build
