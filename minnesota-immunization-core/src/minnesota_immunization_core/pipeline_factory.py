@@ -153,7 +153,10 @@ def create_aisr_download_actions(
         # binding both the function and parameters
         def create_download_func(school_name, school_id, output_path):
             def download_func(session, access_token, base_url):
-                logger.info(f"Downloading vaccination records for {school_name} (ID: {school_id})")
+                logger.info(
+                    f"Downloading vaccination records for {school_name} "
+                    f"(ID: {school_id})"
+                )
                 try:
                     result = get_and_download_vaccination_records(
                         session=session,
@@ -162,10 +165,16 @@ def create_aisr_download_actions(
                         school_id=school_id,
                         output_path=output_path,
                     )
-                    logger.info(f"Successfully downloaded vaccination records for {school_name}")
+                    logger.info(
+                        f"Successfully downloaded vaccination records for "
+                        f"{school_name}"
+                    )
                     return result
                 except Exception as e:
-                    logger.error(f"Failed to download vaccination records for {school_name}: {e}")
+                    logger.error(
+                        f"Failed to download vaccination records for "
+                        f"{school_name}: {e}"
+                    )
                     raise
             return download_func
 

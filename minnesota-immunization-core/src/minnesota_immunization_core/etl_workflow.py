@@ -81,7 +81,8 @@ def run_aisr_workflow(
         login: Function to log into AISR
         aisr_actions: Sequence of actions to perform
         logout: Function to log out of AISR
-        delay_between_actions: Seconds to wait between actions to avoid rate limiting (default: 2.0)
+        delay_between_actions: Seconds to wait between actions to avoid
+            rate limiting (default: 2.0)
     """
     with requests.Session() as session:
         aisr_response = login(session)
