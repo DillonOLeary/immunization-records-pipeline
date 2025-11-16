@@ -24,6 +24,9 @@ jobs:
         version: "latest"
         enable-cache: true
 
+    - name: Create virtual environment
+      run: uv venv
+
     - name: Install dependencies
       run: uv pip install -e ".[dev]"
 
@@ -48,6 +51,9 @@ jobs:
       with:
         version: "latest"
         enable-cache: true
+
+    - name: Create virtual environment
+      run: uv venv
 
     - name: Install dependencies
       run: uv pip install -e ".[dev]"
@@ -75,6 +81,9 @@ jobs:
       with:
         version: "latest"
         enable-cache: true
+
+    - name: Create virtual environment
+      run: uv venv
 
     - name: Install dependencies
       run: uv pip install -e .
