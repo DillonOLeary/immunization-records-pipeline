@@ -306,9 +306,9 @@ markupsafe==3.0.2 \
     #   flask
     #   jinja2
     #   werkzeug
-minnesota-immunization-core==0.1.2 \
-    --hash=sha256:812e661995b61b4e79475b55b51fd198e91250e8e57dd6854c87bb4b9243d9ec \
-    --hash=sha256:c8f81e64b5353427832c5d6d48d948493718c0f1f07f2889504ebad92b8637c3
+minnesota-immunization-core==0.1.3 \
+    --hash=sha256:c842363cfab543bd9fa2964c0e97ad4043cc65b0db0f1dd8717d3e58dd442239 \
+    --hash=sha256:e34060ebc6069c4525bb5bf55c24e6c05bafb71aadee1e7a2da71cf6717c4d24
     # via minnesota-immunization-cloud
 numpy==2.3.1 \
     --hash=sha256:0025048b3c1557a20bc80d06fdeb8cc7fc193721484cca82b2cfa072fec71a93 \

@@ -737,7 +737,7 @@ requires-dist = [
     { name = "google-auth-oauthlib" },
     { name = "google-cloud-secret-manager" },
     { name = "google-cloud-storage" },
-    { name = "minnesota-immunization-core", specifier = ">=0.1.2" },
+    { name = "minnesota-immunization-core", specifier = ">=0.1.3" },
     { name = "pandas", specifier = ">=2.3.1" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
@@ -751,7 +751,7 @@ dev = [{ name = "pytest", specifier = ">=8.4.1" }]
 
 [[package]]
 name = "minnesota-immunization-core"
-version = "0.1.2"
+version = "0.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -760,9 +760,9 @@ dependencies = [
     { name = "requests" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/55/ea/7065b1a626553d43d8053d85f49e75729d1f9d11a0119d5113960c532622/minnesota_immunization_core-0.1.2.tar.gz", hash = "sha256:812e661995b61b4e79475b55b51fd198e91250e8e57dd6854c87bb4b9243d9ec", size = 2203694, upload-time = "2025-10-06T05:56:12.418Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/43/a15c24556d626bd3b41c5176d4d748770dbb74e09811044cfabf462550f8/minnesota_immunization_core-0.1.3.tar.gz", hash = "sha256:e34060ebc6069c4525bb5bf55c24e6c05bafb71aadee1e7a2da71cf6717c4d24", size = 762668, upload-time = "2025-11-16T22:10:56.766Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/41/d9/bc6a2b7bf21b71e0c6a60df3ffeda43e93c2173e01c149aea47f72b30699/minnesota_immunization_core-0.1.2-py3-none-any.whl", hash = "sha256:c8f81e64b5353427832c5d6d48d948493718c0f1f07f2889504ebad92b8637c3", size = 12036, upload-time = "2025-10-06T05:56:11.154Z" },
+    { url = "https://files.pythonhosted.org/packages/96/84/7dbf35f7b9ade2c569769db07102f824e111e6e529a90649bdc1de6953d0/minnesota_immunization_core-0.1.3-py3-none-any.whl", hash = "sha256:c842363cfab543bd9fa2964c0e97ad4043cc65b0db0f1dd8717d3e58dd442239", size = 12173, upload-time = "2025-11-16T22:10:55.558Z" },
 ]
 
 [[package]]
