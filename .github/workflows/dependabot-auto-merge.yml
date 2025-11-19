@@ -12,50 +12,41 @@ permissions:
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
+    # Only run this job for Dependabot PRs
     if: github.actor == 'dependabot[bot]'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
+    steps:
       - name: Get Dependabot metadata
         id: metadata
         uses: dependabot/fetch-metadata@v2
         with:
-          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-approve Dependabot PRs
-        run: |
-          gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      # Wait for your main CI job to pass
+      # Make sure "CI" matches the name of your actual check
       - name: Wait for CI checks to complete
         uses: lewagon/wait-on-check-action@v1.3.4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          check-name: 'CI'
+          check-name: 'CI'   # <- change this if your check is named differently
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 10
           allowed-conclusions: success
 
+      # Auto-merge patch + minor bumps once CI is green
       - name: Auto-merge patch and minor updates
         if: |
-          (steps.metadata.outputs.update-type == 'version-update:semver-patch' || 
-           steps.metadata.outputs.update-type == 'version-update:semver-minor')
-        run: |
-          gh pr merge --auto --squash "$PR_URL"
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' || 
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # For major bumps, just leave a comment so you can review manually
       - name: Comment on major updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-major'
-        run: |
-          gh pr comment "$PR_URL" --body "🚨 This is a major version update. Please review manually before merging."
+        run: gh pr comment "$PR_URL" --body "🚨 This is a major version update. Please review manually before merging."
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
