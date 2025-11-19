@@ -4,25 +4,67 @@
 version: 2
 
 updates:
+  # --- GitHub Actions (weekly, but grouped & labeled) ---
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions:
+        patterns:
+          - "*"   # group all actions updates into a single PR
 
-  # Core library dependencies (uv)
+  # --- Core library dependencies (uv, monthly, grouped) ---
   - package-ecosystem: "uv"
     directory: "/minnesota-immunization-core"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      all-deps:
+        patterns:
+          - "*"   # one PR for all deps in this project
 
-  # CLI dependencies (uv)
-  - package-ecosystem: "uv" 
+  # --- CLI dependencies (uv, monthly, grouped) ---
+  - package-ecosystem: "uv"
     directory: "/minnesota-immunization-cli"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      all-deps:
+        patterns:
+          - "*"
 
-  # Cloud functions dependencies (uv)
+  # --- Cloud functions dependencies (uv, monthly, grouped) ---
   - package-ecosystem: "uv"
     directory: "/minnesota-immunization-cloud"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "python"
+      - "cloud"
+    groups:
+      all-deps:
+        patterns:
+          - "*"
