@@ -1,88 +1,42 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
-## Project Structure
+## What this is
 
-This repository is organized as a Python mono-repo for Minnesota Immunization Records processing, with these main components:
+A pipeline that relays immunization records from MIIC (Minnesota's registry,
+via the AISR bulk interface) to Infinite Campus for school districts, on a
+schedule, with delivery through Google Drive. Student health data flows
+through this system: never put PHI in code, tests, logs, or commits.
 
-1. **minnesota-immunization-core**: Core library implementing the ETL pipeline (Extract, Transform, Load) for processing immunization records, plus AISR (MN immunization system) integration
-2. **minnesota-immunization-cli**: Command-line interface for interacting with the core library
-3. **minnesota-immunization-cloud**: Cloud function for processing immunization records
-4. **minnesota-immunization-infra**: Terraform infrastructure code
+Read ARCHITECTURE.md before structural changes. It contains the target
+design, the build-order phases, and a live progress checklist. Keep the
+progress section current as work lands.
 
-## Development Commands
+## Layout
 
-### Setup Environment
+Single uv project. `src/mn_immunization/` holds the package in vertical
+slices: `etl/` (legacy transform pipeline, replaced in phase 2), `sources/aisr/`
+(MIIC protocol client), `runtime/` (CLI, cloud handlers, composition).
+`mock/` is a workspace member with a fake AISR server. `infra/` is Terraform.
+`tests/` mirrors the slices.
 
-```bash
-# Install all packages in development mode with uv
-cd minnesota-immunization-core
-uv pip install -e ".[dev]"
-cd ../minnesota-immunization-cli
-uv pip install -e ".[dev]"
-cd ../minnesota-immunization-cloud
-uv pip install -e ".[dev]"
+## Commands
+
+```sh
+uv sync                          # install everything (incl. mock, dev deps)
+uv run pytest                    # full test suite
+uv run ruff check src tests mock # lint
+uv run mn-immunization --config <cfg> transform|bulk-query|get-vaccinations
+uv run mock-server               # local fake AISR
 ```
 
-### Run Tests
+## Rules
 
-```bash
-# Run all tests for a package
-cd minnesota-immunization-core
-uv run pytest
-
-# Run specific test file
-uv run pytest tests/test_transform.py
-
-# Run specific test with verbose output
-uv run pytest tests/test_transform.py::test_function_name -v
-```
-
-### Linting and Type Checking
-
-```bash
-# Run ruff linter
-cd minnesota-immunization-core  # (or any other package directory)
-uv run ruff .
-
-# Apply fixes automatically
-uv run ruff . --fix
-```
-
-## Architecture
-
-### Core Data Pipeline
-
-The project implements an ETL (Extract, Transform, Load) pipeline for immunization records:
-
-1. **Extract**: Reads data from AISR (Minnesota Immunization Information Connection)
-2. **Transform**: Converts AISR format to Infinite Campus format
-3. **Load**: Saves data to CSV files for import into school management systems
-
-The system uses a functional dependency injection pattern where:
-- `pipeline_factory.py` creates pipeline functions by injecting components
-- `etl_workflow.py` defines the high-level workflow orchestration
-- The ETL components (extract.py, transform.py, load.py) implement the specific data operations
-
-### AISR Integration
-
-The `aisr` module handles interactions with the Minnesota Immunization Information Connection (MIIC):
-
-1. `authenticate.py`: Handles login/logout with the AISR authentication API
-2. `actions.py`: Implements specific actions like bulk querying and downloading vaccination records
-
-### CLI Application
-
-The CLI provides commands for:
-
-1. `transform`: Process CSV files from AISR downloads into the format needed for school systems
-2. `bulk-query`: Submit queries to AISR to find student immunization records 
-3. `get-vaccinations`: Download vaccination records from AISR
-
-### Configuration
-
-The application uses JSON configuration files with:
-- API endpoints for authentication and data access
-- School information including IDs and query file paths
-- File paths for input/output/logging
+- No PHI anywhere in the repo or its logs. Logs carry counts, hashes, school
+  names, and error classes only.
+- Production deploys happen from CI, never by hand.
+- Each rewrite phase leaves production working; see ARCHITECTURE.md.
+- The deployed Cloud Functions run from GCP project `mn-immun-bd9001` until
+  the phase 5 cutover; do not assume this repo's Terraform matches the
+  console until phase 4 reconciles them.

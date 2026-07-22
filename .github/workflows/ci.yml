@@ -4,92 +4,51 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, rewrite-2026]
 
 jobs:
-  test-core:
-    name: Test Core Package
+  test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: minnesota-immunization-core
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
-    
-    - name: Install uv
-      uses: astral-sh/setup-uv@v3
-      with:
-        version: "latest"
-        enable-cache: true
-    
-    - name: Install dependencies
-      run: uv pip install --system ".[dev]"
-    
-    - name: Run tests
-      run: uv run pytest
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Run tests
+        run: uv run pytest
 
-    - name: Run linting
-      run: uv run ruff check .
-
-  test-cli:
-    name: Test CLI Package
+  lint:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: minnesota-immunization-cli
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
-    
-    - name: Install uv
-      uses: astral-sh/setup-uv@v3
-      with:
-        version: "latest"
-        enable-cache: true
-    
-    - name: Install dependencies
-      run: uv pip install --system ".[dev]"
-    
-    - name: Run tests
-      run: uv run pytest
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Ruff
+        run: uv run ruff check src tests mock
 
-    - name: Run linting
-      run: uv run ruff check .
-
-  test-cloud:
-    name: Test Cloud Package
+  audit:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: minnesota-immunization-cloud
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
-    
-    - name: Install uv
-      uses: astral-sh/setup-uv@v3
-      with:
-        version: "latest"
-        enable-cache: true
-    
-    - name: Install dependencies
-      run: uv pip install --system ".[dev]"
-    
-    - name: Run tests
-      run: uv run pytest
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          uv export --format requirements-txt --no-emit-project --no-dev -o requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt
 
-    - name: Run linting
-      run: uv run ruff check .
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

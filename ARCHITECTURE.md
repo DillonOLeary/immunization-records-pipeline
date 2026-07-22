@@ -104,9 +104,14 @@ Layout (GCS objects are immutable; one object per event):
 
 ```
 gs://<bucket>/ledger/<YYYY>/<MM>/<run_id>/<seq>_<event>.json
-gs://<bucket>/ledger/claims/<YYYY-MM>_diff          idempotency claim
+gs://<bucket>/ledger/claims/<YYYY-MM-DD>_diff        idempotency claim
 gs://<bucket>/snapshots/<sha256>.csv                 known-set snapshots
 ```
+
+Claims are keyed by run date, not by month. The cadence is configuration
+(monthly today, possibly weekly or daily in fall 2026), and the diff-against-
+snapshot model does not care how often it runs: each run diffs against the
+latest known snapshot and delivers only what is new.
 
 Event catalog:
 
@@ -128,12 +133,12 @@ Design points:
   snapshot in `snapshots/`; events reference it by hash. This replaces the
   mutable `all_known_vaccinations.csv` master file. History is never
   overwritten, and any month's diff is reproducible from its inputs.
-- Idempotency via claim objects. Before computing a month's diff, the run
-  creates `ledger/claims/<YYYY-MM>_diff` with an if-generation-match=0
-  precondition. Exactly one run per month can win. This kills the observed
-  July 1 incident, where a manual run and the scheduled run both delivered a
-  file named `2026-07-01_new_vaccinations.csv` and the second was near-empty:
-  the losing run now records RunSkipped and delivers nothing.
+- Idempotency via claim objects. Before computing a diff, the run creates
+  `ledger/claims/<YYYY-MM-DD>_diff` with an if-generation-match=0
+  precondition. Exactly one run per delivery period can win. This kills the
+  observed July 1 incident, where a manual run and the scheduled run both
+  delivered a file named `2026-07-01_new_vaccinations.csv` and the second was
+  near-empty: the losing run now records RunSkipped and delivers nothing.
 - Never fail invisibly. Every entrypoint guarantees a terminal event
   (RunCompleted, RunSkipped, or RunFailed). A Cloud Monitoring alert fires if
   the expected scheduled run has no terminal event by the morning after, and
@@ -169,8 +174,10 @@ The same code runs three ways, in order of use:
 1. `uv run mn-immunization run download --dry-run --against mock` locally.
 2. `gcloud run jobs execute` for a manual production run. Recorded in the
    ledger with trigger=manual.
-3. Cloud Scheduler triggering the Cloud Run Job on the monthly schedule
-   (query on the 28th, download on the 1st).
+3. Cloud Scheduler triggering the Cloud Run Job on the configured schedule.
+   Today that is monthly (query on the 28th, download on the 1st). The
+   schedule is a Terraform variable; moving to weekly or daily is a tfvars
+   change, not a code change.
 
 Cloud Run Jobs replace the two Pub/Sub-triggered gen-2 functions. Batch work
 does not need event plumbing: Scheduler invokes the job directly, timeouts
@@ -255,6 +262,35 @@ untouched until phase 5.
    (to-import/imported) starts.
 6. **Retire.** Old packages, Pub/Sub topics, publish workflow, and the PyPI
    listing deprecation notice.
+
+## Progress
+
+Live status of the build order. Updated as work lands.
+
+- [x] **Phase 1: Consolidate.** Single package, tests green, mock promoted,
+      CI single-project.
+- [ ] **Phase 2: Domain rewrite.** Dataclasses, ports, composition root.
+- [ ] **Phase 3: Ledger.** GCS events, claims, snapshots.
+- [ ] **Phase 4: Runtime and deploy.** Cloud Run Job, CI deploy via WIF,
+      Terraform reconciled, canary + alerts.
+- [ ] **Phase 5: Cut over.** Scheduler moves to the job; Drive folder
+      protocol begins.
+- [ ] **Phase 6: Retire.** Old functions, topics, publish workflow, PyPI
+      deprecation notice.
+
+Notes:
+
+- 2026-07-22: branch `rewrite-2026` created; roster and config removed from
+  all working trees; `.gitignore` guards added.
+- 2026-07-22: phase 1 done. Five workspaces collapsed into `src/mn_immunization`
+  (slices: `etl/` transitional, `sources/aisr/`, `runtime/` with `cloud/`).
+  Mock is a uv workspace member sharing the root lockfile. All 53 tests green,
+  ruff clean. CI rewritten: test, lint, pip-audit, gitleaks. Publish workflow
+  and PyPI ceremony deleted (phase 6 item pulled forward; 0.1.3 stays on PyPI
+  for the deployed functions). CLI renamed to `mn-immunization`.
+- TODO at merge to main: enable branch protection requiring the `test`,
+  `lint`, `audit`, and `gitleaks` checks, so dependabot automerge gates on
+  them (today main has no protection at all).
 
 ## What was deleted and why
 

@@ -1,0 +1,72 @@
+[project]
+name = "mn-immunization"
+version = "0.2.0"
+description = "Immunization records pipeline for Minnesota school districts (MIIC/AISR to Infinite Campus)"
+readme = "README.md"
+authors = [
+    { name = "Dillon O'Leary", email = "doleary@wisc.edu" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "requests",
+    "beautifulsoup4",
+    "httpx>=0.28.1",
+    "tenacity>=9.1.2",
+    "google-cloud-storage",
+    "google-cloud-secret-manager",
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
+    "functions-framework",
+]
+
+[project.scripts]
+mn-immunization = "mn_immunization.runtime.main:run"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "faker",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+    "types-requests",
+    "minnesota-immunization-mock",
+]
+
+[tool.uv.workspace]
+members = ["mock"]
+
+[tool.uv.sources]
+minnesota-immunization-mock = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mn_immunization"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "N", "B", "UP", "C4"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mn_immunization"]
+
+[tool.ruff.lint.per-file-ignores]
+# Long literal strings in files that phases 2-3 of the rewrite replace.
+"src/mn_immunization/runtime/cloud/main.py" = ["E501"]
+"mock/src/minnesota_immunization_mock/sample_data.py" = ["E501"]
+"mock/src/minnesota_immunization_mock/server.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+pythonpath = ["."]
