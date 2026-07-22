@@ -322,6 +322,18 @@ Notes:
   must not sink a delivery), and a failed claim *check* proceeds rather
   than skips (delivering twice is survivable; delivering never is not).
   Alerting on RunFailed/absent terminal events is phase 4. 65 tests.
+- 2026-07-22: phase 4, runtime half done. The handler bodies moved to
+  `runtime/cycles.py` (query, download, canary) so the Cloud Run Job, the
+  legacy functions, and local runs execute identical code; the functions in
+  `runtime/cloud/main.py` are now three-line shims. `mn-immunization-job
+  query|download|canary --trigger manual|scheduled` is the container
+  entrypoint (Dockerfile at the repo root, built only by CI). The canary
+  logs in and lists records read-only per school, touching no PHI. The
+  ledger grew its read side (`read_recent_runs`) and the CLI a `status`
+  command that prints recent runs and flags any run with no terminal
+  event. Remaining for phase 4: the Terraform district module (one project
+  per district), the CI deploy workflow via WIF, and monitoring alerts.
+  70 tests.
 
 ## What was deleted and why
 

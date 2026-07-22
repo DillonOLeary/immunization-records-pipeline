@@ -74,6 +74,22 @@ def create_parser() -> argparse.ArgumentParser:
         help="AISR username",
     )
 
+    status_parser = subparsers.add_parser(
+        "status", help="Show recent pipeline runs from the ledger"
+    )
+    status_parser.add_argument(
+        "--bucket",
+        type=str,
+        required=True,
+        help="GCS bucket holding the ledger",
+    )
+    status_parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Number of runs to show (default 10)",
+    )
+
     return parser
 
 
@@ -313,3 +329,34 @@ def handle_get_vaccinations_command(args: argparse.Namespace, config: dict) -> N
         logger.error("Downloads finished with %d failure(s)", failures)
         sys.exit(1)
     logger.info("Vaccination records downloaded successfully")
+
+
+def handle_status_command(args: argparse.Namespace) -> None:
+    """Print recent runs and their terminal outcomes from the ledger."""
+    from datetime import datetime
+
+    from mn_immunization.ledger.events import TERMINAL_TYPES
+    from mn_immunization.ledger.gcs_ledger import read_recent_runs
+    from mn_immunization.runtime.cloud.cloud_storage import get_storage_client
+
+    now = datetime.now()
+    previous = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+    months = ((now.year, now.month), previous)
+
+    bucket = get_storage_client().bucket(args.bucket)
+    runs = read_recent_runs(bucket, months, limit=args.limit)
+
+    if not runs:
+        print("No runs found in the ledger for the last two months.")
+        return
+
+    for run in runs:
+        first, last = run["events"][0], run["events"][-1]
+        if last["type"] in TERMINAL_TYPES:
+            outcome = last["type"]
+            detail = ", ".join(f"{k}={v}" for k, v in last["data"].items())
+        else:
+            outcome = "NO TERMINAL EVENT"
+            detail = f"last event: {last['type']}"
+        print(f"{first['at']}  {run['run_id']}")
+        print(f"    {outcome}  {detail}")

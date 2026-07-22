@@ -21,6 +21,9 @@ class FakeBlob:
             raise PreconditionFailed(f"object {self.name} already exists")
         self.store[self.name] = data
 
+    def download_as_text(self) -> str:
+        return self.store[self.name]
+
 
 class FakeBucket:
     def __init__(self):
@@ -28,6 +31,13 @@ class FakeBucket:
 
     def blob(self, name: str) -> FakeBlob:
         return FakeBlob(self.objects, name)
+
+    def list_blobs(self, prefix: str = ""):
+        return [
+            FakeBlob(self.objects, name)
+            for name in sorted(self.objects)
+            if name.startswith(prefix)
+        ]
 
 
 def fixed_now():
@@ -76,3 +86,25 @@ def test_snapshots_are_content_addressed_and_idempotent(bucket):
     assert (digest_a, path_a) == (digest_b, path_b)
     assert path_a == f"snapshots/{digest_a}.csv"
     assert bucket.objects[path_a] == "1,2,MMR,01/15/2024\n"
+
+
+def test_read_recent_runs_groups_and_orders(bucket):
+    from mn_immunization.ledger.gcs_ledger import read_recent_runs
+
+    early = GcsRunLedger(
+        bucket, run_id="download_a", now=lambda: datetime(2026, 7, 1, 2, 0, 0)
+    )
+    early.append(events.run_started("download", "scheduled"))
+    early.append(events.run_completed(schools=8))
+
+    late = GcsRunLedger(
+        bucket, run_id="query_b", now=lambda: datetime(2026, 7, 22, 9, 0, 0)
+    )
+    late.append(events.run_started("query", "manual"))
+
+    runs = read_recent_runs(bucket, months=((2026, 7),))
+
+    assert [r["run_id"] for r in runs] == ["query_b", "download_a"]
+    assert [e["type"] for e in runs[1]["events"]] == ["RunStarted", "RunCompleted"]
+    # query_b has no terminal event — exactly what status must surface
+    assert runs[0]["events"][-1]["type"] == "RunStarted"

@@ -88,3 +88,29 @@ class GcsSnapshotStore:
 
 def sha256_hex(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def read_recent_runs(
+    bucket, months: tuple[tuple[int, int], ...], limit: int = 10
+) -> list[dict]:
+    """Read runs from the given (year, month) prefixes, newest first.
+
+    Returns one dict per run: run_id plus its events in sequence order.
+    Used by the status command; the write path never reads.
+    """
+    events_by_run: dict[str, list[dict]] = {}
+    for year, month in months:
+        prefix = f"ledger/{year:04d}/{month:02d}/"
+        for blob in bucket.list_blobs(prefix=prefix):
+            try:
+                payload = json.loads(blob.download_as_text())
+            except (ValueError, AttributeError):
+                continue
+            events_by_run.setdefault(payload["run_id"], []).append(payload)
+
+    runs = []
+    for run_id, run_events in events_by_run.items():
+        run_events.sort(key=lambda e: e["seq"])
+        runs.append({"run_id": run_id, "events": run_events})
+    runs.sort(key=lambda r: r["events"][0]["at"], reverse=True)
+    return runs[:limit]

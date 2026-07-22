@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 mn-immunization = "mn_immunization.runtime.main:run"
+mn-immunization-job = "mn_immunization.runtime.job:main"
 
 [dependency-groups]
 dev = [
