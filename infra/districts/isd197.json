@@ -1,0 +1,11 @@
+{
+  "district_name": "ISD 197",
+  "project_id": "mn-immun-bd9001",
+  "create_project": false,
+  "image": "us-central1-docker.pkg.dev/mn-immun-bd9001/pipeline/job:latest",
+  "google_drive_folder_id": "1u7qBBWtl95osXBwFn-O28uolsbtL-nAj",
+  "query_schedule": "9 2 28 * *",
+  "download_schedule": "9 2 1 * *",
+  "canary_schedule": "9 2 27 * *",
+  "time_zone": "America/Chicago"
+}

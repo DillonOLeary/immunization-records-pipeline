@@ -334,6 +334,24 @@ Notes:
   event. Remaining for phase 4: the Terraform district module (one project
   per district), the CI deploy workflow via WIF, and monitoring alerts.
   70 tests.
+- 2026-07-22: phase 4, infra half written and validated (applied nowhere;
+  production stays untouched until phase 5 by Dillon's call). `infra/` is
+  the district factory: one module instance per `districts/*.json`, with
+  project creation for new districts and adoption for ISD 197. Decided
+  stance on the existing console state: assert fresh everything except the
+  data bucket and the five secret shells, which get imported at cutover
+  because they hold real data and values; the legacy functions, topics,
+  and schedulers are never imported and die in phase 6. WIF bootstrap is
+  its own root, applied by a human at cutover; the Deploy workflow is
+  inert until its outputs become repo variables. Terraform is validated in
+  CI (offline) but applied only by a human: CI deploys images, humans
+  deploy infrastructure. The dress rehearsal for the project factory is a
+  throwaway district JSON (sandbox.json.example) rather than any mock: WIF
+  and IAM have no local emulator, and a disposable project exercises the
+  real thing with zero production contact. Alert limitation recorded in
+  alerts.tf: metric-absence dead-man alerts cannot span a monthly cadence;
+  the canary covers pre-run breakage, and a true absence alert becomes
+  practical at weekly or daily cadence.
 
 ## What was deleted and why
 

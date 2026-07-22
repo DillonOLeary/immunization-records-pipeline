@@ -52,3 +52,16 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Validate infrastructure configuration (offline)
+        run: |
+          terraform fmt -check -recursive infra
+          terraform -chdir=infra init -backend=false
+          terraform -chdir=infra validate
+          terraform -chdir=infra/bootstrap init -backend=false
+          terraform -chdir=infra/bootstrap validate

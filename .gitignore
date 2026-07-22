@@ -177,3 +177,4 @@ config.json
 *_students.csv
 *.tfvars
 function-source.zip
+infra/districts/sandbox.json

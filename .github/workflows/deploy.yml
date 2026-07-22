@@ -1,0 +1,54 @@
+name: Deploy
+
+# Builds the job container and updates the Cloud Run Job. Inert until the
+# WIF bootstrap has been applied and the repository variables below are set:
+#   GCP_WIF_PROVIDER  (bootstrap output workload_identity_provider)
+#   GCP_DEPLOYER_SA   (bootstrap output deployer_service_account)
+#   GCP_PROJECT, GCP_REGION
+# No service-account keys exist anywhere in this pipeline.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    if: vars.GCP_WIF_PROVIDER != ''
+    env:
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/pipeline/job
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      - name: Update Cloud Run Job to the new image
+        run: |
+          gcloud run jobs update pipeline-job \
+            --image "$IMAGE:${{ github.sha }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --project "${{ vars.GCP_PROJECT }}"

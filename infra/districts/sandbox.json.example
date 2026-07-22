@@ -1,0 +1,10 @@
+{
+  "_comment": "Dress rehearsal for the project factory: copy to sandbox.json, set a fresh project_id and your billing account, and apply. Exercises project creation, IAM, job, schedulers, and alerts end to end with zero contact with any production project. Delete the project afterward.",
+  "district_name": "Sandbox Rehearsal",
+  "project_id": "mn-immun-sandbox-CHANGE-ME",
+  "create_project": true,
+  "billing_account": "XXXXXX-XXXXXX-XXXXXX",
+  "image": "us-central1-docker.pkg.dev/mn-immun-sandbox-CHANGE-ME/pipeline/job:latest",
+  "google_drive_folder_id": "",
+  "alert_email": "mail@dillonoleary.com"
+}
