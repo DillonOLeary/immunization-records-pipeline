@@ -172,3 +172,8 @@ cython_debug/
 *.tfvars.json
 .terraform.tfstate.lock.info
 *.zip
+# Local-only district data and deploy artifacts — never commit
+config.json
+*_students.csv
+*.tfvars
+function-source.zip
