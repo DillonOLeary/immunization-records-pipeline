@@ -48,8 +48,8 @@ reads them from Cloud Storage.
 ## Repository structure
 
 - `src/mn_immunization/` - the package, in vertical slices:
-  - `etl/` - extract/transform/load pipeline (legacy shape, being replaced)
-  - `sources/aisr/` - AISR authentication and bulk-query/download client
+  - `domain/` - vaccination records, diffing, and IC formatting (pure logic)
+  - `sources/aisr/` - AISR authentication, bulk-query/download client, parsing
   - `runtime/` - CLI entrypoint and cloud handlers
 - `mock/` - fake AISR server (uv workspace member, used by tests and local dev)
 - `infra/` - Terraform for the GCP deployment

@@ -40,14 +40,15 @@ the repo).
 pyproject.toml                  one uv project, one lockfile
 src/mn_immunization/
   domain/                       pure logic, no I/O, no pandas
-    records.py                  VaccinationRecord, RecordSet
-    diffing.py                  combine, dedupe, diff against known set
-    ic_format.py                render RecordSets to Infinite Campus CSV
+    records.py                  VaccinationRecord, RecordSet (dedupe, union, diff)
+    ic_format.py                render/parse Infinite Campus CSV
   sources/
     aisr/                       the hard-won MIIC protocol knowledge
       authenticate.py           Keycloak login dance (no hardcoded IDs)
-      actions.py                bulk query upload, results download
-      port.py                   AisrSource protocol
+      actions.py                bulk query upload, results download (retries)
+      parsing.py                AISR results file -> RecordSet
+      client.py                 session-scoped AisrClient (login/logout)
+      port.py                   ImmunizationSource protocol
   sinks/
     drive.py                    DeliveryTarget adapter for Google Drive
     port.py                     DeliveryTarget protocol
@@ -269,7 +270,7 @@ Live status of the build order. Updated as work lands.
 
 - [x] **Phase 1: Consolidate.** Single package, tests green, mock promoted,
       CI single-project.
-- [ ] **Phase 2: Domain rewrite.** Dataclasses, ports, composition root.
+- [x] **Phase 2: Domain rewrite.** Dataclasses, ports, composition root.
 - [ ] **Phase 3: Ledger.** GCS events, claims, snapshots.
 - [ ] **Phase 4: Runtime and deploy.** Cloud Run Job, CI deploy via WIF,
       Terraform reconciled, canary + alerts.
@@ -291,6 +292,20 @@ Notes:
 - TODO at merge to main: enable branch protection requiring the `test`,
   `lint`, `audit`, and `gitleaks` checks, so dependabot automerge gates on
   them (today main has no protection at all).
+- 2026-07-22: phase 2 done. Domain is pure dataclasses (`records.py`,
+  `ic_format.py`); AISR file parsing lives at the AISR edge
+  (`sources/aisr/parsing.py`); `AisrClient` + `aisr_session` replace the
+  closure factories; `ImmunizationSource` port added. The `etl/` package is
+  deleted. pandas, faker, and httpx dropped from dependencies; the suite
+  went from 15s to 3s. 54 tests.
+- Behavior changes in phase 2, on purpose: the CLI now exits nonzero when
+  authentication fails or any school's query/download fails (both previously
+  logged and exited 0); the dead `check-errors` subcommand is gone.
+- Data caveat for the phase 5 cutover: the old pipeline read ids through
+  pandas, which coerced numeric-looking ids (a leading zero would have been
+  stripped); the new parser preserves ids verbatim. The known-vaccinations
+  master must be regenerated from a fresh full download at cutover (already
+  planned as the snapshot bootstrap) so record identities line up.
 
 ## What was deleted and why
 

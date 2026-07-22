@@ -8,10 +8,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "pandas",
     "requests",
     "beautifulsoup4",
-    "httpx>=0.28.1",
     "tenacity>=9.1.2",
     "google-cloud-storage",
     "google-cloud-secret-manager",
@@ -29,7 +27,6 @@ dev = [
     "pytest",
     "pytest-cov",
     "ruff",
-    "faker",
     "fastapi",
     "uvicorn[standard]",
     "python-multipart",
@@ -61,8 +58,7 @@ select = ["E", "F", "I", "W", "N", "B", "UP", "C4"]
 known-first-party = ["mn_immunization"]
 
 [tool.ruff.lint.per-file-ignores]
-# Long literal strings in files that phases 2-3 of the rewrite replace.
-"src/mn_immunization/runtime/cloud/main.py" = ["E501"]
+# Long literal strings in mock sample data.
 "mock/src/minnesota_immunization_mock/sample_data.py" = ["E501"]
 "mock/src/minnesota_immunization_mock/server.py" = ["E501"]
 

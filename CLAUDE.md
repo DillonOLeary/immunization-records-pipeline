@@ -16,10 +16,10 @@ progress section current as work lands.
 ## Layout
 
 Single uv project. `src/mn_immunization/` holds the package in vertical
-slices: `etl/` (legacy transform pipeline, replaced in phase 2), `sources/aisr/`
-(MIIC protocol client), `runtime/` (CLI, cloud handlers, composition).
-`mock/` is a workspace member with a fake AISR server. `infra/` is Terraform.
-`tests/` mirrors the slices.
+slices: `domain/` (pure records/diff/IC-format logic, no I/O), `sources/aisr/`
+(MIIC protocol client and parsing), `runtime/` (CLI, cloud handlers,
+composition). `mock/` is a workspace member with a fake AISR server.
+`infra/` is Terraform. `tests/` mirrors the slices.
 
 ## Commands
 
