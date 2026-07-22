@@ -232,11 +232,15 @@ Designed in now, because it is cheap:
 
 - Zero district-specific values in code. Everything district-shaped lives in
   one config file per district.
-- Terraform is a module. A district is a `tfvars` file and an apply.
+- One GCP project per district, created and managed by Terraform: a project
+  factory module plus one `tfvars` file per district. This is the decided
+  tenancy model, not a default to outgrow. A district's project is its IAM
+  boundary, its secrets, its data, and its blast radius; there is no shared
+  project with per-district file prefixes. Cross-district access is
+  impossible by construction rather than forbidden by convention, which is
+  the strongest security statement available and the one that keeps a
+  30-district incident a 1-district incident.
 - CI deploys via a matrix over districts. Adding district N is a config PR.
-- Ledger and bucket paths carry no assumptions that one project serves one
-  district, so consolidation remains possible if project-per-district ever
-  becomes the bottleneck.
 
 Deliberately deferred until real districts force the question: any control
 plane or admin UI, cross-district dashboards, a multi-tenant frontend,
@@ -271,7 +275,7 @@ Live status of the build order. Updated as work lands.
 - [x] **Phase 1: Consolidate.** Single package, tests green, mock promoted,
       CI single-project.
 - [x] **Phase 2: Domain rewrite.** Dataclasses, ports, composition root.
-- [ ] **Phase 3: Ledger.** GCS events, claims, snapshots.
+- [x] **Phase 3: Ledger.** GCS events, claims, snapshots.
 - [ ] **Phase 4: Runtime and deploy.** Cloud Run Job, CI deploy via WIF,
       Terraform reconciled, canary + alerts.
 - [ ] **Phase 5: Cut over.** Scheduler moves to the job; Drive folder
@@ -306,6 +310,18 @@ Notes:
   stripped); the new parser preserves ids verbatim. The known-vaccinations
   master must be regenerated from a fresh full download at cutover (already
   planned as the snapshot bootstrap) so record identities line up.
+- 2026-07-22: phase 3 done. `ledger/` holds the event factories (with
+  `TERMINAL_TYPES` for the three outcomes), the `RunLedger`/`SnapshotStore`
+  ports, the GCS adapters (one JSON object per event; claims via
+  if-generation-match=0; content-addressed snapshots), and in-memory
+  versions for tests and bucket-less local runs. Both cloud handlers now
+  write events and guarantee a terminal event; the download handler claims
+  the date's diff before computing it and records RunSkipped when it loses,
+  which is the July double-run fix as code. Two softenings until cutover,
+  marked in code: ledger appends are best-effort (a ledger write failure
+  must not sink a delivery), and a failed claim *check* proceeds rather
+  than skips (delivering twice is survivable; delivering never is not).
+  Alerting on RunFailed/absent terminal events is phase 4. 65 tests.
 
 ## What was deleted and why
 

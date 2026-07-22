@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import tempfile
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -19,6 +20,12 @@ from mn_immunization.domain.ic_format import (
     render_csv,
 )
 from mn_immunization.domain.records import RecordSet
+from mn_immunization.ledger import events
+from mn_immunization.ledger.gcs_ledger import (
+    GcsRunLedger,
+    GcsSnapshotStore,
+    sha256_hex,
+)
 from mn_immunization.runtime.files import (
     generate_vaccination_record_filename,
     transformed_filename,
@@ -43,6 +50,37 @@ logger = logging.getLogger(__name__)
 
 # Master file name in GCS output folder
 ALL_KNOWN_VACCINATIONS_FILE = "all_known_vaccinations.csv"
+
+
+def new_run_id(kind: str) -> str:
+    return f"{kind}_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:8]}"
+
+
+def append_event(ledger, event) -> None:
+    """Best-effort ledger append.
+
+    Until the phase 5 cutover the ledger observes the pipeline; a ledger
+    write failure must not sink a delivery.
+    """
+    try:
+        ledger.append(event)
+    except Exception as error:
+        logger.warning("ledger append failed for %s: %s", event.type, error)
+
+
+def claim_diff(ledger, date_str: str) -> bool:
+    """Claim today's diff delivery; exactly one run per date can win.
+
+    If the claim check itself fails (storage outage), proceed: delivering
+    twice is the old, survivable failure mode; delivering zero times is not.
+    """
+    try:
+        return ledger.claim(f"{date_str}_diff")
+    except Exception as error:
+        logger.warning(
+            "claim check failed (%s); proceeding without idempotency guard", error
+        )
+        return True
 
 
 def load_config_from_storage(bucket_name: str, temp_dir: Path) -> dict:
@@ -143,13 +181,18 @@ def load_known_records(bucket_name: str, temp_dir: Path) -> RecordSet:
 
 
 def process_incremental_vaccinations(
-    output_files: list[Path], output_folder: Path, bucket_name: str, temp_dir: Path
-) -> tuple[Path, Path]:
+    output_files: list[Path],
+    output_folder: Path,
+    bucket_name: str,
+    temp_dir: Path,
+    ledger=None,
+    snapshots=None,
+) -> tuple[Path, Path, int]:
     """Compute the diff against known vaccinations and write both files.
 
-    Returns (diff_file_path, master_file_path). The diff file holds only
-    records new since the last run; the master file becomes the current
-    full set.
+    Returns (diff_file_path, master_file_path, new_record_count). The diff
+    file holds only records new since the last run; the master file becomes
+    the current full set, also stored as a content-addressed snapshot.
     """
     logger.info("Starting incremental vaccination processing")
 
@@ -166,17 +209,41 @@ def process_incremental_vaccinations(
     date_str = datetime.now().strftime("%Y-%m-%d")
     diff_filename = f"{date_str}_new_vaccinations.csv"
     diff_file_path = output_folder / diff_filename
-    diff_file_path.write_text(render_csv(new_records), encoding="utf-8")
+    diff_text = render_csv(new_records)
+    diff_file_path.write_text(diff_text, encoding="utf-8")
     logger.info("Saved %d new records to %s", len(new_records), diff_filename)
 
     master_file_path = output_folder / ALL_KNOWN_VACCINATIONS_FILE
-    master_file_path.write_text(render_csv(current_records), encoding="utf-8")
+    master_text = render_csv(current_records)
+    master_file_path.write_text(master_text, encoding="utf-8")
     logger.info("Updated master file with %d total records", len(current_records))
+
+    snapshot_path = ""
+    if snapshots is not None:
+        try:
+            _, snapshot_path = snapshots.put(master_text)
+            logger.info("Stored master snapshot at %s", snapshot_path)
+        except Exception as error:
+            logger.warning("snapshot store failed: %s", error)
+
+    if ledger is not None:
+        append_event(
+            ledger,
+            events.diff_computed(
+                new_count=len(new_records),
+                total_count=len(current_records),
+                known_hash=sha256_hex(render_csv(known_records)),
+                diff_hash=sha256_hex(diff_text),
+                snapshot_path=snapshot_path,
+            ),
+        )
 
     try:
         diff_blob_name = f"output/changes/{diff_filename}"
         upload_file_to_storage(bucket_name, diff_blob_name, str(diff_file_path))
         logger.info("Uploaded diff file to GCS: %s", diff_blob_name)
+        if ledger is not None:
+            append_event(ledger, events.delivered(diff_filename, "gcs"))
 
         master_blob_name = f"output/{ALL_KNOWN_VACCINATIONS_FILE}"
         upload_file_to_storage(bucket_name, master_blob_name, str(master_file_path))
@@ -185,7 +252,7 @@ def process_incremental_vaccinations(
         logger.error("Failed to upload to GCS: %s", error)
 
     logger.info("Completed incremental vaccination processing")
-    return diff_file_path, master_file_path
+    return diff_file_path, master_file_path, len(new_records)
 
 
 def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id=None):
@@ -270,46 +337,76 @@ def upload_handler(event, context):
     print("Upload function triggered")
 
     bucket_name = os.environ["DATA_BUCKET"]
-    username, password = get_aisr_credentials()
+    ledger = GcsRunLedger(
+        get_storage_client().bucket(bucket_name), new_run_id("query")
+    )
+    append_event(ledger, events.run_started(kind="query", trigger="scheduled"))
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
+    try:
+        username, password = get_aisr_credentials()
 
-        config = load_config_from_storage(bucket_name, temp_path)
-        auth_url, api_url = get_aisr_urls_from_config(config)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        school_info_list = create_school_info_list(
-            config, bucket_name, temp_path, include_query_files=True
+            config = load_config_from_storage(bucket_name, temp_path)
+            auth_url, api_url = get_aisr_urls_from_config(config)
+
+            school_info_list = create_school_info_list(
+                config, bucket_name, temp_path, include_query_files=True
+            )
+
+            school_names = [school.school_name for school in school_info_list]
+            print(
+                f"Loaded configuration for {len(school_info_list)} schools: "
+                f"{', '.join(school_names)}"
+            )
+
+            print("Starting AISR bulk queries")
+            failures = 0
+            with aisr_session(auth_url, api_url, username, password) as client:
+                for school in school_info_list:
+                    try:
+                        client.submit_roster_query(school)
+                        query_bytes = Path(school.query_file_path).read_bytes()
+                        append_event(
+                            ledger,
+                            events.query_submitted(
+                                school_id=school.school_id,
+                                query_file_hash=sha256_hex(
+                                    query_bytes.decode("utf-8", errors="replace")
+                                ),
+                            ),
+                        )
+                    except AISRActionFailedError as error:
+                        failures += 1
+                        logger.error(
+                            "Bulk query failed for %s: %s", school.school_name, error
+                        )
+
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            results_data = {
+                "upload_time": datetime.now().isoformat(),
+                "schools_processed": len(school_info_list),
+                "status": "completed",
+            }
+
+            results_filename = f"uploads/{timestamp}_bulk_query_results.json"
+            store_completion_metadata(bucket_name, results_data, results_filename)
+
+            append_event(
+                ledger,
+                events.run_completed(
+                    schools=len(school_info_list), failures=failures
+                ),
+            )
+            print(f"Upload completed: {len(school_info_list)} schools processed")
+            return {"status": "success", "schools_processed": len(school_info_list)}
+    except Exception as error:
+        append_event(
+            ledger,
+            events.run_failed(step="upload_handler", error=type(error).__name__),
         )
-
-        school_names = [school.school_name for school in school_info_list]
-        print(
-            f"Loaded configuration for {len(school_info_list)} schools: "
-            f"{', '.join(school_names)}"
-        )
-
-        print("Starting AISR bulk queries")
-        with aisr_session(auth_url, api_url, username, password) as client:
-            for school in school_info_list:
-                try:
-                    client.submit_roster_query(school)
-                except AISRActionFailedError as error:
-                    logger.error(
-                        "Bulk query failed for %s: %s", school.school_name, error
-                    )
-
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        results_data = {
-            "upload_time": datetime.now().isoformat(),
-            "schools_processed": len(school_info_list),
-            "status": "completed",
-        }
-
-        results_filename = f"uploads/{timestamp}_bulk_query_results.json"
-        store_completion_metadata(bucket_name, results_data, results_filename)
-
-        print(f"Upload completed: {len(school_info_list)} schools processed")
-        return {"status": "success", "schools_processed": len(school_info_list)}
+        raise
 
 
 def download_handler(event, context):
@@ -321,112 +418,171 @@ def download_handler(event, context):
     print("Download function triggered")
 
     bucket_name = os.environ["DATA_BUCKET"]
-    username, password = get_aisr_credentials()
+    bucket = get_storage_client().bucket(bucket_name)
+    ledger = GcsRunLedger(bucket, new_run_id("download"))
+    snapshots = GcsSnapshotStore(bucket)
+    append_event(ledger, events.run_started(kind="download", trigger="scheduled"))
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        input_folder = temp_path / "input"
-        output_folder = temp_path / "output"
-        input_folder.mkdir(exist_ok=True)
-        output_folder.mkdir(exist_ok=True)
+    try:
+        username, password = get_aisr_credentials()
 
-        config = load_config_from_storage(bucket_name, temp_path)
-        auth_url, api_url = get_aisr_urls_from_config(config)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_folder = temp_path / "input"
+            output_folder = temp_path / "output"
+            input_folder.mkdir(exist_ok=True)
+            output_folder.mkdir(exist_ok=True)
 
-        school_info_list = create_school_info_list(
-            config, bucket_name, temp_path, include_query_files=False
-        )
+            config = load_config_from_storage(bucket_name, temp_path)
+            auth_url, api_url = get_aisr_urls_from_config(config)
 
-        school_names = [school.school_name for school in school_info_list]
-        print(
-            f"Loaded configuration for {len(school_info_list)} schools: "
-            f"{', '.join(school_names)}"
-        )
+            school_info_list = create_school_info_list(
+                config, bucket_name, temp_path, include_query_files=False
+            )
 
-        print("Starting AISR vaccination record download")
-        with aisr_session(auth_url, api_url, username, password) as client:
-            for school in school_info_list:
-                output_path = input_folder / (
-                    generate_vaccination_record_filename(school.school_name)
-                )
+            school_names = [school.school_name for school in school_info_list]
+            print(
+                f"Loaded configuration for {len(school_info_list)} schools: "
+                f"{', '.join(school_names)}"
+            )
+
+            print("Starting AISR vaccination record download")
+            fetch_failures = 0
+            with aisr_session(auth_url, api_url, username, password) as client:
+                for school in school_info_list:
+                    output_path = input_folder / (
+                        generate_vaccination_record_filename(school.school_name)
+                    )
+                    try:
+                        content = client.download_latest_records(
+                            school.school_id, output_path
+                        )
+                        append_event(
+                            ledger,
+                            events.records_fetched(
+                                school_id=school.school_id,
+                                content_hash=sha256_hex(content),
+                                byte_size=len(content.encode("utf-8")),
+                            ),
+                        )
+                    except AISRActionFailedError as error:
+                        fetch_failures += 1
+                        logger.error(
+                            "Download failed for %s: %s", school.school_name, error
+                        )
+
+            print("Starting ETL transformation")
+            for input_file in input_folder.glob("*.csv"):
                 try:
-                    client.download_latest_records(school.school_id, output_path)
-                except AISRActionFailedError as error:
+                    records = parse_aisr_csv(input_file.read_text(encoding="utf-8"))
+                    output_file = output_folder / (
+                        transformed_filename(input_file.name)
+                    )
+                    output_file.write_text(render_csv(records), encoding="utf-8")
+                except (AisrParseError, IcFormatError, OSError):
                     logger.error(
-                        "Download failed for %s: %s", school.school_name, error
+                        "Transform failed for file: %s", input_file, exc_info=True
                     )
 
-        print("Starting ETL transformation")
-        for input_file in input_folder.glob("*.csv"):
-            try:
-                records = parse_aisr_csv(input_file.read_text(encoding="utf-8"))
-                output_file = output_folder / transformed_filename(input_file.name)
-                output_file.write_text(render_csv(records), encoding="utf-8")
-            except (AisrParseError, IcFormatError, OSError):
-                logger.error(
-                    "Transform failed for file: %s", input_file, exc_info=True
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            output_files = list(output_folder.glob("*.csv"))
+            new_count = 0
+
+            if output_files and not claim_diff(ledger, date_str):
+                # Another run already delivered this date's diff. Delivering
+                # again would put a second, near-empty file with the same
+                # name in Drive: the July 2026 double-run incident.
+                reason = f"diff already delivered for {date_str}"
+                print(f"Skipping delivery: {reason}")
+                append_event(ledger, events.run_skipped(reason))
+                return {"status": "skipped", "reason": reason}
+
+            if output_files:
+                print(
+                    f"Processing {len(output_files)} transformed files "
+                    "for incremental updates"
                 )
 
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_files = list(output_folder.glob("*.csv"))
+                diff_file, _, new_count = process_incremental_vaccinations(
+                    output_files=output_files,
+                    output_folder=output_folder,
+                    bucket_name=bucket_name,
+                    temp_dir=temp_path,
+                    ledger=ledger,
+                    snapshots=snapshots,
+                )
 
-        if output_files:
+                print(f"Created incremental diff file: {diff_file.name}")
+
+                print(
+                    f"Uploading {len(output_files)} full backup files to storage "
+                    "and Google Drive"
+                )
+                upload_files_to_destinations(
+                    output_files, bucket_name, timestamp, school_info_list
+                )
+
+                drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+                if drive_folder_id:
+                    try:
+                        drive_file_id = upload_to_drive_with_secrets(
+                            file_path=str(diff_file),
+                            filename=diff_file.name,
+                            folder_id=drive_folder_id,
+                        )
+                        append_event(
+                            ledger,
+                            events.delivered(
+                                diff_file.name, "drive", str(drive_file_id)
+                            ),
+                        )
+                        print(
+                            "Uploaded incremental diff file to Google Drive: "
+                            f"{diff_file.name}"
+                        )
+                    except Exception as e:
+                        print(
+                            f"WARNING: Failed to upload diff file "
+                            f"to Google Drive: {e}"
+                        )
+
+                print("File processing and uploads completed successfully")
+            else:
+                print("WARNING: No output files generated from ETL process")
+
+            metadata = {
+                "download_time": datetime.now().isoformat(),
+                "schools_processed": len(school_info_list),
+                "files_transformed": len(output_files),
+                "incremental_processing": True,
+                "diff_file_created": diff_file.name if output_files else None,
+                "status": "completed",
+            }
+            metadata_filename = f"downloads/{timestamp}_download_metadata.json"
+            store_completion_metadata(bucket_name, metadata, metadata_filename)
+
+            append_event(
+                ledger,
+                events.run_completed(
+                    schools=len(school_info_list),
+                    files_transformed=len(output_files),
+                    new_records=new_count,
+                    fetch_failures=fetch_failures,
+                ),
+            )
             print(
-                f"Processing {len(output_files)} transformed files "
-                "for incremental updates"
+                f"Download and ETL completed: {len(output_files)} files processed"
             )
-
-            diff_file, _ = process_incremental_vaccinations(
-                output_files=output_files,
-                output_folder=output_folder,
-                bucket_name=bucket_name,
-                temp_dir=temp_path,
-            )
-
-            print(f"Created incremental diff file: {diff_file.name}")
-
-            print(
-                f"Uploading {len(output_files)} full backup files to storage "
-                "and Google Drive"
-            )
-            upload_files_to_destinations(
-                output_files, bucket_name, timestamp, school_info_list
-            )
-
-            drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-            if drive_folder_id:
-                try:
-                    upload_to_drive_with_secrets(
-                        file_path=str(diff_file),
-                        filename=diff_file.name,
-                        folder_id=drive_folder_id,
-                    )
-                    print(
-                        "Uploaded incremental diff file to Google Drive: "
-                        f"{diff_file.name}"
-                    )
-                except Exception as e:
-                    print(f"WARNING: Failed to upload diff file to Google Drive: {e}")
-
-            print("File processing and uploads completed successfully")
-        else:
-            print("WARNING: No output files generated from ETL process")
-
-        metadata = {
-            "download_time": datetime.now().isoformat(),
-            "schools_processed": len(school_info_list),
-            "files_transformed": len(output_files),
-            "incremental_processing": True,
-            "diff_file_created": diff_file.name if output_files else None,
-            "status": "completed",
-        }
-        metadata_filename = f"downloads/{timestamp}_download_metadata.json"
-        store_completion_metadata(bucket_name, metadata, metadata_filename)
-
-        print(f"Download and ETL completed: {len(output_files)} files processed")
-        return {
-            "status": "success",
-            "schools_processed": len(school_info_list),
-            "files_transformed": len(output_files),
-            "incremental_processing": True,
-        }
+            return {
+                "status": "success",
+                "schools_processed": len(school_info_list),
+                "files_transformed": len(output_files),
+                "incremental_processing": True,
+            }
+    except Exception as error:
+        append_event(
+            ledger,
+            events.run_failed(step="download_handler", error=type(error).__name__),
+        )
+        raise
