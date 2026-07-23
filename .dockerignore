@@ -1,0 +1,14 @@
+# The Dockerfile COPYs explicit paths; this only trims the build context.
+.git
+.venv
+mock/.venv
+.ruff_cache
+.pytest_cache
+.mypy_cache
+**/__pycache__
+tests
+infra
+config
+.github
+.claude
+.vscode

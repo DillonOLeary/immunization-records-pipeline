@@ -68,37 +68,3 @@ def get_sample_vaccination_data(school_id: str) -> str:
             records.append(record)
 
     return header + "".join(records)
-
-
-def get_sample_query_data(school_id: str) -> str:
-    """
-    Generate sample query data for bulk uploads.
-
-    Args:
-        school_id: School identifier
-
-    Returns:
-        CSV content for student queries
-    """
-    header = "student_id,first_name,last_name,dob\n"
-
-    if school_id == "2542":  # Friendly Hills Mid
-        students = [
-            "123,John,Doe,2010-01-01",
-            "789,Jane,Smith,2011-02-02",
-            "112,Bob,Johnson,2012-03-03",
-            "415,Alice,Brown,2009-04-04",
-        ]
-    elif school_id == "2543":  # Garlough Elementary
-        students = [
-            "234,Charlie,Wilson,2013-05-05",
-            "345,Diana,Davis,2014-06-06",
-            "456,Edward,Miller,2015-07-07",
-        ]
-    else:  # Default
-        students = [
-            "999,Test,Student,2010-01-01",
-            "777,Sample,Child,2011-02-02",
-        ]
-
-    return header + "\n".join(students) + "\n"
