@@ -1,0 +1,14 @@
+# Cloud Build uploads only what the Docker build needs.
+.git/
+.venv/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+tests/
+infra/
+mock/.venv/
+config/
+*.md
+.github/
+.claude/
+.vscode/

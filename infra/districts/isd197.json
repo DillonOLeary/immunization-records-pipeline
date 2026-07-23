@@ -7,5 +7,7 @@
   "query_schedule": "9 2 28 * *",
   "download_schedule": "9 2 1 * *",
   "canary_schedule": "9 2 27 * *",
-  "time_zone": "America/Chicago"
+  "time_zone": "America/Chicago",
+  "alert_email": "mail@dillonoleary.com",
+  "deployer_service_account": "github-deployer@mn-immun-bd9001.iam.gserviceaccount.com"
 }
