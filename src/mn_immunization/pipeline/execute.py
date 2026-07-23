@@ -37,7 +37,7 @@ from mn_immunization.pipeline.policy import (
     decide,
 )
 from mn_immunization.pipeline.support import append_event, claim_or_proceed
-from mn_immunization.sinks.drive import upload_to_google_drive
+from mn_immunization.sinks.drive import list_drive_filenames, upload_to_google_drive
 from mn_immunization.sources.aisr.actions import (
     AISRActionFailedError,
     get_latest_vaccination_records_url,
@@ -84,6 +84,84 @@ def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id=None):
         client_secret=get_secret("drive-client-secret"),
         folder_id=folder_id,
     )
+
+
+def list_drive_filenames_with_secrets(folder_id: str) -> set[str]:
+    """List the pipeline's own files in the Drive folder, via Secret Manager."""
+    return list_drive_filenames(
+        refresh_token=get_secret("drive-refresh-token"),
+        client_id=get_secret("drive-client-id"),
+        client_secret=get_secret("drive-client-secret"),
+        folder_id=folder_id,
+    )
+
+
+def _days_since_prefix_date(filename: str, now: datetime) -> int | None:
+    """Delivered files are named `YYYY-MM-DD_...`; return the age in days,
+    or None if the prefix is not a date."""
+    try:
+        delivered = datetime.strptime(filename[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+    return (now - delivered).days
+
+
+def record_import_confirmations(ctx: RunContext) -> None:
+    """Notice which delivered files staff have imported and record it.
+
+    The Drive protocol is delete-as-ack: a delivered file that is gone
+    from the folder was imported into Infinite Campus. This lists the
+    folder, and for each Delivered file not already ImportConfirmed:
+    absent -> append ImportConfirmed; still present past
+    IMPORT_REMINDER_DAYS -> a warning (true absence alerting waits for a
+    weekly cadence, per alerts.tf).
+
+    Entirely best-effort: any failure is logged and swallowed, because a
+    confirmation check must never sink a delivery run.
+    """
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+    bucket = getattr(ctx.ledger, "bucket", None)
+    if not folder_id or bucket is None:
+        return
+
+    try:
+        now = datetime.now()
+        previous = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+        runs = read_recent_runs(bucket, ((now.year, now.month), previous), limit=50)
+
+        delivered: set[str] = set()
+        confirmed: set[str] = set()
+        for run in runs:
+            for event in run["events"]:
+                data = event["data"]
+                if event["type"] == "Delivered" and data.get("target") == "drive":
+                    delivered.add(data["file_name"])
+                elif event["type"] == "ImportConfirmed":
+                    confirmed.add(data["file_name"])
+
+        outstanding = delivered - confirmed
+        if not outstanding:
+            return
+        present = list_drive_filenames_with_secrets(folder_id)
+    except Exception as error:
+        logger.warning("import-confirmation check skipped (%s)", type(error).__name__)
+        return
+
+    reminder_days = int(os.environ.get("IMPORT_REMINDER_DAYS", "7"))
+    for filename in sorted(outstanding):
+        if filename not in present:
+            append_event(
+                ctx.ledger, events.import_confirmed(filename, "deleted from Drive")
+            )
+            logger.info("Import confirmed (deleted from Drive): %s", filename)
+        else:
+            age = _days_since_prefix_date(filename, now)
+            if age is not None and age >= reminder_days:
+                logger.warning(
+                    "Delivered file still awaiting import after %d days: %s",
+                    age,
+                    filename,
+                )
 
 
 def submit_roster_queries(ctx: RunContext, username: str, password: str) -> int:

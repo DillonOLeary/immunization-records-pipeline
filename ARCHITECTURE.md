@@ -174,10 +174,17 @@ import queue; an empty folder means caught up; a missed period just means
 importing every diff file sitting there (each diff is small and disjoint,
 which is the whole point of diffs over raw files).
 
-That makes the confirmation signal file *absence*: a later run lists the
-folder, and a previously Delivered diff that is gone gets an
-ImportConfirmed event (how: deleted from Drive); a diff still present
-after N days triggers an alert. Zero new habits, zero new surface.
+That makes the confirmation signal file *absence*: at the start of each
+run, `record_import_confirmations` lists the folder, and a previously
+Delivered diff that is gone gets an ImportConfirmed event (how: deleted
+from Drive); a diff still present past IMPORT_REMINDER_DAYS (default 7)
+is logged as a warning. The check reads the folder through the
+drive.file scope, which sees only files this app created, so the listing
+is exactly the pipeline's own deliveries and nothing else in the
+district's Drive. It is entirely best-effort — a listing failure is
+swallowed — because confirmation must never sink a delivery run. (A true
+absence *alert* rather than a warning waits for a weekly-or-denser
+cadence, per the note in alerts.tf.) Zero new habits, zero new surface.
 
 Drive holds nothing but the import queue. There are no per-school backup
 folders (district staff never used them; GCS snapshots are the archive).
@@ -475,6 +482,16 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: ImportConfirmed made real (commit 3 of the cleanup sweep).
+  The delete-as-ack protocol described under "Drive is the UI" now has
+  code: `sinks/drive.py` gained `list_drive_filenames` (drive.file scope,
+  so it lists only the pipeline's own deliveries), and
+  `record_import_confirmations` runs at the top of each `run` cycle —
+  Delivered files gone from the folder get an ImportConfirmed event, ones
+  lingering past IMPORT_REMINDER_DAYS get a warning. Best-effort
+  throughout: a Drive listing failure is logged and swallowed, never
+  sinking the delivery work. The previously-unused `import_confirmed`
+  event factory now has a caller. 112 tests.
 - 2026-07-23: cleanup sweep making the code match its promises, on
   Dillon's call to "get this code singing." Three commits. (1) Deletions:
   the local transform CLI, its metadata generator (the last closure

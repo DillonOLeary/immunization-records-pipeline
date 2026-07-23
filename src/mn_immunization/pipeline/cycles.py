@@ -34,6 +34,7 @@ from mn_immunization.ledger import events
 from mn_immunization.ledger.gcs_ledger import GcsRunLedger, GcsSnapshotStore
 from mn_immunization.ledger.port import RunLedger, SnapshotStore
 from mn_immunization.pipeline.execute import (
+    record_import_confirmations,
     run_to_completion,
     staged_school_count,
     upload_to_drive_with_secrets,
@@ -166,8 +167,14 @@ def get_district_from_config(config: dict) -> DistrictInfo:
 
 
 def run_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
-    """The whole pipeline, one execution: decide, execute, repeat."""
+    """The whole pipeline, one execution: decide, execute, repeat.
+
+    Before the cycle, reconcile the Drive import queue: files staff have
+    deleted (imported) since last run get an ImportConfirmed event. This
+    is best-effort and never blocks the delivery work.
+    """
     with pipeline_run("run", bucket_name, trigger, include_query_files=True) as ctx:
+        record_import_confirmations(ctx)
         username, password = get_aisr_credentials()
         return run_to_completion(ctx, username, password)
 
