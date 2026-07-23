@@ -3,9 +3,9 @@
 Automates student immunization records from Minnesota's AISR system (MIIC)
 into CSV files that school staff import into Infinite Campus.
 
-**A rewrite is in progress on this branch.** [ARCHITECTURE.md](ARCHITECTURE.md)
-is the source of truth for the target design, the build phases, and current
-progress. This README describes how to work with the repo as it stands.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the source of truth for the design, the
+decisions behind it, and the constraints it honors. This README is the quick
+orientation for working in the repo.
 
 ## How it works
 
@@ -38,12 +38,15 @@ uv sync                           # installs the package, dev deps, and mock
 uv run pytest                     # full test suite (spins a local mock AISR)
 uv run ruff check src tests mock  # lint
 uv run mock-server                # standalone fake AISR server
-uv run mn-immunization --config config.json transform
+uv run mn-immunization status --bucket <data-bucket>   # recent runs from the ledger
 ```
 
-`config.json.example` documents the config shape. Real config, rosters, and
-query files never live in this repo (enforced by .gitignore); production
-reads them from Cloud Storage.
+The pipeline itself runs as a Cloud Run Job (`mn-immunization-job`),
+triggered by Cloud Scheduler in production and by `gcloud run jobs execute`
+for a manual run; the local `mn-immunization` CLI is a read-only window into
+the run ledger. `config.json.example` documents the config shape. Real
+config, rosters, and query files never live in this repo (enforced by
+.gitignore); production reads them from Cloud Storage.
 
 ## Repository structure
 
@@ -52,8 +55,10 @@ reads them from Cloud Storage.
   - `sources/aisr/` - AISR authentication, bulk-query/download client, parsing
   - `sinks/`, `gcp/` - Drive, Cloud Storage, and Secret Manager adapters
   - `ledger/` - the append-only run ledger (events, claims, snapshots)
-  - `pipeline/` - the application layer: run/canary/rebaseline cycles
-  - `runtime/` - entrypoints: the Cloud Run Job and the CLI
+  - `pipeline/` - the application layer: a pure decider (`policy.py`) and the
+    runner loop (`execute.py`) that drive the run/canary/rebaseline cycles
+  - `runtime/` - the two entrypoints: `job.py` (Cloud Run Job) and `cli.py`
+    (the status CLI)
 - `mock/` - fake AISR server (uv workspace member, used by tests and local dev)
 - `infra/` - Terraform for the GCP deployment
 - `tests/` - mirrors the slices; `tests/cli` runs the real CLI in a subprocess

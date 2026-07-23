@@ -14,7 +14,7 @@ import mn_immunization.pipeline.execute as execute
 from mn_immunization.ledger.memory import InMemoryRunLedger, InMemorySnapshotStore
 from mn_immunization.pipeline.cycles import RunContext
 from mn_immunization.pipeline.policy import DiffResult
-from mn_immunization.sources.aisr.actions import SchoolQueryInformation
+from mn_immunization.sources.aisr.actions import DistrictInfo, SchoolQueryInformation
 
 SCHOOLS = 8
 INTERVAL = 14400
@@ -50,6 +50,7 @@ def make_ctx(tmp_path, schools: int = SCHOOLS) -> RunContext:
         temp=tmp_path,
         auth_url="https://auth.test",
         api_url="https://api.test",
+        district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
         schools=[
             SchoolQueryInformation(
                 school_name=f"school-{i}",

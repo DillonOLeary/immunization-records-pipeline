@@ -9,6 +9,7 @@ import requests
 
 from mn_immunization.sources.aisr.actions import (
     AISRActionFailedError,
+    DistrictInfo,
     S3UploadHeaders,
     SchoolQueryInformation,
     _get_put_url,
@@ -37,7 +38,7 @@ def test_upload_file_to_s3(fastapi_server, tmp_path):
     with open(test_file_name, "w", encoding="utf-8") as file:
         file.write("test data")
 
-    test_headers = S3UploadHeaders("", "", "", "", "", "")
+    test_headers = S3UploadHeaders("", "", "", "", "")
 
     with requests.Session() as local_session:
         response = _put_file_to_s3(
@@ -53,7 +54,7 @@ def test_failed_upload_raises_exception(fastapi_server, tmp_path):
     with open(test_file_name, "w", encoding="utf-8") as file:
         file.write("")
 
-    test_headers = S3UploadHeaders("", "", "", "", "", "")
+    test_headers = S3UploadHeaders("", "", "", "", "")
 
     with requests.Session() as local_session:
         with pytest.raises(AISRActionFailedError):
@@ -73,6 +74,7 @@ def test_complete_query_action(fastapi_server, tmp_path):
             query_info=SchoolQueryInformation(
                 "name", "class", "id", "email@example.com", str(test_file_name_and_path)
             ),
+            district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
         )
 
     assert response.is_successful, "File upload should be successful"

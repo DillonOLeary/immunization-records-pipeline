@@ -61,6 +61,8 @@ known-first-party = ["mn_immunization"]
 # Long literal strings in mock sample data.
 "mock/src/minnesota_immunization_mock/sample_data.py" = ["E501"]
 "mock/src/minnesota_immunization_mock/server.py" = ["E501"]
+# Copy-pasteable gcloud command strings in the one-off OAuth setup script.
+"infra/scripts/setup_google_drive_oauth.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

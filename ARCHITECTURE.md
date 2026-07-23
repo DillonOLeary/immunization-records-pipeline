@@ -67,10 +67,8 @@ src/mn_immunization/
     support.py                  run ids, safe appends, claims, brake
     files.py                    file naming conventions
   runtime/                      entrypoints only
-    cli.py                      mn-immunization transform|status
-    main.py                     CLI wiring (args, config, logging)
-    job.py                      Cloud Run Job entrypoint
-    metadata_generator.py       per-file metadata for local transforms
+    job.py                      Cloud Run Job entrypoint (run|canary|rebaseline)
+    cli.py                      mn-immunization status (read-only ledger window)
 mock/                           fake AISR server (dev dependency, promoted
                                 from minnesota-immunization-mock)
 tests/
@@ -227,10 +225,17 @@ the observability an orchestrator would, without the surface.
 MIIC has said the website may change. The blast radius is confined to
 `sources/aisr/` and detection is moved ahead of the monthly run:
 
-- No hardcoded Keycloak `execution` UUID. The login flow scrapes all flow
-  parameters from the live form, every session.
-- No hardcoded district values in code. The old core hardcoded the ISD 197
-  district code and the MDH S3 host; both move to per-district config.
+- No hardcoded Keycloak flow parameters. `login()` scrapes the login form's
+  action URL from the live page and POSTs back to it verbatim — exactly what
+  a browser does — so a MIIC change to `session_code`, `execution`, or
+  `tab_id` cannot break login. (An earlier version hand-built the authenticate
+  URL with a hardcoded `execution` UUID; that was the fragile path this
+  removes.)
+- No hardcoded district values in code. `iddis` and the MDH S3 upload host
+  live in config (`district.iddis`, `api.s3_upload_host`) and thread through
+  as a `DistrictInfo` to the one place that uploads a roster. There is no code
+  fallback: a missing key fails the run loudly rather than uploading under the
+  wrong district's identity.
 - Contract tests run the real adapter against the mock AISR server in CI.
 - The canary cycle (login plus a read-only records listing) is a manual
   readiness probe; the same staged-results check runs inside the unified
@@ -470,6 +475,22 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: cleanup sweep making the code match its promises, on
+  Dillon's call to "get this code singing." Three commits. (1) Deletions:
+  the local transform CLI, its metadata generator (the last closure
+  factory), `runtime/main.py` and INI logging — runtime/ is now exactly
+  two entrypoints and `mn-immunization` is status-only; plus
+  `upload_to_storage`, the tests/cli subprocess suite, a placeholder
+  test, `.gcloudignore` (replaced by `.dockerignore`), and a dead mock
+  data generator. (2) Truth-making: two ARCHITECTURE.md claims were
+  aspirational, now real — login scrapes the form action URL and POSTs
+  back verbatim (the hardcoded Keycloak `execution` UUID is gone), and
+  `iddis`/`s3_upload_host` are config threaded as `DistrictInfo` with no
+  code fallback (the 30-district plan needed both). Also: the login log
+  line no longer prints the staff username; RunContext is typed to the
+  ledger ports, not the GCS classes. (3) ImportConfirmed made real (see
+  its own note). Verified by a manual canary against real AISR before the
+  first autonomous run.
 - 2026-07-23: output discipline pass, on Dillon's question about the
   print/logger mix. The rule now: print is for program output, logging
   is for diagnostics. The pipeline layer's operator narrative (staging
@@ -709,3 +730,12 @@ Notes:
 - The Delivered("gcs") event: the GCS diff copy is an archive, not a
   delivery. Delivered means the Drive import queue, which keeps the future
   ImportConfirmed design unambiguous.
+- The local transform CLI and its metadata generator: the CLI is a
+  read-only status window now; transforming AISR files locally was a
+  debugging convenience the mock-plus-pytest path covers, and the
+  metadata generator was the last closure factory, writing per-file JSON
+  the ledger already supersedes.
+- `runtime/main.py` and the INI logging config: an entrypoint wrapper from
+  the five-workspace era; the status CLI configures logging in three lines.
+- `upload_to_storage` (string upload, zero callers) and `.gcloudignore`
+  (deploy is `docker build`, not Cloud Build; `.dockerignore` replaces it).

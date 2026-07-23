@@ -29,9 +29,9 @@ jobs:
       - name: Install dependencies
         run: uv sync
       - name: Ruff
-        run: uv run ruff check src tests mock
+        run: uv run ruff check src tests mock infra/scripts
       - name: Ruff format
-        run: uv run ruff format --check src tests mock
+        run: uv run ruff format --check src tests mock infra/scripts
 
   audit:
     runs-on: ubuntu-latest

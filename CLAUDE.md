@@ -19,27 +19,33 @@ Single uv project. `src/mn_immunization/` holds the package in vertical
 slices: `domain/` (pure records/diff/IC-format logic, no I/O),
 `sources/aisr/` (MIIC protocol client and parsing), `sinks/` and `gcp/`
 (Drive, storage, secrets adapters), `ledger/` (append-only run ledger),
-`pipeline/` (the application layer: cycles, incremental diff, shared
-policies), `runtime/` (entrypoints only). `mock/` is a workspace member
-with a fake AISR server. `infra/` is Terraform. `tests/` mirrors the
-slices.
+`pipeline/` (the application layer: `policy.py` the pure decider,
+`execute.py` the runner loop, `cycles.py` the use-cases, `incremental.py`
+the diff math), `runtime/` (two entrypoints only: `job.py`, `cli.py`).
+`mock/` is a workspace member with a fake AISR server. `infra/` is
+Terraform. `tests/` mirrors the slices.
 
 ## Commands
 
 ```sh
-uv sync                          # install everything (incl. mock, dev deps)
-uv run pytest                    # full test suite
-uv run ruff check src tests mock # lint
-uv run mn-immunization --config <cfg> transform|bulk-query|get-vaccinations
-uv run mock-server               # local fake AISR
+uv sync                                 # install everything (incl. mock, dev deps)
+uv run pytest                           # full test suite
+uv run ruff check src tests mock        # lint
+uv run ruff format --check src tests mock  # format gate
+uv run mn-immunization status --bucket <data-bucket>  # ledger status
+uv run mock-server                      # local fake AISR
 ```
+
+The pipeline runs as the Cloud Run Job `mn-immunization-job` (dispatch:
+`run` / `canary` / `rebaseline`); a manual run is `gcloud run jobs execute`.
+The `mn-immunization` CLI is status-only.
 
 ## Rules
 
 - No PHI anywhere in the repo or its logs. Logs carry counts, hashes, school
   names, and error classes only.
-- Production deploys happen from CI, never by hand.
-- Each rewrite phase leaves production working; see ARCHITECTURE.md.
-- The deployed Cloud Functions run from GCP project `mn-immun-bd9001` until
-  the phase 5 cutover; do not assume this repo's Terraform matches the
-  console until phase 4 reconciles them.
+- Production deploys happen from CI (`docker build` + `gcloud run jobs
+  update`), never by hand. Terraform is applied by a human; CI owns the image.
+- The pipeline is live in GCP project `mn-immun-bd9001`, one project per
+  district. A failed run is acceptable; leaked PHI and a headache for the
+  nurses are not.

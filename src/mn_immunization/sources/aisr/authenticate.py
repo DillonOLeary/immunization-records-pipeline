@@ -5,7 +5,7 @@ Handle authentication with AISR.
 import logging
 import uuid
 from dataclasses import dataclass
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -57,11 +57,12 @@ class AISRAuthResponse:
     access_token: str
 
 
-def _get_session_code_and_tab_id(
-    session: requests.Session, base_url: str
-) -> tuple[str, str]:
-    """
-    The session and tab are needed to authenticate with AISR.
+def _get_login_action_url(session: requests.Session, base_url: str) -> str:
+    """Scrape the login form's action URL from the live auth page.
+
+    Keycloak embeds every flow parameter (session_code, execution, tab_id)
+    in that URL; POSTing back to it verbatim is what a browser does, so a
+    MIIC change to the flow's parameters cannot break the login.
     """
     state = uuid.uuid4()
     nonce = uuid.uuid4()
@@ -72,14 +73,12 @@ def _get_session_code_and_tab_id(
     soup = BeautifulSoup(response.content, "html.parser")
     form_element = soup.find("form", id="kc-form-login")
 
-    # the session code and tab id are found in the action URL of the form
     if isinstance(form_element, Tag):
         action_url = form_element.get("action")
-        if isinstance(action_url, str):
-            parsed_url = urlparse(action_url)
-            query_dict = parse_qs(parsed_url.query)
-            return query_dict["session_code"][0], query_dict["tab_id"][0]
-        raise ValueError("The action URL is not a valid string.")
+        if isinstance(action_url, str) and action_url:
+            # Relative actions resolve against the page they came from.
+            return urljoin(response.url, action_url)
+        raise ValueError("The login form has no usable action URL.")
     raise ValueError("Login form not found or is not a valid HTML form element.")
 
 
@@ -139,16 +138,14 @@ def login(
     Raises:
         AuthenticationError: If login fails for any reason
     """
-    logger.info("Logging into MIIC with username %s", username)
-    session_code, tab_id = _get_session_code_and_tab_id(session, base_url)
-
-    url = f"{base_url}/auth/realms/idepc-aisr-realm/login-actions/authenticate?session_code={session_code}&execution=084dee30-925f-4a8f-829d-7a372e38d0de&client_id=aisr-app&tab_id={tab_id}"  # noqa: E501
+    logger.info("Logging into MIIC")
+    action_url = _get_login_action_url(session, base_url)
 
     payload = f"password={quote(password)}&username={username}"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
     response = session.request(
-        "POST", url, headers=headers, data=payload, allow_redirects=False
+        "POST", action_url, headers=headers, data=payload, allow_redirects=False
     )
 
     if response.status_code == 302 and "KEYCLOAK_IDENTITY" in session.cookies:

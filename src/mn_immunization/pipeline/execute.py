@@ -92,7 +92,7 @@ def submit_roster_queries(ctx: RunContext, username: str, password: str) -> int:
     with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
         for school in ctx.schools:
             try:
-                client.submit_roster_query(school)
+                client.submit_roster_query(school, ctx.district)
                 query_bytes = Path(school.query_file_path).read_bytes()
                 append_event(
                     ctx.ledger,

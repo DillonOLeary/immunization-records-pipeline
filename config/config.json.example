@@ -8,16 +8,21 @@
         "4. Look for a GET request to 'https://aisr-api.web.health.state.mn.us/school/<school_id>'",
         "5. This request response contains the id, classification, and email values needed",
         "6. The 'name' field can be any descriptive name, but id, classification, and email must match AISR exactly",
-        "7. bulk_query_file is the GCS blob path (within the data bucket) of the school's roster CSV"
+        "7. bulk_query_file is the GCS blob path (within the data bucket) of the school's roster CSV",
+        "8. district.iddis is the district's MDE number; api.s3_upload_host is the MDH ingest bucket host (both were hardcoded to ISD 197 before this became config)"
     ],
     "_mock_server": [
         "For end-to-end testing, a mock server is available:",
         "Local development: auth_base_url: http://localhost:8080/mock-auth-server, aisr_api_base_url: http://localhost:8080",
         "Mock server has hardcoded school IDs: 2542 (Friendly Hills Mid), 2543 (Garlough Elementary)"
     ],
+    "district": {
+        "iddis": "0197"
+    },
     "api": {
         "auth_base_url": "https://authenticator4.web.health.state.mn.us",
-        "aisr_api_base_url": "https://aisr-api.web.health.state.mn.us"
+        "aisr_api_base_url": "https://aisr-api.web.health.state.mn.us",
+        "s3_upload_host": "mdh-aisr-immunization-ingest-us-east-2-100582527228.s3.us-east-2.amazonaws.com"
     },
     "schools": [
         {

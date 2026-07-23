@@ -57,20 +57,32 @@ def _get_put_url(
 
 
 @dataclass
+class DistrictInfo:
+    """District-scoped values for the AISR roster upload.
+
+    Both were once hardcoded to ISD 197; they are configuration now so a
+    second district needs no code change. `iddis` is the district's MDE
+    number; `s3_upload_host` is the MDH ingest bucket host (the same for
+    every district today, but environment-shaped, so it lives in config
+    rather than in code).
+    """
+
+    iddis: str
+    s3_upload_host: str
+
+
+@dataclass
 class S3UploadHeaders:
     """
     Dataclass to hold the headers required for S3 upload.
-    # TODO some fields are hard coded to isd 197
     """
 
     classification: str
     school_id: str
     email_contact: str
+    iddis: str
+    host: str
     content_type: str = "text/csv"
-    iddis: str = "0197"
-    host: str = (
-        "mdh-aisr-immunization-ingest-us-east-2-100582527228.s3.us-east-2.amazonaws.com"
-    )
 
 
 @dataclass
@@ -286,6 +298,7 @@ def bulk_query_aisr(
     access_token: str,
     base_url: str,
     query_info: SchoolQueryInformation,
+    district: DistrictInfo,
 ) -> AISRFileUploadResponse:
     """
     Perform a bulk query to AISR.
@@ -306,6 +319,8 @@ def bulk_query_aisr(
             classification=query_info.classification,
             school_id=query_info.school_id,
             email_contact=query_info.email_contact,
+            iddis=district.iddis,
+            host=district.s3_upload_host,
         ),
         query_info.query_file_path,
     )

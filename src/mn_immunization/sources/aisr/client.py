@@ -15,6 +15,7 @@ from pathlib import Path
 import requests
 
 from mn_immunization.sources.aisr.actions import (
+    DistrictInfo,
     SchoolQueryInformation,
     bulk_query_aisr,
     get_and_download_vaccination_records,
@@ -28,9 +29,13 @@ class AisrClient:
     api_base_url: str
     access_token: str
 
-    def submit_roster_query(self, school: SchoolQueryInformation) -> None:
+    def submit_roster_query(
+        self, school: SchoolQueryInformation, district: DistrictInfo
+    ) -> None:
         """Upload a school's roster query file to AISR."""
-        bulk_query_aisr(self.session, self.access_token, self.api_base_url, school)
+        bulk_query_aisr(
+            self.session, self.access_token, self.api_base_url, school, district
+        )
 
     def download_latest_records(self, school_id: str, output_path: Path) -> str:
         """Download the latest full vaccination records file for a school.

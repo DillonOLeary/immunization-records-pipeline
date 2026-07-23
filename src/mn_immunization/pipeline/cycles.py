@@ -32,6 +32,7 @@ from mn_immunization.gcp.secrets import get_secret
 from mn_immunization.gcp.storage import get_storage_client
 from mn_immunization.ledger import events
 from mn_immunization.ledger.gcs_ledger import GcsRunLedger, GcsSnapshotStore
+from mn_immunization.ledger.port import RunLedger, SnapshotStore
 from mn_immunization.pipeline.execute import (
     run_to_completion,
     staged_school_count,
@@ -39,7 +40,7 @@ from mn_immunization.pipeline.execute import (
 )
 from mn_immunization.pipeline.incremental import load_known_records
 from mn_immunization.pipeline.support import append_event, new_run_id
-from mn_immunization.sources.aisr.actions import SchoolQueryInformation
+from mn_immunization.sources.aisr.actions import DistrictInfo, SchoolQueryInformation
 from mn_immunization.sources.aisr.client import aisr_session
 
 logger = logging.getLogger(__name__)
@@ -47,12 +48,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RunContext:
-    ledger: GcsRunLedger
-    snapshots: GcsSnapshotStore
+    # Typed to the ports, not the GCS classes: tests pass the in-memory
+    # implementations, and the ledger is the declared seam.
+    ledger: RunLedger
+    snapshots: SnapshotStore
     bucket_name: str
     temp: Path
     auth_url: str
     api_url: str
+    district: DistrictInfo
     schools: list[SchoolQueryInformation] = field(default_factory=list)
 
 
@@ -71,6 +75,7 @@ def pipeline_run(
             temp_path = Path(temp_dir)
             config = load_config_from_storage(bucket_name, temp_path)
             auth_url, api_url = get_aisr_urls_from_config(config)
+            district = get_district_from_config(config)
             schools = create_school_info_list(
                 config, bucket_name, temp_path, include_query_files
             )
@@ -86,6 +91,7 @@ def pipeline_run(
                 temp=temp_path,
                 auth_url=auth_url,
                 api_url=api_url,
+                district=district,
                 schools=schools,
             )
     except Exception as error:
@@ -144,6 +150,19 @@ def get_aisr_urls_from_config(config: dict) -> tuple[str, str]:
     """Get AISR API URLs from configuration"""
     api_config = config["api"]
     return api_config["auth_base_url"], api_config["aisr_api_base_url"]
+
+
+def get_district_from_config(config: dict) -> DistrictInfo:
+    """Read the district's AISR upload identity from config.
+
+    No code fallback on purpose: the values were hardcoded to ISD 197
+    once, and a missing key must fail loudly rather than silently upload
+    under the wrong district.
+    """
+    return DistrictInfo(
+        iddis=config["district"]["iddis"],
+        s3_upload_host=config["api"]["s3_upload_host"],
+    )
 
 
 def run_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:

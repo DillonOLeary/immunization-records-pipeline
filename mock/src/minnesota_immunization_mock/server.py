@@ -33,13 +33,23 @@ def create_mock_app():
     )
     async def oidc_auth():
         """
-        Simulates an authentication endpoint. Returns an HTML page with a form
-        that includes the required `session_code` and `tab_id`.
+        Simulates the Keycloak login page. The form action carries the flow
+        parameters (session_code, execution, tab_id) and points at the real
+        authenticate route, mirroring production: the client POSTs back to
+        this URL verbatim rather than reconstructing it.
         """
-        encoded_session_and_tab = urlencode(
-            {"session_code": "mock-session-code", "tab_id": "mock-tab-id"}
+        flow_params = urlencode(
+            {
+                "session_code": "mock-session-code",
+                "execution": "mock-execution-id",
+                "tab_id": "mock-tab-id",
+                "client_id": "aisr-app",
+            }
         )
-        form_action_url = f"/protocol/openid-connect/login?{encoded_session_and_tab}"
+        form_action_url = (
+            "/mock-auth-server/auth/realms/idepc-aisr-realm/"
+            f"login-actions/authenticate?{flow_params}"
+        )
 
         return f"""
         <!DOCTYPE html>
