@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from mn_immunization.domain.records import RecordSet, VaccinationRecord
-from mn_immunization.runtime.cycles import combine_ic_files, load_known_records
+from mn_immunization.pipeline.incremental import combine_ic_files, load_known_records
 
 
 def write_ic_file(path: Path, rows: list[str]) -> Path:

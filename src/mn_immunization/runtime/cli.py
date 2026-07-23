@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from mn_immunization.domain.ic_format import IcFormatError, render_csv
-from mn_immunization.runtime.files import (
+from mn_immunization.pipeline.files import (
     transformed_filename,
 )
 from mn_immunization.runtime.metadata_generator import (
@@ -155,9 +155,9 @@ def handle_status_command(args: argparse.Namespace) -> None:
     """Print recent runs and their terminal outcomes from the ledger."""
     from datetime import datetime
 
+    from mn_immunization.gcp.storage import get_storage_client
     from mn_immunization.ledger.events import TERMINAL_TYPES
     from mn_immunization.ledger.gcs_ledger import read_recent_runs
-    from mn_immunization.runtime.cloud.cloud_storage import get_storage_client
 
     now = datetime.now()
     previous = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)

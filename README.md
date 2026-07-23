@@ -50,7 +50,10 @@ reads them from Cloud Storage.
 - `src/mn_immunization/` - the package, in vertical slices:
   - `domain/` - vaccination records, diffing, and IC formatting (pure logic)
   - `sources/aisr/` - AISR authentication, bulk-query/download client, parsing
-  - `runtime/` - CLI entrypoint and cloud handlers
+  - `sinks/`, `gcp/` - Drive, Cloud Storage, and Secret Manager adapters
+  - `ledger/` - the append-only run ledger (events, claims, snapshots)
+  - `pipeline/` - the application layer: run/canary/rebaseline cycles
+  - `runtime/` - entrypoints: the Cloud Run Job and the CLI
 - `mock/` - fake AISR server (uv workspace member, used by tests and local dev)
 - `infra/` - Terraform for the GCP deployment
 - `tests/` - mirrors the slices; `tests/cli` runs the real CLI in a subprocess

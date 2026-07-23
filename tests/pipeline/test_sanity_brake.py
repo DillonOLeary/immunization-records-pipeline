@@ -1,6 +1,6 @@
 """Tests for the diff-size sanity brake."""
 
-from mn_immunization.runtime.cycles import suspicious_diff
+from mn_immunization.pipeline.support import suspicious_diff
 
 
 def test_first_ever_run_is_never_blocked():

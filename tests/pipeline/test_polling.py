@@ -1,7 +1,7 @@
 """Tests for the staged-results polling loop and rerun-safety claims."""
 
 from mn_immunization.ledger.memory import InMemoryRunLedger
-from mn_immunization.runtime.cycles import claim_or_proceed, poll_until
+from mn_immunization.pipeline.support import claim_or_proceed, poll_until
 
 
 class FakeClock:

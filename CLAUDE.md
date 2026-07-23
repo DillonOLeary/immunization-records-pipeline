@@ -16,10 +16,13 @@ progress section current as work lands.
 ## Layout
 
 Single uv project. `src/mn_immunization/` holds the package in vertical
-slices: `domain/` (pure records/diff/IC-format logic, no I/O), `sources/aisr/`
-(MIIC protocol client and parsing), `runtime/` (CLI, cloud handlers,
-composition). `mock/` is a workspace member with a fake AISR server.
-`infra/` is Terraform. `tests/` mirrors the slices.
+slices: `domain/` (pure records/diff/IC-format logic, no I/O),
+`sources/aisr/` (MIIC protocol client and parsing), `sinks/` and `gcp/`
+(Drive, storage, secrets adapters), `ledger/` (append-only run ledger),
+`pipeline/` (the application layer: cycles, incremental diff, shared
+policies), `runtime/` (entrypoints only). `mock/` is a workspace member
+with a fake AISR server. `infra/` is Terraform. `tests/` mirrors the
+slices.
 
 ## Commands
 

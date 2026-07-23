@@ -50,17 +50,25 @@ src/mn_immunization/
       client.py                 session-scoped AisrClient (login/logout)
       port.py                   ImmunizationSource protocol
   sinks/
-    drive.py                    DeliveryTarget adapter for Google Drive
-    port.py                     DeliveryTarget protocol
+    drive.py                    Google Drive upload (the import queue)
+  gcp/
+    storage.py                  Cloud Storage helpers
+    secrets.py                  Secret Manager access
   ledger/
     events.py                   event types (dataclasses, JSON-serialized)
     gcs_ledger.py               append-only ledger on GCS objects
-    port.py                     RunLedger protocol
-  runtime/
-    config.py                   typed config, loaded from GCS or local file
-    composition.py              the only place adapters meet the domain
-    cli.py                      mn-immunization run|status|canary commands
-    job.py                      Cloud Run Job entrypoint (thin wrapper on cli)
+    memory.py                   in-memory ledger for tests and local runs
+    port.py                     RunLedger / SnapshotStore protocols
+  pipeline/                     the application layer
+    cycles.py                   run / canary / rebaseline use-cases
+    incremental.py              combine, known set, diff, persist
+    support.py                  run ids, safe appends, claims, polling, brake
+    files.py                    file naming conventions
+  runtime/                      entrypoints only
+    cli.py                      mn-immunization transform|status
+    main.py                     CLI wiring (args, config, logging)
+    job.py                      Cloud Run Job entrypoint
+    metadata_generator.py       per-file metadata for local transforms
 mock/                           fake AISR server (dev dependency, promoted
                                 from minnesota-immunization-mock)
 tests/
@@ -304,6 +312,16 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: layout re-sort, on Dillon's catchall concern about
+  runtime/. The rule is now enforced by the tree: runtime/ holds only
+  entrypoints (job, cli, main — "does this file exist only because the
+  code has to run somewhere?"); the application layer lives in pipeline/
+  (cycles = use-cases, incremental = diff processing, support = shared
+  policies, files = naming); adapters live in their slices (sinks/drive,
+  gcp/storage, gcp/secrets). The runtime/cloud/ package name — a fossil
+  of the Cloud Functions era — is gone. Dependency direction:
+  domain <- sources/sinks/gcp/ledger <- pipeline <- runtime. Tests mirror
+  the slices. Pure renames; no behavior change.
 - 2026-07-23: Drive reduced to the import queue, on Dillon's answer that
   staff never used the per-school backup folders. Deleted: the backup
   upload path, its filename-based school matching (the ugliest surviving

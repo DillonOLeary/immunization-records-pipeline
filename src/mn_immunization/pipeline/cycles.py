@@ -1,4 +1,4 @@
-"""The pipeline's run cycles.
+"""The pipeline's use-cases.
 
 `run_cycle` is the whole pipeline in one execution: submit roster queries,
 poll until MDH stages the results, then download, diff, and deliver. One
@@ -6,8 +6,9 @@ scheduler triggers it. Claims in the ledger make reruns safe: a rerun
 skips the roster submission (so nurses are never emailed twice for one
 period) and cannot re-deliver a diff already delivered.
 
-`run_canary_cycle` is a read-only probe (login + staged-results count),
-kept for manual readiness checks; it touches no PHI and sends no email.
+`run_canary_cycle` is a read-only probe (login + staged-results count).
+`run_rebaseline_cycle` pushes the entire known set to Drive in chunks to
+recover from sync trouble; safe because IC imports are idempotent.
 
 Each cycle owns its ledger and guarantees a terminal event.
 """
@@ -18,9 +19,6 @@ import json
 import logging
 import os
 import tempfile
-import time
-import uuid
-from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,27 +27,32 @@ from pathlib import Path
 from mn_immunization.domain.ic_format import (
     IcFormatError,
     chunk,
-    parse_ic_csv,
     render_csv,
 )
-from mn_immunization.domain.records import RecordSet
+from mn_immunization.gcp.secrets import get_secret
+from mn_immunization.gcp.storage import get_storage_client
 from mn_immunization.ledger import events
 from mn_immunization.ledger.gcs_ledger import (
     GcsRunLedger,
     GcsSnapshotStore,
     sha256_hex,
 )
-from mn_immunization.runtime.cloud.cloud_storage import (
-    download_from_storage,
-    get_storage_client,
-    upload_file_to_storage,
-)
-from mn_immunization.runtime.cloud.google_drive import upload_to_google_drive
-from mn_immunization.runtime.cloud.secrets import get_secret
-from mn_immunization.runtime.files import (
+from mn_immunization.pipeline.files import (
     generate_vaccination_record_filename,
     transformed_filename,
 )
+from mn_immunization.pipeline.incremental import (
+    load_known_records,
+    process_incremental_vaccinations,
+)
+from mn_immunization.pipeline.support import (
+    append_event,
+    claim_or_proceed,
+    new_run_id,
+    poll_until,
+    suspicious_diff,
+)
+from mn_immunization.sinks.drive import upload_to_google_drive
 from mn_immunization.sources.aisr.actions import (
     AISRActionFailedError,
     SchoolQueryInformation,
@@ -59,74 +62,6 @@ from mn_immunization.sources.aisr.client import AisrClient, aisr_session
 from mn_immunization.sources.aisr.parsing import AisrParseError, parse_aisr_csv
 
 logger = logging.getLogger(__name__)
-
-# Master file name in GCS output folder
-ALL_KNOWN_VACCINATIONS_FILE = "all_known_vaccinations.csv"
-
-
-def new_run_id(kind: str) -> str:
-    return f"{kind}_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:8]}"
-
-
-def append_event(ledger, event) -> None:
-    """Best-effort ledger append: a ledger write failure must not sink a
-    delivery."""
-    try:
-        ledger.append(event)
-    except Exception as error:
-        logger.warning("ledger append failed for %s: %s", event.type, error)
-
-
-def claim_or_proceed(ledger, key: str) -> bool:
-    """Claim a key; exactly one run can win it. If the claim check itself
-    fails (storage outage), proceed: performing an action twice is the old,
-    survivable failure mode; performing it zero times is not."""
-    try:
-        return ledger.claim(key)
-    except Exception as error:
-        logger.warning(
-            "claim check for %s failed (%s); proceeding without guard", key, error
-        )
-        return True
-
-
-def suspicious_diff(new_count: int, known_count: int, fraction: float = 0.2) -> bool:
-    """A diff far larger than history is a symptom, not a delivery.
-
-    A wiped or mismatched master would diff the entire student body as
-    "new" and flood the nurses with duplicates. When the known set is
-    non-empty and the diff exceeds max(50, fraction*known), block Drive
-    delivery and fail the run loudly instead. A genuine first run (empty
-    known set) is never blocked.
-    """
-    if known_count == 0:
-        return False
-    return new_count > max(50, int(fraction * known_count))
-
-
-def poll_until(
-    check: Callable[[], int],
-    target: int,
-    interval_s: float,
-    deadline_s: float,
-    sleep: Callable[[float], None] = time.sleep,
-    clock: Callable[[], float] = time.monotonic,
-) -> int:
-    """Run check() until it reaches target or the deadline passes.
-
-    Checks immediately, then every interval_s. Returns the last check
-    result, which callers compare against target to distinguish success
-    from timeout.
-    """
-    start = clock()
-    while True:
-        current = check()
-        if current >= target:
-            return current
-        remaining = deadline_s - (clock() - start)
-        if remaining <= 0:
-            return current
-        sleep(min(interval_s, remaining))
 
 
 @dataclass
@@ -244,119 +179,6 @@ def staged_school_count(client: AisrClient, schools) -> int:
         if url:
             staged += 1
     return staged
-
-
-def combine_ic_files(paths: list[Path]) -> RecordSet:
-    """Combine IC-format CSV files into one deduplicated RecordSet.
-
-    Files that cannot be parsed are logged and skipped: one bad school
-    file must not sink the rest.
-    """
-    combined = RecordSet()
-    for file_path in paths:
-        try:
-            records = parse_ic_csv(Path(file_path).read_text(encoding="utf-8"))
-        except (IcFormatError, OSError) as error:
-            logger.error("Failed to read %s: %s", file_path, error)
-            continue
-        combined = combined.union(records)
-        logger.info("Added %d records from %s", len(records), Path(file_path).name)
-
-    logger.info(
-        "Combined dataset contains %d unique vaccination records", len(combined)
-    )
-    return combined
-
-
-def load_known_records(bucket_name: str, temp_dir: Path) -> RecordSet:
-    """Load the known-vaccinations master file from GCS.
-
-    Any failure yields an empty set: the pipeline then treats all current
-    records as new, which is safe for a first run and — combined with the
-    sanity brake — loud instead of harmful otherwise.
-    """
-    master_file_path = temp_dir / ALL_KNOWN_VACCINATIONS_FILE
-    blob_name = f"output/{ALL_KNOWN_VACCINATIONS_FILE}"
-    try:
-        download_from_storage(bucket_name, blob_name, str(master_file_path))
-        known = parse_ic_csv(master_file_path.read_text(encoding="utf-8"))
-        logger.info("Loaded %d known vaccination records", len(known))
-        return known
-    except Exception as error:
-        logger.info("Master file not found or couldn't be loaded: %s", error)
-        return RecordSet()
-
-
-def process_incremental_vaccinations(
-    output_files: list[Path],
-    output_folder: Path,
-    bucket_name: str,
-    temp_dir: Path,
-    ledger=None,
-    snapshots=None,
-) -> tuple[Path, Path, int, int]:
-    """Compute the diff against known vaccinations and write both files.
-
-    Returns (diff_file_path, master_file_path, new_count, known_count).
-    The master is the union of everything ever seen: absence is never
-    deletion, so a school whose download fails keeps its records and does
-    not get re-delivered as "new" when it recovers.
-    """
-    logger.info("Starting incremental vaccination processing")
-
-    current_records = combine_ic_files(output_files)
-    known_records = load_known_records(bucket_name, temp_dir)
-
-    new_records = current_records.diff(known_records)
-    master_records = known_records.union(current_records)
-    logger.info(
-        "Found %d new vaccination records out of %d total",
-        len(new_records),
-        len(current_records),
-    )
-
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    diff_filename = f"{date_str}_new_vaccinations.csv"
-    diff_file_path = output_folder / diff_filename
-    diff_text = render_csv(new_records)
-    diff_file_path.write_text(diff_text, encoding="utf-8")
-
-    master_file_path = output_folder / ALL_KNOWN_VACCINATIONS_FILE
-    master_text = render_csv(master_records)
-    master_file_path.write_text(master_text, encoding="utf-8")
-    logger.info("Updated master file with %d total records", len(master_records))
-
-    snapshot_path = ""
-    if snapshots is not None:
-        try:
-            _, snapshot_path = snapshots.put(master_text)
-        except Exception as error:
-            logger.warning("snapshot store failed: %s", error)
-
-    if ledger is not None:
-        append_event(
-            ledger,
-            events.diff_computed(
-                new_count=len(new_records),
-                total_count=len(current_records),
-                known_hash=sha256_hex(render_csv(known_records)),
-                diff_hash=sha256_hex(diff_text),
-                snapshot_path=snapshot_path,
-            ),
-        )
-
-    try:
-        diff_blob_name = f"output/changes/{diff_filename}"
-        upload_file_to_storage(bucket_name, diff_blob_name, str(diff_file_path))
-        if ledger is not None:
-            append_event(ledger, events.delivered(diff_filename, "gcs"))
-
-        master_blob_name = f"output/{ALL_KNOWN_VACCINATIONS_FILE}"
-        upload_file_to_storage(bucket_name, master_blob_name, str(master_file_path))
-    except Exception as error:
-        logger.error("Failed to upload to GCS: %s", error)
-
-    return diff_file_path, master_file_path, len(new_records), len(known_records)
 
 
 def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id=None):

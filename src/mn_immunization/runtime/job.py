@@ -16,7 +16,7 @@ import logging
 import os
 import sys
 
-from mn_immunization.runtime.cycles import (
+from mn_immunization.pipeline.cycles import (
     run_canary_cycle,
     run_cycle,
     run_rebaseline_cycle,
