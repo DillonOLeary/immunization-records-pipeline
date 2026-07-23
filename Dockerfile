@@ -3,12 +3,14 @@ FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
 
 WORKDIR /app
 
-# Lock resolution needs every workspace member's pyproject present.
-COPY pyproject.toml uv.lock ./
+# Lock resolution needs every workspace member's pyproject present, and
+# hatchling needs the README the project metadata declares.
+COPY pyproject.toml uv.lock README.md ./
 COPY mock/pyproject.toml mock/pyproject.toml
 RUN uv sync --frozen --no-dev --no-install-project --no-install-workspace
 
 COPY src/ src/
-RUN uv sync --frozen --no-dev --no-install-workspace
+RUN uv sync --frozen --no-dev
 
-ENTRYPOINT ["uv", "run", "--frozen", "--no-dev", "mn-immunization-job"]
+# Run the installed script directly: nothing resolves or builds at runtime.
+ENTRYPOINT ["/app/.venv/bin/mn-immunization-job"]

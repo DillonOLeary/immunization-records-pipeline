@@ -8,7 +8,8 @@ tests/
 infra/
 mock/.venv/
 config/
-*.md
+ARCHITECTURE.md
+CLAUDE.md
 .github/
 .claude/
 .vscode/
