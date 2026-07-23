@@ -5,8 +5,6 @@ from pathlib import Path
 
 from mn_immunization.runtime.cli import (
     create_parser,
-    handle_bulk_query_command,
-    handle_get_vaccinations_command,
     handle_status_command,
     handle_transform_command,
     load_config,
@@ -51,10 +49,6 @@ def execute_command(args, config):
     """Execute the command based on parsed arguments."""
     if args.command == "transform":
         handle_transform_command(config)
-    elif args.command == "bulk-query":
-        handle_bulk_query_command(args, config)
-    elif args.command == "get-vaccinations":
-        handle_get_vaccinations_command(args, config)
     elif args.command == "status":
         handle_status_command(args)
     else:

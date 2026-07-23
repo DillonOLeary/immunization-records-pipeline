@@ -105,9 +105,15 @@ Layout (GCS objects are immutable; one object per event):
 
 ```
 gs://<bucket>/ledger/<YYYY>/<MM>/<run_id>/<seq>_<event>.json
-gs://<bucket>/ledger/claims/<YYYY-MM-DD>_diff        idempotency claim
+gs://<bucket>/ledger/claims/<period>_query           one roster submission per period
+gs://<bucket>/ledger/claims/<YYYY-MM-DD>_diff        one delivery per date
 gs://<bucket>/snapshots/<sha256>.csv                 known-set snapshots
 ```
+
+The query claim is what makes reruns safe to fire freely: MIIC emails every
+nurse on each roster submission, so a rerun that loses the period claim
+skips submission and goes straight to polling and delivery. The period
+format is configuration (monthly today, QUERY_PERIOD_FORMAT).
 
 Claims are keyed by run date, not by month. The cadence is configuration
 (monthly today, possibly weekly or daily in fall 2026), and the diff-against-
@@ -174,10 +180,15 @@ The same code runs three ways, in order of use:
 1. `uv run mn-immunization run download --dry-run --against mock` locally.
 2. `gcloud run jobs execute` for a manual production run. Recorded in the
    ledger with trigger=manual.
-3. Cloud Scheduler triggering the Cloud Run Job on the configured schedule.
-   Today that is monthly (query on the 28th, download on the 1st). The
-   schedule is a Terraform variable; moving to weekly or daily is a tfvars
-   change, not a code change.
+3. Cloud Scheduler triggering the Cloud Run Job on the configured schedule
+   (monthly today; a district JSON change to go weekly or daily). One
+   trigger runs the whole pipeline: submit roster queries, poll every 4
+   hours (POLL_INTERVAL_SECONDS) until MDH stages results or 20 hours pass
+   (POLL_DEADLINE_SECONDS), then download, diff, and deliver. Zero staged
+   schools at the deadline fails the run loudly; partial staging proceeds
+   (missing schools are acceptable and the union master means nothing
+   drifts). MDH staged in 15 minutes when measured; the deadline covers a
+   bad day.
 
 Cloud Run Jobs replace the two Pub/Sub-triggered gen-2 functions. Batch work
 does not need event plumbing: Scheduler invokes the job directly, timeouts
@@ -199,9 +210,10 @@ MIIC has said the website may change. The blast radius is confined to
 - No hardcoded district values in code. The old core hardcoded the ISD 197
   district code and the MDH S3 host; both move to per-district config.
 - Contract tests run the real adapter against the mock AISR server in CI.
-- A canary command performs login plus a read-only records listing. Scheduled
-  on the 27th, the day before the query run. If MIIC changed something, the
-  alert arrives with a day of slack instead of a silent mid-run failure.
+- The canary cycle (login plus a read-only records listing) is a manual
+  readiness probe; the same staged-results check runs inside the unified
+  cycle's polling loop, so MIIC breakage surfaces as a loud RunFailed on
+  run day rather than a silent stall.
 - All AISR HTTP calls have explicit timeouts.
 
 ## Security model
@@ -284,6 +296,26 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: first real production cycle verified end to end, nine days
+  early: query submitted for 8 schools (MDH staged results in ~15
+  minutes), download fetched all 8, diff of 648 new records against
+  170,361 known (0.4%, brake untriggered — the feared id-format flood did
+  not exist), delivered to Drive. The full run is 13 ledger events.
+- 2026-07-23: unified cycle (smell cleanup, at Dillon's request). One
+  scheduler now runs the whole pipeline: query, poll, download, deliver.
+  The period query claim makes reruns free (no duplicate nurse email);
+  the download and canary schedulers are gone; the canary cycle remains
+  as a manual probe. Deleted as part of the same pass: the separate
+  query/download cycles, the completion-metadata JSONs (the ledger is the
+  record), the CLI's bulk-query and get-vaccinations commands and their
+  helpers (duplicates of the cycles; manual operation is `gcloud run jobs
+  execute`), and the print/logger mix. Cycle scaffolding (ledger, config,
+  schools, terminal-event guarantee) lives in one pipeline_run context
+  manager. Kept deliberately despite the purge: per-school Drive backup
+  uploads and their filename-based school matching — whether anyone uses
+  those folders is a question for district staff, and their removal is
+  the next easy win if not. Also noted for later: automating the Infinite
+  Campus import step to remove the last manual work.
 - 2026-07-23: CUTOVER EXECUTED (phases 5 and 6). Bootstrap applied (WIF
   pool + deployer SA, main-branch-only trust); repo variables set; Deploy
   workflow live. District infra applied after importing the data bucket

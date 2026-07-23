@@ -4,7 +4,6 @@ Utils used for testing the data pipeline.
 
 # pylint: disable=duplicate-code
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -100,91 +99,3 @@ def create_test_config(config_path, fastapi_server, tmp_path=None):
         json.dump(config, f, indent=2)
 
     return config_path
-
-
-def execute_query_subprocess(config_path, username, password=None):
-    """
-    Execute the CLI bulk-query command as a subprocess.
-
-    Args:
-        config_path: Path to configuration file
-        username: AISR username
-        password: Password for testing. In real usage, password will be prompted
-                 interactively or read from AISR_PASSWORD env var if set.
-
-    Returns:
-        CompletedProcess object with stdout and stderr
-    """
-    env = os.environ.copy()
-
-    # Get the project root directory to run the CLI from
-    project_root = Path(__file__).parent.parent.parent
-
-    # For testing purposes, we need to provide the password via environment variable
-    if password:
-        env["AISR_PASSWORD"] = password
-
-    cmd = [
-        "uv",
-        "run",
-        "mn-immunization",
-        "--config",
-        str(config_path),
-        "bulk-query",
-        "--username",
-        username,
-    ]
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        env=env,
-        check=False,
-        cwd=project_root,  # Run from the CLI project directory
-    )
-
-    return result
-
-
-def execute_download_subprocess(config_path, username, password=None):
-    """
-    Execute the CLI get-vaccinations command as a subprocess.
-
-    Args:
-        config_path: Path to configuration file
-        username: AISR username
-        password: Password for testing. In real usage, password will be prompted
-                 interactively or read from AISR_PASSWORD env var if set.
-
-    Returns:
-        CompletedProcess object with stdout and stderr
-    """
-    env = os.environ.copy()
-
-    # Get the project root directory to run the CLI from
-    project_root = Path(__file__).parent.parent.parent
-
-    # For testing purposes, we need to provide the password via environment variable
-    if password:
-        env["AISR_PASSWORD"] = password
-
-    cmd = [
-        "uv",
-        "run",
-        "mn-immunization",
-        "--config",
-        str(config_path),
-        "get-vaccinations",
-        "--username",
-        username,
-    ]
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        env=env,
-        check=False,
-        cwd=project_root,  # Run from the CLI project directory
-    )
-
-    return result

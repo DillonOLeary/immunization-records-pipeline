@@ -1,9 +1,10 @@
 """Cloud Run Job entrypoint.
 
-One container, three cycles: `mn-immunization-job query|download|canary`.
-Cloud Scheduler executes the job with the cycle as an argument; a human
-runs `gcloud run jobs execute pipeline-job --args=download,--trigger,manual`
-and the manual trigger is recorded in the ledger.
+One container, two cycles: `mn-immunization-job run|canary`. Cloud
+Scheduler executes `run` on the configured cadence; a human reruns it with
+`gcloud run jobs execute pipeline-job --args=run,--trigger,manual` (safe:
+ledger claims prevent duplicate emails and deliveries). `canary` is a
+read-only readiness probe.
 """
 
 from __future__ import annotations
@@ -14,15 +15,10 @@ import logging
 import os
 import sys
 
-from mn_immunization.runtime.cycles import (
-    run_canary_cycle,
-    run_download_cycle,
-    run_query_cycle,
-)
+from mn_immunization.runtime.cycles import run_canary_cycle, run_cycle
 
 CYCLES = {
-    "query": run_query_cycle,
-    "download": run_download_cycle,
+    "run": run_cycle,
     "canary": run_canary_cycle,
 }
 

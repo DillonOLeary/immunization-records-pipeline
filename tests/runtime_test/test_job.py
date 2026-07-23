@@ -5,7 +5,7 @@ import mn_immunization.runtime.job as job
 
 def test_missing_bucket_returns_2(monkeypatch):
     monkeypatch.delenv("DATA_BUCKET", raising=False)
-    assert job.main(["download"]) == 2
+    assert job.main(["run"]) == 2
 
 
 def test_dispatches_cycle_with_trigger(monkeypatch):
@@ -16,9 +16,9 @@ def test_dispatches_cycle_with_trigger(monkeypatch):
         return {"status": "success"}
 
     monkeypatch.setenv("DATA_BUCKET", "test-bucket")
-    monkeypatch.setitem(job.CYCLES, "download", fake_cycle)
+    monkeypatch.setitem(job.CYCLES, "run", fake_cycle)
 
-    assert job.main(["download", "--trigger", "manual"]) == 0
+    assert job.main(["run", "--trigger", "manual"]) == 0
     assert calls == [("test-bucket", "manual")]
 
 
@@ -39,6 +39,6 @@ def test_trigger_defaults_to_scheduled(monkeypatch):
 def test_skipped_status_is_success_exit(monkeypatch):
     monkeypatch.setenv("DATA_BUCKET", "test-bucket")
     monkeypatch.setitem(
-        job.CYCLES, "download", lambda b, trigger: {"status": "skipped"}
+        job.CYCLES, "run", lambda b, trigger: {"status": "skipped"}
     )
-    assert job.main(["download"]) == 0
+    assert job.main(["run"]) == 0

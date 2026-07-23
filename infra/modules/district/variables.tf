@@ -37,22 +37,10 @@ variable "google_drive_folder_id" {
   default     = ""
 }
 
-variable "query_schedule" {
-  description = "Cron for the bulk query cycle"
+variable "schedule" {
+  description = "Cron for the unified run cycle (query, poll, deliver)"
   type        = string
   default     = "9 2 28 * *"
-}
-
-variable "download_schedule" {
-  description = "Cron for the download cycle"
-  type        = string
-  default     = "9 2 1 * *"
-}
-
-variable "canary_schedule" {
-  description = "Cron for the pre-flight canary (day before the query)"
-  type        = string
-  default     = "9 2 27 * *"
 }
 
 variable "time_zone" {

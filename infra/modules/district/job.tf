@@ -6,8 +6,8 @@ resource "google_cloud_run_v2_job" "pipeline" {
   template {
     template {
       service_account = google_service_account.job.email
-      timeout         = "1800s"
-      max_retries     = 0 # reruns are a human decision; the ledger records them
+      timeout         = "79200s" # covers the results-polling window
+      max_retries     = 0        # reruns are a human decision; the ledger records them
 
       containers {
         image = var.image
