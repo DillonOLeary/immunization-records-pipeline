@@ -1,12 +1,10 @@
 """Small shared pieces of the pipeline layer: run ids, best-effort ledger
-writes, fail-open claims, polling, and the diff sanity policy."""
+writes, fail-open claims, and the diff sanity policy."""
 
 from __future__ import annotations
 
 import logging
-import time
 import uuid
-from collections.abc import Callable
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -50,28 +48,3 @@ def suspicious_diff(new_count: int, known_count: int, fraction: float = 0.2) -> 
     if known_count == 0:
         return False
     return new_count > max(50, int(fraction * known_count))
-
-
-def poll_until(
-    check: Callable[[], int],
-    target: int,
-    interval_s: float,
-    deadline_s: float,
-    sleep: Callable[[float], None] = time.sleep,
-    clock: Callable[[], float] = time.monotonic,
-) -> int:
-    """Run check() until it reaches target or the deadline passes.
-
-    Checks immediately, then every interval_s. Returns the last check
-    result, which callers compare against target to distinguish success
-    from timeout.
-    """
-    start = clock()
-    while True:
-        current = check()
-        if current >= target:
-            return current
-        remaining = deadline_s - (clock() - start)
-        if remaining <= 0:
-            return current
-        sleep(min(interval_s, remaining))

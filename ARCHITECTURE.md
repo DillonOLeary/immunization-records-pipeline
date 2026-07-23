@@ -137,7 +137,7 @@ Event catalog:
 | RecordsFetched   | school_id, count, content_hash, snapshot_path |
 | DiffComputed     | month, new_count, known_hash, diff_hash       |
 | Delivered        | file_name, drive_file_id                      |
-| MasterCommitted  | master_hash, record_count (decider core)      |
+| MasterCommitted  | master_hash, record_count, snapshot_path      |
 | ImportConfirmed  | file_name, how (folder move), at              |
 | RunSkipped       | reason (e.g. diff already delivered)          |
 | RunCompleted     | counts summary                                |
@@ -449,6 +449,27 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: decider core step 2 landed — the loop is live. `run_cycle`
+  is now three lines: scaffolding, credentials, `run_to_completion`.
+  `pipeline/execute.py` holds the executors and the runner loop (the one
+  place terminal events are written); `download_and_deliver` and
+  `poll_until` are deleted; waiting is a decide branch. The step-3
+  compute/commit split was pulled forward because correctness required
+  it: `incremental.py` is now `compute_diff` (reads only, temp files,
+  best-effort GCS diff archive) and `commit_master` (the one durable
+  write, failures propagate). Behavior changes, all deliberate: the
+  ordering flaws are dead (brake before any persistence; Drive delivery
+  before the master commit, so a failed upload is a loud
+  RunFailed(deliver_diff) with the master untouched); a new
+  MasterCommitted event records the commit; a missing
+  GOOGLE_DRIVE_FOLDER_ID fails before roster submission instead of
+  silently skipping delivery after it; a lost date claim is verified
+  against recent runs' Delivered events before being trusted, so a
+  claimant that crashed before uploading can no longer suppress a
+  delivery (fail-open toward delivering, per the claims philosophy);
+  and the Delivered("gcs") event is gone — the GCS diff copy is an
+  archive, Delivered now always means Drive. Step 3 as designed is
+  largely absorbed; what remains is optional tidying. 109 tests.
 - 2026-07-23: decider core step 1 landed. `pipeline/policy.py` holds
   CycleState (frozen, with named `with_*` transitions as the fold),
   DiffResult, the six Step types, and `decide` — pure, wired to

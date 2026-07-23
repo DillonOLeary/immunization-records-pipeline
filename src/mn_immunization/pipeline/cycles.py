@@ -1,10 +1,13 @@
 """The pipeline's use-cases.
 
-`run_cycle` is the whole pipeline in one execution: submit roster queries,
-poll until MDH stages the results, then download, diff, and deliver. One
-scheduler triggers it. Claims in the ledger make reruns safe: a rerun
-skips the roster submission (so nurses are never emailed twice for one
-period) and cannot re-deliver a diff already delivered.
+`run_cycle` is the whole pipeline in one execution: `policy.decide`
+names each next step (submit queries, await staging, compute the diff,
+deliver, commit the master) and `execute.run_to_completion` runs them
+until the decision is `Finish`. One scheduler triggers it. Claims in
+the ledger make reruns safe: a rerun skips the roster submission (so
+nurses are never emailed twice for one period) and never re-delivers a
+diff another run already delivered. Delivery precedes the master
+commit, so a failed delivery fails loudly with the master untouched.
 
 `run_canary_cycle` is a read-only probe (login + staged-results count).
 `run_rebaseline_cycle` pushes the entire known set to Drive in chunks to
@@ -16,7 +19,6 @@ Each cycle owns its ledger and guarantees a terminal event.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import tempfile
 from contextlib import contextmanager
@@ -24,44 +26,20 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from mn_immunization.domain.ic_format import (
-    IcFormatError,
-    chunk,
-    render_csv,
-)
+from mn_immunization.domain.ic_format import chunk, render_csv
 from mn_immunization.gcp.secrets import get_secret
 from mn_immunization.gcp.storage import get_storage_client
 from mn_immunization.ledger import events
-from mn_immunization.ledger.gcs_ledger import (
-    GcsRunLedger,
-    GcsSnapshotStore,
-    sha256_hex,
+from mn_immunization.ledger.gcs_ledger import GcsRunLedger, GcsSnapshotStore
+from mn_immunization.pipeline.execute import (
+    run_to_completion,
+    staged_school_count,
+    upload_to_drive_with_secrets,
 )
-from mn_immunization.pipeline.files import (
-    generate_vaccination_record_filename,
-    transformed_filename,
-)
-from mn_immunization.pipeline.incremental import (
-    load_known_records,
-    process_incremental_vaccinations,
-)
-from mn_immunization.pipeline.support import (
-    append_event,
-    claim_or_proceed,
-    new_run_id,
-    poll_until,
-    suspicious_diff,
-)
-from mn_immunization.sinks.drive import upload_to_google_drive
-from mn_immunization.sources.aisr.actions import (
-    AISRActionFailedError,
-    SchoolQueryInformation,
-    get_latest_vaccination_records_url,
-)
-from mn_immunization.sources.aisr.client import AisrClient, aisr_session
-from mn_immunization.sources.aisr.parsing import AisrParseError, parse_aisr_csv
-
-logger = logging.getLogger(__name__)
+from mn_immunization.pipeline.incremental import load_known_records
+from mn_immunization.pipeline.support import append_event, new_run_id
+from mn_immunization.sources.aisr.actions import SchoolQueryInformation
+from mn_immunization.sources.aisr.client import aisr_session
 
 
 @dataclass
@@ -137,9 +115,7 @@ def create_school_info_list(
 
         if include_query_files:
             query_file = temp_dir / f"{school['name']}_query.csv"
-            bucket.blob(school["bulk_query_file"]).download_to_filename(
-                str(query_file)
-            )
+            bucket.blob(school["bulk_query_file"]).download_to_filename(str(query_file))
             query_file_path = str(query_file)
 
         school_info_list.append(
@@ -166,237 +142,11 @@ def get_aisr_urls_from_config(config: dict) -> tuple[str, str]:
     return api_config["auth_base_url"], api_config["aisr_api_base_url"]
 
 
-def staged_school_count(client: AisrClient, schools) -> int:
-    """How many schools have results staged, via read-only listing."""
-    staged = 0
-    for school in schools:
-        url = get_latest_vaccination_records_url(
-            session=client.session,
-            base_url=client.api_base_url,
-            access_token=client.access_token,
-            school_id=school.school_id,
-        )
-        if url:
-            staged += 1
-    return staged
-
-
-def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id=None):
-    """Upload file to Google Drive using secrets from Secret Manager"""
-    return upload_to_google_drive(
-        file_path=file_path,
-        filename=filename,
-        refresh_token=get_secret("drive-refresh-token"),
-        client_id=get_secret("drive-client-id"),
-        client_secret=get_secret("drive-client-secret"),
-        folder_id=folder_id,
-    )
-
-
-def submit_roster_queries(ctx: RunContext, username: str, password: str) -> int:
-    """Submit every school's roster query. Returns the failure count."""
-    failures = 0
-    with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
-        for school in ctx.schools:
-            try:
-                client.submit_roster_query(school)
-                query_bytes = Path(school.query_file_path).read_bytes()
-                append_event(
-                    ctx.ledger,
-                    events.query_submitted(
-                        school_id=school.school_id,
-                        query_file_hash=sha256_hex(
-                            query_bytes.decode("utf-8", errors="replace")
-                        ),
-                    ),
-                )
-            except AISRActionFailedError as error:
-                failures += 1
-                logger.error(
-                    "Bulk query failed for %s: %s", school.school_name, error
-                )
-    return failures
-
-
-def download_and_deliver(ctx: RunContext, username: str, password: str) -> dict:
-    """Fetch staged results, transform, diff, and deliver. The diff claim
-    and the sanity brake both guard the Drive delivery."""
-    input_folder = ctx.temp / "input"
-    output_folder = ctx.temp / "output"
-    input_folder.mkdir(exist_ok=True)
-    output_folder.mkdir(exist_ok=True)
-
-    fetch_failures = 0
-    with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
-        for school in ctx.schools:
-            output_path = input_folder / (
-                generate_vaccination_record_filename(school.school_name)
-            )
-            try:
-                content = client.download_latest_records(
-                    school.school_id, output_path
-                )
-                append_event(
-                    ctx.ledger,
-                    events.records_fetched(
-                        school_id=school.school_id,
-                        content_hash=sha256_hex(content),
-                        byte_size=len(content.encode("utf-8")),
-                    ),
-                )
-            except AISRActionFailedError as error:
-                fetch_failures += 1
-                logger.error(
-                    "Download failed for %s: %s", school.school_name, error
-                )
-
-    for input_file in input_folder.glob("*.csv"):
-        try:
-            records = parse_aisr_csv(input_file.read_text(encoding="utf-8"))
-            output_file = output_folder / transformed_filename(input_file.name)
-            output_file.write_text(render_csv(records), encoding="utf-8")
-        except (AisrParseError, IcFormatError, OSError) as error:
-            # Error class only: parse messages can quote a PHI field value.
-            logger.error(
-                "Transform failed for file %s: %s",
-                input_file.name,
-                type(error).__name__,
-            )
-
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    output_files = list(output_folder.glob("*.csv"))
-
-    if not output_files:
-        logger.warning("No output files generated from downloaded results")
-        append_event(
-            ctx.ledger,
-            events.run_completed(
-                schools=len(ctx.schools),
-                files_transformed=0,
-                new_records=0,
-                fetch_failures=fetch_failures,
-            ),
-        )
-        return {"status": "success", "files_transformed": 0}
-
-    if not claim_or_proceed(ctx.ledger, f"{date_str}_diff"):
-        # Another run already delivered this date's diff; delivering again
-        # would put a duplicate, near-empty file in Drive.
-        reason = f"diff already delivered for {date_str}"
-        print(f"Skipping delivery: {reason}")
-        append_event(ctx.ledger, events.run_skipped(reason))
-        return {"status": "skipped", "reason": reason}
-
-    diff_file, _, new_count, known_count = process_incremental_vaccinations(
-        output_files=output_files,
-        output_folder=output_folder,
-        bucket_name=ctx.bucket_name,
-        temp_dir=ctx.temp,
-        ledger=ctx.ledger,
-        snapshots=ctx.snapshots,
-    )
-    print(f"Created incremental diff file: {diff_file.name}")
-
-    fraction_env = os.environ.get("DIFF_SANITY_FRACTION", "0.2")
-    if fraction_env != "off" and suspicious_diff(
-        new_count, known_count, float(fraction_env)
-    ):
-        reason = (
-            f"diff of {new_count} records against {known_count} known "
-            "is suspiciously large; blocking Drive delivery"
-        )
-        print(f"BLOCKED: {reason}")
-        append_event(
-            ctx.ledger,
-            events.run_failed(step="diff_sanity", error="SuspiciousDiffVolume"),
-        )
-        return {"status": "blocked", "reason": reason}
-
-    drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-    if drive_folder_id:
-        try:
-            drive_file_id = upload_to_drive_with_secrets(
-                file_path=str(diff_file),
-                filename=diff_file.name,
-                folder_id=drive_folder_id,
-            )
-            append_event(
-                ctx.ledger,
-                events.delivered(diff_file.name, "drive", str(drive_file_id)),
-            )
-            print(f"Uploaded incremental diff file to Google Drive: {diff_file.name}")
-        except Exception as error:
-            logger.warning("Drive upload of diff failed: %s", error)
-
-    append_event(
-        ctx.ledger,
-        events.run_completed(
-            schools=len(ctx.schools),
-            files_transformed=len(output_files),
-            new_records=new_count,
-            fetch_failures=fetch_failures,
-        ),
-    )
-    print(f"Cycle completed: {len(output_files)} files, {new_count} new records")
-    return {
-        "status": "success",
-        "files_transformed": len(output_files),
-        "new_records": new_count,
-    }
-
-
 def run_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
-    """The whole pipeline, one execution: query, poll, download, deliver.
-
-    Rerun-safe by construction: the period query claim means a rerun never
-    resubmits rosters (MIIC emails every nurse on each submission), and the
-    date diff claim means a rerun never re-delivers.
-    """
+    """The whole pipeline, one execution: decide, execute, repeat."""
     with pipeline_run("run", bucket_name, trigger, include_query_files=True) as ctx:
         username, password = get_aisr_credentials()
-
-        period = datetime.now().strftime(
-            os.environ.get("QUERY_PERIOD_FORMAT", "%Y-%m")
-        )
-        if claim_or_proceed(ctx.ledger, f"{period}_query"):
-            print(f"Submitting roster queries for period {period}")
-            failures = submit_roster_queries(ctx, username, password)
-            if failures:
-                logger.error("%d school(s) failed roster submission", failures)
-        else:
-            print(
-                f"Roster queries already submitted for period {period}; "
-                "skipping submission (rerun-safe, no duplicate email)"
-            )
-
-        interval = int(os.environ.get("POLL_INTERVAL_SECONDS", "14400"))
-        deadline = int(os.environ.get("POLL_DEADLINE_SECONDS", "72000"))
-
-        def check() -> int:
-            with aisr_session(
-                ctx.auth_url, ctx.api_url, username, password
-            ) as client:
-                staged = staged_school_count(client, ctx.schools)
-            print(f"{staged}/{len(ctx.schools)} schools have results staged")
-            return staged
-
-        staged = poll_until(check, len(ctx.schools), interval, deadline)
-
-        if staged == 0:
-            append_event(
-                ctx.ledger,
-                events.run_failed(step="awaiting_results", error="NoResultsStaged"),
-            )
-            return {"status": "failed", "reason": "no results staged by deadline"}
-
-        if staged < len(ctx.schools):
-            # Missing schools are acceptable (staff look up stragglers by
-            # hand) and the union master means nothing drifts.
-            logger.warning(
-                "Proceeding with %d/%d schools staged", staged, len(ctx.schools)
-            )
-
-        return download_and_deliver(ctx, username, password)
+        return run_to_completion(ctx, username, password)
 
 
 def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
@@ -447,9 +197,7 @@ def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
             ctx.ledger,
             events.run_completed(chunks=len(pieces), records=len(known)),
         )
-        print(
-            f"Rebaseline complete: {len(known)} records in {len(pieces)} files"
-        )
+        print(f"Rebaseline complete: {len(known)} records in {len(pieces)} files")
         return {"status": "success", "chunks": len(pieces), "records": len(known)}
 
 

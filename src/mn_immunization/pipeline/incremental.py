@@ -1,9 +1,15 @@
-"""Incremental diff processing: combine school files, load the known set,
-diff, and persist the results.
+"""Incremental diff processing, split into compute and commit on purpose.
+
+`compute_diff` only reads durable state and writes to temp (plus an
+archive copy of the diff in GCS, for forensics on blocked runs);
+`commit_master` is the one function that advances durable state, and the
+runner calls it only after Drive delivery succeeded. That ordering is
+the fix for the old shape's flaw, where the master absorbed records
+before the sanity brake fired and before delivery was known to work.
 
 The master is the union of everything ever seen: absence is never
-deletion, so a school whose download fails keeps its records and does not
-get re-delivered as "new" when it recovers.
+deletion, so a school whose download fails keeps its records and does
+not get re-delivered as "new" when it recovers.
 """
 
 from __future__ import annotations
@@ -73,20 +79,21 @@ def load_known_records(bucket_name: str, temp_dir: Path) -> RecordSet:
         return RecordSet()
 
 
-def process_incremental_vaccinations(
+def compute_diff(
     output_files: list[Path],
     output_folder: Path,
     bucket_name: str,
     temp_dir: Path,
-    ledger=None,
-    snapshots=None,
+    ledger,
 ) -> tuple[Path, Path, int, int]:
-    """Compute the diff against known vaccinations and write both files.
+    """Diff current records against the known set; write both files to temp.
 
-    Returns (diff_file_path, master_file_path, new_count, known_count).
+    Returns (diff_path, master_path, new_count, known_count). Nothing
+    durable moves here: the master upload and snapshot wait for
+    `commit_master`, after delivery. The diff archive copy in GCS is
+    best-effort — useful for inspecting a brake-blocked diff without
+    putting record content in logs, but never load-bearing.
     """
-    logger.info("Starting incremental vaccination processing")
-
     current_records = combine_ic_files(output_files)
     known_records = load_known_records(bucket_name, temp_dir)
 
@@ -100,43 +107,64 @@ def process_incremental_vaccinations(
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     diff_filename = f"{date_str}_new_vaccinations.csv"
-    diff_file_path = output_folder / diff_filename
+    diff_path = output_folder / diff_filename
     diff_text = render_csv(new_records)
-    diff_file_path.write_text(diff_text, encoding="utf-8")
+    diff_path.write_text(diff_text, encoding="utf-8")
 
-    master_file_path = output_folder / ALL_KNOWN_VACCINATIONS_FILE
-    master_text = render_csv(master_records)
-    master_file_path.write_text(master_text, encoding="utf-8")
-    logger.info("Updated master file with %d total records", len(master_records))
+    master_path = output_folder / ALL_KNOWN_VACCINATIONS_FILE
+    master_path.write_text(render_csv(master_records), encoding="utf-8")
 
-    snapshot_path = ""
-    if snapshots is not None:
-        try:
-            _, snapshot_path = snapshots.put(master_text)
-        except Exception as error:
-            logger.warning("snapshot store failed: %s", error)
-
-    if ledger is not None:
-        append_event(
-            ledger,
-            events.diff_computed(
-                new_count=len(new_records),
-                total_count=len(current_records),
-                known_hash=sha256_hex(render_csv(known_records)),
-                diff_hash=sha256_hex(diff_text),
-                snapshot_path=snapshot_path,
-            ),
-        )
+    append_event(
+        ledger,
+        events.diff_computed(
+            new_count=len(new_records),
+            total_count=len(current_records),
+            known_hash=sha256_hex(render_csv(known_records)),
+            diff_hash=sha256_hex(diff_text),
+            snapshot_path="",
+        ),
+    )
 
     try:
-        diff_blob_name = f"output/changes/{diff_filename}"
-        upload_file_to_storage(bucket_name, diff_blob_name, str(diff_file_path))
-        if ledger is not None:
-            append_event(ledger, events.delivered(diff_filename, "gcs"))
-
-        master_blob_name = f"output/{ALL_KNOWN_VACCINATIONS_FILE}"
-        upload_file_to_storage(bucket_name, master_blob_name, str(master_file_path))
+        upload_file_to_storage(
+            bucket_name, f"output/changes/{diff_filename}", str(diff_path)
+        )
     except Exception as error:
-        logger.error("Failed to upload to GCS: %s", error)
+        logger.error("Archive upload of diff to GCS failed: %s", error)
 
-    return diff_file_path, master_file_path, len(new_records), len(known_records)
+    return diff_path, master_path, len(new_records), len(known_records)
+
+
+def commit_master(
+    bucket_name: str,
+    master_path: Path,
+    ledger,
+    snapshots,
+    record_count: int,
+) -> None:
+    """Advance durable state: upload the union master and snapshot it.
+
+    Failures propagate on purpose. A delivered-but-uncommitted run must
+    fail loudly so a rerun redoes the commit — which is safe, because
+    the master is a union and committing it twice changes nothing.
+    """
+    master_text = master_path.read_text(encoding="utf-8")
+    upload_file_to_storage(
+        bucket_name, f"output/{ALL_KNOWN_VACCINATIONS_FILE}", str(master_path)
+    )
+    logger.info("Updated master file with %d total records", record_count)
+
+    snapshot_path = ""
+    try:
+        _, snapshot_path = snapshots.put(master_text)
+    except Exception as error:
+        logger.warning("snapshot store failed: %s", error)
+
+    append_event(
+        ledger,
+        events.master_committed(
+            master_hash=sha256_hex(master_text),
+            record_count=record_count,
+            snapshot_path=snapshot_path,
+        ),
+    )

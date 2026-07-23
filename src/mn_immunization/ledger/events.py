@@ -29,9 +29,7 @@ def query_submitted(school_id: str, query_file_hash: str) -> LedgerEvent:
     )
 
 
-def records_fetched(
-    school_id: str, content_hash: str, byte_size: int
-) -> LedgerEvent:
+def records_fetched(school_id: str, content_hash: str, byte_size: int) -> LedgerEvent:
     return LedgerEvent(
         "RecordsFetched",
         {
@@ -65,6 +63,21 @@ def delivered(file_name: str, target: str, remote_id: str | None = None) -> Ledg
     return LedgerEvent(
         "Delivered",
         {"file_name": file_name, "target": target, "remote_id": remote_id or ""},
+    )
+
+
+def master_committed(
+    master_hash: str, record_count: int, snapshot_path: str
+) -> LedgerEvent:
+    """The one event that advances durable state; recorded only after the
+    diff was delivered."""
+    return LedgerEvent(
+        "MasterCommitted",
+        {
+            "master_hash": master_hash,
+            "record_count": record_count,
+            "snapshot_path": snapshot_path,
+        },
     )
 
 
