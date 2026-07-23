@@ -38,9 +38,7 @@ class TestChunk:
     def make_set(self, count):
         from mn_immunization.domain.ic_format import chunk  # noqa: F401
 
-        return RecordSet.from_iterable(
-            record(id_1=str(1000 + i)) for i in range(count)
-        )
+        return RecordSet.from_iterable(record(id_1=str(1000 + i)) for i in range(count))
 
     def test_splits_into_bounded_pieces_preserving_order(self):
         from mn_immunization.domain.ic_format import chunk
@@ -64,9 +62,7 @@ class TestChunk:
 
 class TestParse:
     def test_roundtrips_with_render(self):
-        records = RecordSet.from_iterable(
-            [record(), record(id_1="789", group="Flu")]
-        )
+        records = RecordSet.from_iterable([record(), record(id_1="789", group="Flu")])
         assert parse_ic_csv(render_csv(records)) == records
 
     def test_extra_columns_are_ignored(self):

@@ -38,8 +38,7 @@ def test_missing_required_column_raises():
 
 def test_bad_row_raises_with_line_number():
     text = (
-        "id_1|id_2|vaccine_group_name|vaccination_date\n"
-        "123|456|COVID-19|not-a-date\n"
+        "id_1|id_2|vaccine_group_name|vaccination_date\n123|456|COVID-19|not-a-date\n"
     )
     with pytest.raises(AisrParseError, match="line 2"):
         parse_aisr_csv(text)
@@ -51,7 +50,5 @@ def test_extra_columns_in_real_format_are_ignored():
         "123|456|x|COVID-19|2024-11-17|y\n"
     )
     records = parse_aisr_csv(text)
-    assert records == RecordSet.from_iterable(
-        [records.records[0]]
-    )
+    assert records == RecordSet.from_iterable([records.records[0]])
     assert records.records[0].vaccine_group == "COVID-19"

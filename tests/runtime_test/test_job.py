@@ -38,7 +38,5 @@ def test_trigger_defaults_to_scheduled(monkeypatch):
 
 def test_skipped_status_is_success_exit(monkeypatch):
     monkeypatch.setenv("DATA_BUCKET", "test-bucket")
-    monkeypatch.setitem(
-        job.CYCLES, "run", lambda b, trigger: {"status": "skipped"}
-    )
+    monkeypatch.setitem(job.CYCLES, "run", lambda b, trigger: {"status": "skipped"})
     assert job.main(["run"]) == 0

@@ -66,9 +66,7 @@ def parse_ic_csv(text: str) -> RecordSet:
                 f"line {line_number}: expected at least 4 columns, got {len(row)}"
             )
         try:
-            records.append(
-                VaccinationRecord.create(row[0], row[1], row[2], row[3])
-            )
+            records.append(VaccinationRecord.create(row[0], row[1], row[2], row[3]))
         except RecordValidationError as error:
             raise IcFormatError(f"line {line_number}: {error}") from error
     return RecordSet.from_iterable(records)

@@ -112,6 +112,9 @@ class TestRecordSet:
         # the entire history.
         from_aisr = record(day="2024-01-15")
         from_master = record(day="01/15/2024")
-        assert RecordSet.from_iterable([from_aisr]).diff(
-            RecordSet.from_iterable([from_master])
-        ) == RecordSet()
+        assert (
+            RecordSet.from_iterable([from_aisr]).diff(
+                RecordSet.from_iterable([from_master])
+            )
+            == RecordSet()
+        )

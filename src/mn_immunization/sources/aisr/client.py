@@ -30,9 +30,7 @@ class AisrClient:
 
     def submit_roster_query(self, school: SchoolQueryInformation) -> None:
         """Upload a school's roster query file to AISR."""
-        bulk_query_aisr(
-            self.session, self.access_token, self.api_base_url, school
-        )
+        bulk_query_aisr(self.session, self.access_token, self.api_base_url, school)
 
     def download_latest_records(self, school_id: str, output_path: Path) -> str:
         """Download the latest full vaccination records file for a school.

@@ -145,8 +145,10 @@ class SchoolQueryInformation:
             (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
         )
         | retry_if_exception(
-            lambda e: isinstance(e, AISRActionFailedError)
-            and any(code in str(e) for code in ["502", "503", "504"])
+            lambda e: (
+                isinstance(e, AISRActionFailedError)
+                and any(code in str(e) for code in ["502", "503", "504"])
+            )
         )
     ),
     reraise=True,
@@ -201,8 +203,10 @@ def get_latest_vaccination_records_url(
             (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
         )
         | retry_if_exception(
-            lambda e: isinstance(e, AISRActionFailedError)
-            and any(code in str(e) for code in ["502", "503", "504"])
+            lambda e: (
+                isinstance(e, AISRActionFailedError)
+                and any(code in str(e) for code in ["502", "503", "504"])
+            )
         )
     ),
     reraise=True,

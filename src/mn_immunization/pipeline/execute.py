@@ -114,21 +114,22 @@ def _submit_queries(ctx: RunContext, username: str, password: str) -> None:
     submits nothing: MIIC emails every nurse on each submission."""
     period = datetime.now().strftime(os.environ.get("QUERY_PERIOD_FORMAT", "%Y-%m"))
     if claim_or_proceed(ctx.ledger, f"{period}_query"):
-        print(f"Submitting roster queries for period {period}")
+        logger.info("Submitting roster queries for period %s", period)
         failures = submit_roster_queries(ctx, username, password)
         if failures:
             logger.error("%d school(s) failed roster submission", failures)
     else:
-        print(
-            f"Roster queries already submitted for period {period}; "
-            "skipping submission (rerun-safe, no duplicate email)"
+        logger.info(
+            "Roster queries already submitted for period %s; "
+            "skipping submission (rerun-safe, no duplicate email)",
+            period,
         )
 
 
 def _probe_staged(ctx: RunContext, username: str, password: str) -> int:
     with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
         staged = staged_school_count(client, ctx.schools)
-    print(f"{staged}/{len(ctx.schools)} schools have results staged")
+    logger.info("%d/%d schools have results staged", staged, len(ctx.schools))
     return staged
 
 
@@ -181,7 +182,7 @@ def _compute_diff(ctx: RunContext, username: str, password: str) -> DiffResult:
         temp_dir=ctx.temp,
         ledger=ctx.ledger,
     )
-    print(f"Created incremental diff file: {diff_path.name}")
+    logger.info("Created incremental diff file: %s", diff_path.name)
     return DiffResult(
         new_count=new_count,
         known_count=known_count,
@@ -231,7 +232,7 @@ def _deliver_diff(ctx: RunContext, diff: DiffResult, folder_id: str) -> str:
     date_str = filename[:10]
     if not claim_or_proceed(ctx.ledger, f"{date_str}_diff"):
         if _delivered_elsewhere(ctx, filename):
-            print(f"Skipping delivery: diff already delivered for {date_str}")
+            logger.info("Skipping delivery: diff already delivered for %s", date_str)
             return "already_delivered"
         logger.warning(
             "date claim %s_diff already taken but no Delivered event found; "
@@ -243,7 +244,7 @@ def _deliver_diff(ctx: RunContext, diff: DiffResult, folder_id: str) -> str:
         file_path=str(diff.diff_path), filename=filename, folder_id=folder_id
     )
     append_event(ctx.ledger, events.delivered(filename, "drive", str(drive_file_id)))
-    print(f"Uploaded incremental diff file to Google Drive: {filename}")
+    logger.info("Uploaded incremental diff file to Google Drive: %s", filename)
     return "delivered"
 
 
@@ -278,7 +279,7 @@ def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
                 fetch_failures=diff.fetch_failures if diff else 0,
             ),
         )
-        print(f"Cycle completed: {files} files, {new} new records")
+        logger.info("Cycle completed: %d files, %d new records", files, new)
         return {
             "status": "success",
             "files_transformed": files,
@@ -288,7 +289,7 @@ def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
         append_event(ctx.ledger, events.run_skipped(step.reason))
         return {"status": "skipped", "reason": step.reason}
     if step.status == "blocked":
-        print(f"BLOCKED: {step.reason}")
+        logger.error("BLOCKED: %s", step.reason)
     append_event(ctx.ledger, events.run_failed(step=step.step, error=step.error))
     return {"status": step.status, "reason": step.reason}
 

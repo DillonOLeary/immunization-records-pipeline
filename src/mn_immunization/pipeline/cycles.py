@@ -19,6 +19,7 @@ Each cycle owns its ledger and guarantees a terminal event.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from contextlib import contextmanager
@@ -40,6 +41,8 @@ from mn_immunization.pipeline.incremental import load_known_records
 from mn_immunization.pipeline.support import append_event, new_run_id
 from mn_immunization.sources.aisr.actions import SchoolQueryInformation
 from mn_immunization.sources.aisr.client import aisr_session
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -71,9 +74,10 @@ def pipeline_run(
             schools = create_school_info_list(
                 config, bucket_name, temp_path, include_query_files
             )
-            print(
-                f"Loaded configuration for {len(schools)} schools: "
-                f"{', '.join(s.school_name for s in schools)}"
+            logger.info(
+                "Loaded configuration for %d schools: %s",
+                len(schools),
+                ", ".join(s.school_name for s in schools),
             )
             yield RunContext(
                 ledger=ledger,
@@ -191,13 +195,15 @@ def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
                 ctx.ledger,
                 events.delivered(filename, "drive", str(drive_file_id)),
             )
-            print(f"Pushed {filename} ({len(piece)} records)")
+            logger.info("Pushed %s (%d records)", filename, len(piece))
 
         append_event(
             ctx.ledger,
             events.run_completed(chunks=len(pieces), records=len(known)),
         )
-        print(f"Rebaseline complete: {len(known)} records in {len(pieces)} files")
+        logger.info(
+            "Rebaseline complete: %d records in %d files", len(known), len(pieces)
+        )
         return {"status": "success", "chunks": len(pieces), "records": len(known)}
 
 

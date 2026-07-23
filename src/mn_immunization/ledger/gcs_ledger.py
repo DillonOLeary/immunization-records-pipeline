@@ -41,8 +41,7 @@ class GcsRunLedger:
         self._seq += 1
         at = self._now()
         blob_name = (
-            f"ledger/{at:%Y}/{at:%m}/{self.run_id}/"
-            f"{self._seq:03d}_{event.type}.json"
+            f"ledger/{at:%Y}/{at:%m}/{self.run_id}/{self._seq:03d}_{event.type}.json"
         )
         payload = {
             "run_id": self.run_id,
