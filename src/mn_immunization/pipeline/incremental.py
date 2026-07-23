@@ -121,7 +121,6 @@ def compute_diff(
             total_count=len(current_records),
             known_hash=sha256_hex(render_csv(known_records)),
             diff_hash=sha256_hex(diff_text),
-            snapshot_path="",
         ),
     )
 

@@ -18,7 +18,7 @@ class LedgerEvent:
 
 
 def run_started(kind: str, trigger: str) -> LedgerEvent:
-    """kind: query|download; trigger: scheduled|manual."""
+    """kind: run|canary|rebaseline; trigger: scheduled|manual."""
     return LedgerEvent("RunStarted", {"kind": kind, "trigger": trigger})
 
 
@@ -45,7 +45,6 @@ def diff_computed(
     total_count: int,
     known_hash: str,
     diff_hash: str,
-    snapshot_path: str,
 ) -> LedgerEvent:
     return LedgerEvent(
         "DiffComputed",
@@ -54,7 +53,6 @@ def diff_computed(
             "total_count": total_count,
             "known_hash": known_hash,
             "diff_hash": diff_hash,
-            "snapshot_path": snapshot_path,
         },
     )
 

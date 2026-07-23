@@ -60,9 +60,11 @@ src/mn_immunization/
     memory.py                   in-memory ledger for tests and local runs
     port.py                     RunLedger / SnapshotStore protocols
   pipeline/                     the application layer
-    cycles.py                   run / canary / rebaseline use-cases
-    incremental.py              combine, known set, diff, persist
-    support.py                  run ids, safe appends, claims, polling, brake
+    policy.py                   the decider: CycleState, Steps, decide() (pure)
+    execute.py                  executors + the runner loop
+    cycles.py                   use-case entrypoints and shared scaffolding
+    incremental.py              combine, known set, compute_diff, commit_master
+    support.py                  run ids, safe appends, claims, brake
     files.py                    file naming conventions
   runtime/                      entrypoints only
     cli.py                      mn-immunization transform|status
@@ -132,29 +134,32 @@ Event catalog:
 
 | Event            | Data                                          |
 |------------------|-----------------------------------------------|
-| RunStarted       | run_id, kind (query/download), trigger (scheduled/manual) |
+| RunStarted       | kind (run/canary/rebaseline), trigger (scheduled/manual) |
 | QuerySubmitted   | school_id, query_file_hash                    |
-| RecordsFetched   | school_id, count, content_hash, snapshot_path |
-| DiffComputed     | month, new_count, known_hash, diff_hash       |
-| Delivered        | file_name, drive_file_id                      |
+| RecordsFetched   | school_id, content_hash, byte_size            |
+| DiffComputed     | new_count, total_count, known_hash, diff_hash |
+| Delivered        | file_name, target (drive), remote_id          |
 | MasterCommitted  | master_hash, record_count, snapshot_path      |
-| ImportConfirmed  | file_name, how (folder move), at              |
+| ImportConfirmed  | file_name, how (folder move)                  |
 | RunSkipped       | reason (e.g. diff already delivered)          |
 | RunCompleted     | counts summary                                |
 | RunFailed        | step, error class (never record content)      |
 
 Design points:
 
-- The known-vaccination set is not stored in events. It is a content-addressed
-  snapshot in `snapshots/`; events reference it by hash. This replaces the
-  mutable `all_known_vaccinations.csv` master file. History is never
-  overwritten, and any month's diff is reproducible from its inputs.
-- Idempotency via claim objects. Before computing a diff, the run creates
+- The known-vaccination set is not stored in events. The working copy is
+  the union master at `output/all_known_vaccinations.csv`, and every
+  commit also writes a content-addressed snapshot to `snapshots/`,
+  referenced by hash from MasterCommitted. History is never overwritten,
+  and any run's diff is reproducible from its inputs.
+- Idempotency via claim objects. Before delivering, the run creates
   `ledger/claims/<YYYY-MM-DD>_diff` with an if-generation-match=0
-  precondition. Exactly one run per delivery period can win. This kills the
-  observed July 1 incident, where a manual run and the scheduled run both
-  delivered a file named `2026-07-01_new_vaccinations.csv` and the second was
-  near-empty: the losing run now records RunSkipped and delivers nothing.
+  precondition; exactly one run per date can win. A run that loses the
+  claim verifies against recent runs' Delivered events before trusting
+  it: a genuine duplicate records RunSkipped and delivers nothing (the
+  observed July 1 incident, where two runs delivered the same date's
+  diff, stays dead), while a claimant that crashed before uploading does
+  not get to suppress the delivery.
 - Never fail invisibly. Every entrypoint guarantees a terminal event
   (RunCompleted, RunSkipped, or RunFailed). A Cloud Monitoring alert fires if
   the expected scheduled run has no terminal event by the morning after, and
@@ -277,115 +282,132 @@ roughly 5 to 10 districts, not a number picked today.
 
 ## The decider core
 
-The next distillation, designed 2026-07-23. It replaces the run cycle's
-orchestration script (~700 lines across `cycles.py`, `incremental.py`,
-`support.py`) with a small decide/execute core (~250 lines), and it is
-motivated by two real ordering flaws found while reviewing
-`download_and_deliver`, not by style:
+The run cycle's core, designed and landed 2026-07-23. It replaced the
+previous orchestration script (~700 lines across three modules) with a
+decide/execute core, motivated by two real ordering flaws found while
+reviewing the old `download_and_deliver` — not by style:
 
-1. **The master is committed before the brake and before delivery.**
-   `process_incremental_vaccinations` uploads the new master to GCS, and
-   only afterwards does the caller check the sanity brake and attempt
-   Drive delivery. The brake stands behind the door it guards: by the
-   time it fires, the suspicious flood is already absorbed into the
-   master it exists to protect.
-2. **Delivery failure is a warning, then "success."** A failed Drive
-   upload is caught, logged, and the run still records RunCompleted —
-   but the master has already absorbed the records, so no future diff
-   will ever carry them. They silently never reach the nurses until a
-   human notices and runs a rebaseline.
+1. **The master was committed before the brake and before delivery.**
+   The old processing function uploaded the new master to GCS, and only
+   afterwards did the caller check the sanity brake and attempt Drive
+   delivery. The brake stood behind the door it guarded: by the time it
+   fired, the suspicious flood was already absorbed into the master it
+   existed to protect.
+2. **Delivery failure was a warning, then "success."** A failed Drive
+   upload was caught, logged, and the run still recorded RunCompleted —
+   but the master had already absorbed the records, so no future diff
+   would ever carry them. They silently never reached the nurses until
+   a human noticed and ran a rebaseline.
 
-Both are one disease: the cycle is a linear script that interleaves
-deciding with committing, so the order of side effects is whatever the
-prose happens to be. The script shape cannot distinguish **computed**
-from **committed** from **delivered**.
+Both were one disease: a linear script interleaves deciding with
+committing, so the order of side effects is whatever the prose happens
+to be. The script shape could not distinguish **computed** from
+**committed** from **delivered**.
 
 The fix is the decider pattern (decide/evolve/execute, hand-rolled —
-see "Rejected" below for why no framework). Three pieces:
+see "Rejected" below for why no framework). Three pieces, all in
+`pipeline/`:
 
-**State** — a frozen dataclass folded from the ledger and the two
-claims. Only three facts need durable memory; fetching, transforming,
+**State** (`policy.py`) — a frozen dataclass; the named `with_*`
+transitions are the fold. Only three facts need durable memory (query
+submitted, diff delivered, master committed); fetching, transforming,
 and diffing are read-only and cheap, so a resumed run just recomputes
 them:
 
 ```python
 @dataclass(frozen=True)
 class CycleState:
-    query_submitted: bool     # period query claim, or QuerySubmitted this run
-    staged: int               # live AISR probe, not from the ledger
-    diff: DiffResult | None   # recomputed each execution, never persisted early
-    delivered: bool           # date diff claim + Delivered event
-    master_committed: bool    # MasterCommitted event for this diff
+    query_submitted: bool = False   # period claim, or QuerySubmitted this run
+    staged: int = 0                 # live AISR probe, not from the ledger
+    staging_deadline_passed: bool = False
+    diff: DiffResult | None = None  # recomputed each execution
+    delivered: bool = False
+    delivered_elsewhere: bool = False  # date claim lost, Delivered event found
+    master_committed: bool = False
 ```
 
-**Policy** — one pure function that *is* the pipeline. No I/O, no
-clock, no env. This is the screen a new maintainer reads instead of
-this document's prose:
+**Policy** (`policy.py`) — one pure function that *is* the pipeline.
+No I/O, no clock, no env. This is the screen a new maintainer reads
+instead of this document's prose (abridged here; the real one carries
+reasons on every Finish):
 
 ```python
-def decide(s: CycleState, schools: int, brake: float | None) -> Step:
-    if not s.query_submitted:      return SubmitQueries()
-    if s.staged < schools:         return AwaitStaging()
-    if s.diff is None:             return ComputeDiff()
-    if s.diff.new_count == 0:      return Finish(completed(s))
-    if suspicious(s.diff, brake):  return Finish(failed("diff_sanity",
-                                                 "SuspiciousDiffVolume"))
-    if not s.delivered:            return DeliverDiff(s.diff)
-    if not s.master_committed:     return CommitMaster(s.diff)
-    return Finish(completed(s))
+def decide(state, school_count, brake_fraction):
+    if not state.query_submitted:     return SubmitQueries()
+    if state.staged < school_count and not state.staging_deadline_passed:
+        return AwaitStaging()
+    if state.staged == 0:             return Finish("failed", "awaiting_results",
+                                                    "NoResultsStaged")
+    diff = state.diff
+    if diff is None:                  return ComputeDiff()
+    if diff.files_transformed == 0 and diff.fetch_failures > 0:
+        return Finish("failed", "fetch", "AllDownloadsFailed")
+    if diff.new_count == 0:           return Finish("success")
+    if suspicious_diff(diff.new_count, diff.known_count, brake_fraction):
+        return Finish("blocked", "diff_sanity", "SuspiciousDiffVolume")
+    if not state.delivered:           return DeliverDiff(diff)
+    if not state.master_committed:    return CommitMaster(diff)
+    if state.delivered_elsewhere:     return Finish("skipped")
+    return Finish("success")
 ```
 
-**Runner** — a generic loop: fold state, decide, execute the one step,
-append its events, repeat. Executors are dumb dispatch onto code that
-already exists:
+**Runner** (`execute.py`) — a generic loop: decide, execute the one
+step, fold what it learned into the state, repeat. Executors are dumb
+dispatch onto the adapters; a step that raises becomes a loud RunFailed
+naming the step, and nothing after it runs:
 
-| Step          | Wraps (existing code)                              | Events           |
+| Step          | Executor wraps                                     | Events           |
 |---------------|----------------------------------------------------|------------------|
 | SubmitQueries | period claim + `submit_roster_queries`             | QuerySubmitted ×N |
 | AwaitStaging  | `staged_school_count`, then sleep one interval     | —                |
 | ComputeDiff   | fetch + transform + combine + `RecordSet.diff`     | RecordsFetched ×N, DiffComputed |
 | DeliverDiff   | date claim + Drive upload                          | Delivered        |
-| CommitMaster  | union → master upload + snapshot                   | MasterCommitted (new) |
+| CommitMaster  | union → master upload + snapshot                   | MasterCommitted  |
 | Finish        | terminal event, return status                      | RunCompleted / RunSkipped / RunFailed |
 
 Guarantees this shape makes structural rather than disciplinary:
 
 - Exactly one terminal event per run: only `Finish` writes them, and
-  the loop ends only on `Finish`.
+  the loop ends only on `Finish` (or on a step failure, which writes
+  its RunFailed in one place in the loop).
 - The brake precedes all persistence. Nothing it blocks has happened yet.
 - `CommitMaster` is unreachable until `delivered` is true. A failed
-  Drive upload now fails the run loudly with the master untouched, and
-  the next run re-diffs and re-delivers the same records. The silent
+  Drive upload fails the run loudly with the master untouched, and the
+  next run re-diffs and re-delivers the same records. The silent
   absorption path no longer exists to be written.
-- A crash between delivery and commit resumes at commit (the fold sees
-  Delivered without MasterCommitted). Redoing the commit is safe
+- A crash between delivery and commit resumes at commit: the rerun
+  loses the date claim, finds the Delivered event, and finishes the
+  commit before recording RunSkipped. Redoing the commit is safe
   because the master is a union — idempotent by construction.
 - Waiting is not special. `AwaitStaging` is a decide branch; the loop
   owns the interval and deadline (zero schools staged at the deadline
-  finishes failed, partial staging proceeds — both unchanged).
-  `poll_until` dies.
-- Claims stay exactly where the danger is: the period claim inside
+  finishes failed, partial staging proceeds).
+- Claims sit exactly where the danger is: the period claim inside
   SubmitQueries, the date claim inside DeliverDiff. Events drive the
   flow; claims cap the blast radius of a lost event, so `append_event`
-  stays best-effort. A DeliverDiff that loses the date claim means
-  another run already delivered; decide finishes with RunSkipped,
-  which is today's behavior.
+  stays best-effort throughout.
 
-What survives untouched: `domain/`, `sources/aisr/`, `sinks/drive.py`,
+What survived untouched: `domain/`, `sources/aisr/`, `sinks/drive.py`,
 `gcp/`, the ledger adapters, `runtime/` entrypoints, all of `infra/`.
 The keep list is exactly the boundary list — these pieces were already
-behind ports, which is why they are keepable.
+behind ports, which is why they were keepable.
 
-What dies: `download_and_deliver`, `incremental.py` (combining moves
-into the ComputeDiff executor, diff/union are already domain methods,
-persistence becomes CommitMaster), `poll_until`, and every
-guard-plus-terminal-event trio in `cycles.py`. Canary and rebaseline
-stay as the linear scripts they are: no ordering hazards, no waiting,
-nothing to decide.
+What was deleted: `download_and_deliver`, `poll_until`, every
+guard-plus-terminal-event trio, and the old do-everything processing
+function (split into `compute_diff`, reads only, and `commit_master`,
+the one durable write). `incremental.py` itself stays as the
+diff-processing module — four coherent functions with callers in both
+`execute.py` and the rebaseline cycle beat folding 170 lines into the
+executors for the sake of a file count. Canary and rebaseline stay as
+the linear scripts they are: no ordering hazards, no waiting, nothing
+to decide.
 
-Compatibility constraints, so cutover is a code swap with no data
-migration: claim keys unchanged, master file path and format unchanged,
-event envelope unchanged. One new event type, MasterCommitted.
+Compatibility held through the swap, so cutover was a code change with
+no data migration: claim keys, master file path and format, and the
+event envelope are all unchanged. One event type was added
+(MasterCommitted) and one dropped (Delivered with target "gcs" — the
+GCS diff copy is an archive, not a delivery; Delivered always means
+the Drive import queue now).
 
 Rejected: the Python `eventsourcing` library. It is an aggregate-OOP
 framework built for many long-lived aggregates with concurrent writers,
@@ -395,21 +417,19 @@ writing a custom GCS adapter to fight the framework into our storage.
 Event sourcing here is a pattern sized to three durable booleans, not
 a framework.
 
-Distillation order, each step leaving production working:
+Landed 2026-07-23 in three commits, each leaving production working:
+policy pure and wired to nothing first (its decision table encodes
+every guarantee above), then the loop and executors replacing the
+script, with the compute/commit split pulled forward because the
+ordering fix required it. Five days ahead of the first autonomous
+scheduled run, which executes on the fixed ordering.
 
-1. **Policy, pure.** `pipeline/policy.py`: CycleState, DiffResult, the
-   Step types, `decide`, the fold. Exhaustively tested as a decision
-   table with plain dataclasses — no mocks. Wired to nothing.
-2. **Loop and executors.** `pipeline/execute.py` plus the runner loop
-   replace `run_cycle`'s body; `download_and_deliver` and `poll_until`
-   are deleted.
-3. **Dissolve `incremental.py`.** Compute stays pure, commit becomes
-   the step. Pipeline tests move from GCS-mock choreography to decide
-   tables plus one e2e pass against the mock.
-
-Target: land before the July 28 scheduled run, so the first autonomous
-cycle runs on the fixed ordering. If it slips, the July 28 run gets
-watched by hand — the flaw only bites if Drive fails that night.
+How to test it is part of the design: `tests/pipeline/test_policy.py`
+is the decision table (including a driver proving every start state
+reaches exactly one Finish); `tests/pipeline/test_cycle_loop.py` drives
+the real loop with stub executors and a fake clock, so polling cadence,
+deadline behavior, and every failure path are asserted without a single
+GCS or AISR mock.
 
 ## Build order
 
@@ -449,6 +469,24 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: decider core step 3 closed, and this document trued up so
+  it reads top to bottom as a description of what exists (history lives
+  only in these notes). The step-3 decision: `incremental.py` stays.
+  The design called for dissolving it, but after step 2 pulled the
+  compute/commit split forward, what remained was a coherent
+  four-function diff-processing module with callers in both the
+  executors and the rebaseline cycle; folding it into execute.py would
+  have traded a clear module for a fatter one. Tidies that were worth
+  it: DiffComputed dropped its always-empty snapshot_path field (the
+  snapshot reference lives on MasterCommitted, where the snapshot is
+  actually written) and stale query/download-era docstrings were fixed.
+  Housekeeping in the same pass: dependencies verified current
+  (`uv lock --upgrade` changed no versions — dependabot automerge has
+  kept the lockfile fresh) and Terraform reconciled against
+  mn-immun-bd9001: the only drift was gcloud's client metadata stamped
+  on the Cloud Run job by CI deploys, now in `ignore_changes` next to
+  the image, after which `terraform plan` reports zero changes.
+  110 tests.
 - 2026-07-23: decider core step 2 landed — the loop is live. `run_cycle`
   is now three lines: scaffolding, credentials, `run_to_completion`.
   `pipeline/execute.py` holds the executors and the runner loop (the one
@@ -653,3 +691,9 @@ Notes:
 - Pub/Sub topics and functions-framework: replaced by a directly triggered
   Cloud Run Job.
 - Log-and-continue error handling: replaced by the terminal-event guarantee.
+- The run cycle's script shape (`download_and_deliver`, `poll_until`): a
+  linear script cannot distinguish computed from committed from delivered,
+  which hid two real ordering flaws. Replaced by the decider core.
+- The Delivered("gcs") event: the GCS diff copy is an archive, not a
+  delivery. Delivered means the Drive import queue, which keeps the future
+  ImportConfirmed design unambiguous.

@@ -32,8 +32,13 @@ resource "google_cloud_run_v2_job" "pipeline" {
   }
 
   lifecycle {
-    # CI updates the image tag on deploy; Terraform must not fight it.
-    ignore_changes = [template[0].template[0].containers[0].image]
+    # CI updates the image tag on deploy (and gcloud stamps its client
+    # metadata while doing so); Terraform must not fight either.
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+      client,
+      client_version,
+    ]
   }
 
   depends_on = [google_project_service.apis]

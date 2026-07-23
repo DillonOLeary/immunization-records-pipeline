@@ -4,9 +4,9 @@ from mn_immunization.ledger import events
 
 
 def test_run_started():
-    event = events.run_started(kind="download", trigger="scheduled")
+    event = events.run_started(kind="run", trigger="scheduled")
     assert event.type == "RunStarted"
-    assert event.data == {"kind": "download", "trigger": "scheduled"}
+    assert event.data == {"kind": "run", "trigger": "scheduled"}
 
 
 def test_terminal_types_cover_the_three_outcomes():
@@ -31,11 +31,18 @@ def test_diff_computed_fields():
         total_count=4200,
         known_hash="k" * 64,
         diff_hash="d" * 64,
-        snapshot_path="snapshots/abc.csv",
     )
     assert event.data["new_count"] == 12
+    assert event.data["diff_hash"] == "d" * 64
+
+
+def test_master_committed_references_its_snapshot():
+    event = events.master_committed(
+        master_hash="m" * 64, record_count=171_009, snapshot_path="snapshots/abc.csv"
+    )
+    assert event.data["record_count"] == 171_009
     assert event.data["snapshot_path"] == "snapshots/abc.csv"
 
 
 def test_delivered_defaults_remote_id_to_empty():
-    assert events.delivered("x.csv", "gcs").data["remote_id"] == ""
+    assert events.delivered("x.csv", "drive").data["remote_id"] == ""

@@ -1,4 +1,4 @@
-"""Tests for incremental vaccination processing in the cloud runtime."""
+"""Tests for the diff-processing helpers: combine and the known set."""
 
 from pathlib import Path
 
