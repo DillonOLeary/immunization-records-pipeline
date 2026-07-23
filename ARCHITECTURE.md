@@ -137,6 +137,7 @@ Event catalog:
 | RecordsFetched   | school_id, count, content_hash, snapshot_path |
 | DiffComputed     | month, new_count, known_hash, diff_hash       |
 | Delivered        | file_name, drive_file_id                      |
+| MasterCommitted  | master_hash, record_count (decider core)      |
 | ImportConfirmed  | file_name, how (folder move), at              |
 | RunSkipped       | reason (e.g. diff already delivered)          |
 | RunCompleted     | counts summary                                |
@@ -274,6 +275,142 @@ plane or admin UI, cross-district dashboards, a multi-tenant frontend,
 self-service onboarding. The trigger to revisit is operational pain at
 roughly 5 to 10 districts, not a number picked today.
 
+## The decider core
+
+The next distillation, designed 2026-07-23. It replaces the run cycle's
+orchestration script (~700 lines across `cycles.py`, `incremental.py`,
+`support.py`) with a small decide/execute core (~250 lines), and it is
+motivated by two real ordering flaws found while reviewing
+`download_and_deliver`, not by style:
+
+1. **The master is committed before the brake and before delivery.**
+   `process_incremental_vaccinations` uploads the new master to GCS, and
+   only afterwards does the caller check the sanity brake and attempt
+   Drive delivery. The brake stands behind the door it guards: by the
+   time it fires, the suspicious flood is already absorbed into the
+   master it exists to protect.
+2. **Delivery failure is a warning, then "success."** A failed Drive
+   upload is caught, logged, and the run still records RunCompleted —
+   but the master has already absorbed the records, so no future diff
+   will ever carry them. They silently never reach the nurses until a
+   human notices and runs a rebaseline.
+
+Both are one disease: the cycle is a linear script that interleaves
+deciding with committing, so the order of side effects is whatever the
+prose happens to be. The script shape cannot distinguish **computed**
+from **committed** from **delivered**.
+
+The fix is the decider pattern (decide/evolve/execute, hand-rolled —
+see "Rejected" below for why no framework). Three pieces:
+
+**State** — a frozen dataclass folded from the ledger and the two
+claims. Only three facts need durable memory; fetching, transforming,
+and diffing are read-only and cheap, so a resumed run just recomputes
+them:
+
+```python
+@dataclass(frozen=True)
+class CycleState:
+    query_submitted: bool     # period query claim, or QuerySubmitted this run
+    staged: int               # live AISR probe, not from the ledger
+    diff: DiffResult | None   # recomputed each execution, never persisted early
+    delivered: bool           # date diff claim + Delivered event
+    master_committed: bool    # MasterCommitted event for this diff
+```
+
+**Policy** — one pure function that *is* the pipeline. No I/O, no
+clock, no env. This is the screen a new maintainer reads instead of
+this document's prose:
+
+```python
+def decide(s: CycleState, schools: int, brake: float | None) -> Step:
+    if not s.query_submitted:      return SubmitQueries()
+    if s.staged < schools:         return AwaitStaging()
+    if s.diff is None:             return ComputeDiff()
+    if s.diff.new_count == 0:      return Finish(completed(s))
+    if suspicious(s.diff, brake):  return Finish(failed("diff_sanity",
+                                                 "SuspiciousDiffVolume"))
+    if not s.delivered:            return DeliverDiff(s.diff)
+    if not s.master_committed:     return CommitMaster(s.diff)
+    return Finish(completed(s))
+```
+
+**Runner** — a generic loop: fold state, decide, execute the one step,
+append its events, repeat. Executors are dumb dispatch onto code that
+already exists:
+
+| Step          | Wraps (existing code)                              | Events           |
+|---------------|----------------------------------------------------|------------------|
+| SubmitQueries | period claim + `submit_roster_queries`             | QuerySubmitted ×N |
+| AwaitStaging  | `staged_school_count`, then sleep one interval     | —                |
+| ComputeDiff   | fetch + transform + combine + `RecordSet.diff`     | RecordsFetched ×N, DiffComputed |
+| DeliverDiff   | date claim + Drive upload                          | Delivered        |
+| CommitMaster  | union → master upload + snapshot                   | MasterCommitted (new) |
+| Finish        | terminal event, return status                      | RunCompleted / RunSkipped / RunFailed |
+
+Guarantees this shape makes structural rather than disciplinary:
+
+- Exactly one terminal event per run: only `Finish` writes them, and
+  the loop ends only on `Finish`.
+- The brake precedes all persistence. Nothing it blocks has happened yet.
+- `CommitMaster` is unreachable until `delivered` is true. A failed
+  Drive upload now fails the run loudly with the master untouched, and
+  the next run re-diffs and re-delivers the same records. The silent
+  absorption path no longer exists to be written.
+- A crash between delivery and commit resumes at commit (the fold sees
+  Delivered without MasterCommitted). Redoing the commit is safe
+  because the master is a union — idempotent by construction.
+- Waiting is not special. `AwaitStaging` is a decide branch; the loop
+  owns the interval and deadline (zero schools staged at the deadline
+  finishes failed, partial staging proceeds — both unchanged).
+  `poll_until` dies.
+- Claims stay exactly where the danger is: the period claim inside
+  SubmitQueries, the date claim inside DeliverDiff. Events drive the
+  flow; claims cap the blast radius of a lost event, so `append_event`
+  stays best-effort. A DeliverDiff that loses the date claim means
+  another run already delivered; decide finishes with RunSkipped,
+  which is today's behavior.
+
+What survives untouched: `domain/`, `sources/aisr/`, `sinks/drive.py`,
+`gcp/`, the ledger adapters, `runtime/` entrypoints, all of `infra/`.
+The keep list is exactly the boundary list — these pieces were already
+behind ports, which is why they are keepable.
+
+What dies: `download_and_deliver`, `incremental.py` (combining moves
+into the ComputeDiff executor, diff/union are already domain methods,
+persistence becomes CommitMaster), `poll_until`, and every
+guard-plus-terminal-event trio in `cycles.py`. Canary and rebaseline
+stay as the linear scripts they are: no ordering hazards, no waiting,
+nothing to decide.
+
+Compatibility constraints, so cutover is a code swap with no data
+migration: claim keys unchanged, master file path and format unchanged,
+event envelope unchanged. One new event type, MasterCommitted.
+
+Rejected: the Python `eventsourcing` library. It is an aggregate-OOP
+framework built for many long-lived aggregates with concurrent writers,
+and it wants a transactional event store — a database this system
+deliberately does not have. Adopting it means adding that surface or
+writing a custom GCS adapter to fight the framework into our storage.
+Event sourcing here is a pattern sized to three durable booleans, not
+a framework.
+
+Distillation order, each step leaving production working:
+
+1. **Policy, pure.** `pipeline/policy.py`: CycleState, DiffResult, the
+   Step types, `decide`, the fold. Exhaustively tested as a decision
+   table with plain dataclasses — no mocks. Wired to nothing.
+2. **Loop and executors.** `pipeline/execute.py` plus the runner loop
+   replace `run_cycle`'s body; `download_and_deliver` and `poll_until`
+   are deleted.
+3. **Dissolve `incremental.py`.** Compute stays pure, commit becomes
+   the step. Pipeline tests move from GCS-mock choreography to decide
+   tables plus one e2e pass against the mock.
+
+Target: land before the July 28 scheduled run, so the first autonomous
+cycle runs on the fixed ordering. If it slips, the July 28 run gets
+watched by hand — the flaw only bites if Drive fails that night.
+
 ## Build order
 
 Each phase leaves production working. The deployed functions keep running
@@ -312,6 +449,30 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: decider core step 1 landed. `pipeline/policy.py` holds
+  CycleState (frozen, with named `with_*` transitions as the fold),
+  DiffResult, the six Step types, and `decide` — pure, wired to
+  nothing yet; production still runs the script shape until step 2.
+  `tests/pipeline/test_policy.py` is the decision table: every ordering
+  guarantee from the design is a case, including a driver test proving
+  every start state reaches exactly one Finish without repeating a
+  step. One deliberate behavior change surfaced by writing the table:
+  all schools failing to download was previously a RunCompleted with
+  zero files; `decide` calls it RunFailed(fetch, AllDownloadsFailed) —
+  an all-failure is a failure, per the never-fail-invisibly rule.
+  99 tests.
+- 2026-07-23: decider-core distillation designed (see "The decider
+  core"), prompted by Dillon's report that download_and_deliver was too
+  big. The review behind it found two live ordering flaws — master
+  committed before the brake and before delivery, and Drive delivery
+  failure recorded as RunCompleted after the master had already
+  absorbed the records — both consequences of a script shape that
+  cannot distinguish computed from committed from delivered. The
+  `eventsourcing` library was considered and rejected (framework and
+  database surface for a job three durable booleans can do); the
+  decider pattern is hand-rolled instead. Design written, code not yet
+  started; production runs on the current shape until the distillation
+  lands, ideally before the July 28 scheduled cycle.
 - 2026-07-23: layout re-sort, on Dillon's catchall concern about
   runtime/. The rule is now enforced by the tree: runtime/ holds only
   entrypoints (job, cli, main — "does this file exist only because the
