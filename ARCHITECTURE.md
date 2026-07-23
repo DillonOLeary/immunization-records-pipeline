@@ -275,15 +275,39 @@ Live status of the build order. Updated as work lands.
       CI single-project.
 - [x] **Phase 2: Domain rewrite.** Dataclasses, ports, composition root.
 - [x] **Phase 3: Ledger.** GCS events, claims, snapshots.
-- [ ] **Phase 4: Runtime and deploy.** Cloud Run Job, CI deploy via WIF,
+- [x] **Phase 4: Runtime and deploy.** Cloud Run Job, CI deploy via WIF,
       Terraform reconciled, canary + alerts.
-- [ ] **Phase 5: Cut over.** Scheduler moves to the job; Drive folder
+- [x] **Phase 5: Cut over.** Scheduler moves to the job; Drive folder
       protocol begins.
-- [ ] **Phase 6: Retire.** Old functions, topics, publish workflow, PyPI
-      deprecation notice.
+- [x] **Phase 6: Retire.** Old functions, topics, publish workflow, PyPI
+      deprecation notice (PyPI notice pending, needs Dillon's login).
 
 Notes:
 
+- 2026-07-23: CUTOVER EXECUTED (phases 5 and 6). Bootstrap applied (WIF
+  pool + deployer SA, main-branch-only trust); repo variables set; Deploy
+  workflow live. District infra applied after importing the data bucket
+  and five secret shells; the plan gate caught a real one: the first
+  bucket import missed the project attribute, the plan wanted to
+  destroy+recreate the data bucket, and lifecycle.prevent_destroy blocked
+  it — re-imported with the project-qualified id, clean plan (16 add /
+  3 label-only changes / 0 destroy), applied. Container fixed (install at
+  build, venv-script entrypoint; the first image failed at start because
+  .gcloudignore had excluded the README that hatchling requires). Legacy
+  schedulers paused then deleted, along with both Cloud Functions, both
+  Pub/Sub topics, and the over-privileged immunization-function service
+  account. Verified live: manual canary (login + read-only listing per
+  school, ledger events with terminal RunCompleted) and manual download
+  cycle (0 files, expected — AISR stages results only after a query
+  cycle). First fully scheduled sequence: canary July 27, query July 28
+  (the one that emails nurses, untouched by hand), download August 1,
+  which performs the master regeneration guarded by the sanity brake.
+  Left in place deliberately: the two legacy source-zip buckets
+  (harmless, blocked from mass deletion); stale dependabot alerts against
+  deleted per-package manifests (dismiss in the GitHub UI); the PyPI
+  deprecation notice (needs Dillon's PyPI login). Known minor: the AISR
+  login logs the staff username at INFO; operational identity rather than
+  student PHI, but worth quieting eventually.
 - 2026-07-22 (pre-cutover hardening, after Dillon's review): master file
   semantics changed from master=current to master=union(known, current).
   Absence is never deletion: a school whose download fails keeps its
