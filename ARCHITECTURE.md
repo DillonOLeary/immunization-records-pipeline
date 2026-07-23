@@ -254,10 +254,11 @@ MIIC has said the website may change. The blast radius is confined to
   in GCS.
 - Per-district GCP project isolation stays. It is the strongest tenancy
   boundary available and the compliance story writes itself.
-- CI: pytest + ruff (exists), plus pip-audit, gitleaks, and CodeQL on every
-  PR. Dependabot automerges patch and minor bumps only after required checks
-  pass; branch protection must list those checks or automerge gates on
-  nothing.
+- CI: pytest, ruff (lint and format check), pip-audit, gitleaks, offline
+  terraform fmt/validate, and CodeQL (GitHub default setup, python +
+  actions) on every PR and push to main. Dependabot automerges patch and
+  minor bumps only after the required checks pass; branch protection
+  lists those checks.
 
 ## The 30-district ramp
 
@@ -469,6 +470,17 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: output discipline pass, on Dillon's question about the
+  print/logger mix. The rule now: print is for program output, logging
+  is for diagnostics. The pipeline layer's operator narrative (staging
+  counts, delivery confirmations, the BLOCKED line) moved from print to
+  the logger; print survives only in runtime entrypoints where the
+  printed thing is the program's actual output (job.py's result JSON,
+  the CLI status table). job.py points the root log handler at stdout
+  because Cloud Run ingests stderr with ERROR severity — routine info
+  lines must not read as errors in Cloud Logging. CI's lint job now
+  runs `ruff format --check` alongside `ruff check`, so formatting is
+  enforced rather than habitual.
 - 2026-07-23: decider core step 3 closed, and this document trued up so
   it reads top to bottom as a description of what exists (history lives
   only in these notes). The step-3 decision: `incremental.py` stays.

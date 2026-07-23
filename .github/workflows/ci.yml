@@ -30,6 +30,8 @@ jobs:
         run: uv sync
       - name: Ruff
         run: uv run ruff check src tests mock
+      - name: Ruff format
+        run: uv run ruff format --check src tests mock
 
   audit:
     runs-on: ubuntu-latest

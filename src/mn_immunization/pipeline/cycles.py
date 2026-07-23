@@ -221,9 +221,10 @@ def run_canary_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
                 schools_checked=len(ctx.schools), records_available=available
             ),
         )
-        print(
-            f"Canary passed: login ok, {available}/{len(ctx.schools)} "
-            "schools have records available"
+        logger.info(
+            "Canary passed: login ok, %d/%d schools have records available",
+            available,
+            len(ctx.schools),
         )
         return {
             "status": "success",

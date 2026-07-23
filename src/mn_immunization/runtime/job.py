@@ -30,7 +30,13 @@ CYCLES = {
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    # stdout on purpose: Cloud Run ingests stderr with ERROR severity, and
+    # routine info lines must not read as errors in Cloud Logging.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(message)s",
+        stream=sys.stdout,
+    )
 
     parser = argparse.ArgumentParser(description="Run one pipeline cycle.")
     parser.add_argument("cycle", choices=sorted(CYCLES))
