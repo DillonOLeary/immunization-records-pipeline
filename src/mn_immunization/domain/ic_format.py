@@ -40,6 +40,21 @@ def render_csv(record_set: RecordSet) -> str:
     return buffer.getvalue()
 
 
+def chunk(record_set: RecordSet, max_records: int) -> list[RecordSet]:
+    """Split a RecordSet into consecutive pieces of at most max_records.
+
+    Used to keep individual Infinite Campus import files a manageable
+    size; which records share a file carries no meaning.
+    """
+    if max_records < 1:
+        raise ValueError("max_records must be at least 1")
+    records = record_set.records
+    return [
+        RecordSet(records=records[i : i + max_records])
+        for i in range(0, len(records), max_records)
+    ]
+
+
 def parse_ic_csv(text: str) -> RecordSet:
     """Parse headerless IC-format CSV text into a RecordSet."""
     records = []

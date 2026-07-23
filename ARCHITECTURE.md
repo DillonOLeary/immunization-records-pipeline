@@ -166,8 +166,16 @@ That makes the confirmation signal file *absence*: a later run lists the
 folder, and a previously Delivered diff that is gone gets an
 ImportConfirmed event (how: deleted from Drive); a diff still present
 after N days triggers an alert. Zero new habits, zero new surface.
-Per-school full backups go to school subfolders and are not part of the
-import queue.
+
+Drive holds nothing but the import queue. There are no per-school backup
+folders (district staff never used them; GCS snapshots are the archive).
+Recovery from sync trouble is the manual `rebaseline` cycle: it pushes the
+entire known set to the queue as numbered chunk files
+(REBASELINE_CHUNK_RECORDS per file, default 10000), staff import them all
+and delete each as done. This is safe at any time because Infinite Campus
+imports are idempotent: re-importing a known record changes nothing. Which
+records share a chunk carries no meaning; chunking only keeps individual
+IC uploads a manageable size.
 
 If requirements outgrow this (30 districts likely will), the replacement is
 a small web app reading the ledger, and the ledger port is already there.
@@ -296,6 +304,13 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-23: Drive reduced to the import queue, on Dillon's answer that
+  staff never used the per-school backup folders. Deleted: the backup
+  upload path, its filename-based school matching (the ugliest surviving
+  code), and the Drive folder helpers. Added: the `rebaseline` cycle
+  (manual only) pushing the whole known set as size-chunked files, safe
+  because IC imports are idempotent — that idempotence is now a recorded
+  design fact this system leans on.
 - 2026-07-23: first real production cycle verified end to end, nine days
   early: query submitted for 8 schools (MDH staged results in ~15
   minutes), download fetched all 8, diff of 648 new records against

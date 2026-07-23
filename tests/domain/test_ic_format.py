@@ -34,6 +34,34 @@ class TestRender:
         assert render_csv(RecordSet()) == ""
 
 
+class TestChunk:
+    def make_set(self, count):
+        from mn_immunization.domain.ic_format import chunk  # noqa: F401
+
+        return RecordSet.from_iterable(
+            record(id_1=str(1000 + i)) for i in range(count)
+        )
+
+    def test_splits_into_bounded_pieces_preserving_order(self):
+        from mn_immunization.domain.ic_format import chunk
+
+        pieces = chunk(self.make_set(25), max_records=10)
+        assert [len(p) for p in pieces] == [10, 10, 5]
+        reassembled = [r for p in pieces for r in p]
+        assert reassembled == list(self.make_set(25))
+
+    def test_empty_set_yields_no_files(self):
+        from mn_immunization.domain.ic_format import chunk
+
+        assert chunk(RecordSet(), max_records=10) == []
+
+    def test_rejects_nonpositive_chunk_size(self):
+        from mn_immunization.domain.ic_format import chunk
+
+        with pytest.raises(ValueError):
+            chunk(self.make_set(3), max_records=0)
+
+
 class TestParse:
     def test_roundtrips_with_render(self):
         records = RecordSet.from_iterable(

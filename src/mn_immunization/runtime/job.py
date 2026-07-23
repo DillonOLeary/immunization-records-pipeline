@@ -4,7 +4,8 @@ One container, two cycles: `mn-immunization-job run|canary`. Cloud
 Scheduler executes `run` on the configured cadence; a human reruns it with
 `gcloud run jobs execute pipeline-job --args=run,--trigger,manual` (safe:
 ledger claims prevent duplicate emails and deliveries). `canary` is a
-read-only readiness probe.
+read-only readiness probe; `rebaseline` pushes the whole known set to
+Drive in chunks to recover from sync trouble (idempotent on the IC side).
 """
 
 from __future__ import annotations
@@ -15,11 +16,16 @@ import logging
 import os
 import sys
 
-from mn_immunization.runtime.cycles import run_canary_cycle, run_cycle
+from mn_immunization.runtime.cycles import (
+    run_canary_cycle,
+    run_cycle,
+    run_rebaseline_cycle,
+)
 
 CYCLES = {
     "run": run_cycle,
     "canary": run_canary_cycle,
+    "rebaseline": run_rebaseline_cycle,
 }
 
 

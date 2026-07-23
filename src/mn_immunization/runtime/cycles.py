@@ -28,6 +28,7 @@ from pathlib import Path
 
 from mn_immunization.domain.ic_format import (
     IcFormatError,
+    chunk,
     parse_ic_csv,
     render_csv,
 )
@@ -43,10 +44,7 @@ from mn_immunization.runtime.cloud.cloud_storage import (
     get_storage_client,
     upload_file_to_storage,
 )
-from mn_immunization.runtime.cloud.google_drive import (
-    upload_to_google_drive,
-    upload_to_school_folder,
-)
+from mn_immunization.runtime.cloud.google_drive import upload_to_google_drive
 from mn_immunization.runtime.cloud.secrets import get_secret
 from mn_immunization.runtime.files import (
     generate_vaccination_record_filename,
@@ -373,52 +371,6 @@ def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id=None):
     )
 
 
-def upload_files_to_destinations(
-    output_files: list[Path],
-    bucket_name: str,
-    timestamp: str,
-    school_info_list: list[SchoolQueryInformation],
-) -> None:
-    """Upload transformed files to Cloud Storage and per-school Drive folders."""
-    for output_file in output_files:
-        blob_name = f"output/{timestamp}_{output_file.name}"
-        upload_file_to_storage(bucket_name, blob_name, str(output_file))
-
-        drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-        if not drive_folder_id:
-            continue
-        try:
-            school_name = None
-            for school in school_info_list:
-                if school.school_name.replace(" ", "_") in output_file.name:
-                    school_name = school.school_name
-                    break
-
-            drive_filename = f"{timestamp}_{output_file.name}"
-            if not school_name:
-                logger.warning(
-                    "Could not determine school for %s; uploading to root folder",
-                    output_file.name,
-                )
-                upload_to_drive_with_secrets(
-                    str(output_file), drive_filename, drive_folder_id
-                )
-            else:
-                upload_to_school_folder(
-                    file_path=str(output_file),
-                    filename=drive_filename,
-                    school_name=school_name,
-                    refresh_token=get_secret("drive-refresh-token"),
-                    client_id=get_secret("drive-client-id"),
-                    client_secret=get_secret("drive-client-secret"),
-                    parent_folder_id=drive_folder_id,
-                )
-        except Exception as error:
-            logger.warning(
-                "Drive upload failed for %s: %s", output_file.name, error
-            )
-
-
 def submit_roster_queries(ctx: RunContext, username: str, password: str) -> int:
     """Submit every school's roster query. Returns the failure count."""
     failures = 0
@@ -489,7 +441,6 @@ def download_and_deliver(ctx: RunContext, username: str, password: str) -> dict:
                 type(error).__name__,
             )
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     date_str = datetime.now().strftime("%Y-%m-%d")
     output_files = list(output_folder.glob("*.csv"))
 
@@ -538,10 +489,6 @@ def download_and_deliver(ctx: RunContext, username: str, password: str) -> dict:
             events.run_failed(step="diff_sanity", error="SuspiciousDiffVolume"),
         )
         return {"status": "blocked", "reason": reason}
-
-    upload_files_to_destinations(
-        output_files, ctx.bucket_name, timestamp, ctx.schools
-    )
 
     drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
     if drive_folder_id:
@@ -628,6 +575,60 @@ def run_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
             )
 
         return download_and_deliver(ctx, username, password)
+
+
+def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
+    """Push the entire known set to Drive as numbered chunk files.
+
+    Recovery tool for sync trouble (missed imports, IC drift): every chunk
+    goes to the import queue, staff import them all and delete each as
+    done. Safe to run any time because Infinite Campus imports are
+    idempotent; re-importing known records changes nothing. Chunk size
+    exists only to keep individual IC uploads manageable
+    (REBASELINE_CHUNK_RECORDS, default 10000).
+    """
+    with pipeline_run("rebaseline", bucket_name, trigger) as ctx:
+        drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+        if not drive_folder_id:
+            append_event(
+                ctx.ledger,
+                events.run_failed(step="rebaseline", error="NoDriveFolder"),
+            )
+            return {"status": "failed", "reason": "GOOGLE_DRIVE_FOLDER_ID not set"}
+
+        known = load_known_records(ctx.bucket_name, ctx.temp)
+        if not known:
+            append_event(
+                ctx.ledger,
+                events.run_failed(step="rebaseline", error="EmptyMaster"),
+            )
+            return {"status": "failed", "reason": "known-vaccinations master is empty"}
+
+        max_records = int(os.environ.get("REBASELINE_CHUNK_RECORDS", "10000"))
+        pieces = chunk(known, max_records)
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+        for index, piece in enumerate(pieces, start=1):
+            filename = f"{date_str}_rebaseline_{index:02d}-of-{len(pieces):02d}.csv"
+            piece_path = ctx.temp / filename
+            piece_path.write_text(render_csv(piece), encoding="utf-8")
+            drive_file_id = upload_to_drive_with_secrets(
+                str(piece_path), filename, drive_folder_id
+            )
+            append_event(
+                ctx.ledger,
+                events.delivered(filename, "drive", str(drive_file_id)),
+            )
+            print(f"Pushed {filename} ({len(piece)} records)")
+
+        append_event(
+            ctx.ledger,
+            events.run_completed(chunks=len(pieces), records=len(known)),
+        )
+        print(
+            f"Rebaseline complete: {len(known)} records in {len(pieces)} files"
+        )
+        return {"status": "success", "chunks": len(pieces), "records": len(known)}
 
 
 def run_canary_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
