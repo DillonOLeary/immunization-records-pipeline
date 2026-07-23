@@ -244,8 +244,13 @@ def handle_transform_command(config: dict) -> None:
         logger.info("Processing file: %s", input_file)
         try:
             transform_with_metadata(input_file, Path(output_folder))
-        except (AisrParseError, IcFormatError, OSError):
-            logger.error("Transform failed for file: %s", input_file, exc_info=True)
+        except (AisrParseError, IcFormatError, OSError) as error:
+            # Error class only: parse messages can quote a field value (PHI).
+            logger.error(
+                "Transform failed for file %s: %s",
+                input_file.name,
+                type(error).__name__,
+            )
 
     logger.info("Transform command finished")
 

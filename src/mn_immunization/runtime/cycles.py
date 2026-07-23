@@ -87,6 +87,20 @@ def claim_diff(ledger, date_str: str) -> bool:
         return True
 
 
+def suspicious_diff(new_count: int, known_count: int, fraction: float = 0.2) -> bool:
+    """A diff far larger than history is a symptom, not a delivery.
+
+    A wiped or mismatched master would diff the entire student body as
+    "new" and flood the nurses with duplicates. When the known set is
+    non-empty and the diff exceeds max(50, fraction*known), block Drive
+    delivery and fail the run loudly instead. A genuine first run (empty
+    known set) is never blocked.
+    """
+    if known_count == 0:
+        return False
+    return new_count > max(50, int(fraction * known_count))
+
+
 def load_config_from_storage(bucket_name: str, temp_dir: Path) -> dict:
     """Load configuration from storage"""
     storage_client = get_storage_client()
@@ -191,12 +205,13 @@ def process_incremental_vaccinations(
     temp_dir: Path,
     ledger=None,
     snapshots=None,
-) -> tuple[Path, Path, int]:
+) -> tuple[Path, Path, int, int]:
     """Compute the diff against known vaccinations and write both files.
 
-    Returns (diff_file_path, master_file_path, new_record_count). The diff
-    file holds only records new since the last run; the master file becomes
-    the current full set, also stored as a content-addressed snapshot.
+    Returns (diff_file_path, master_file_path, new_count, known_count).
+    The diff file holds only records new since the last run; the master
+    file becomes the union of everything ever seen, also stored as a
+    content-addressed snapshot.
     """
     logger.info("Starting incremental vaccination processing")
 
@@ -204,6 +219,12 @@ def process_incremental_vaccinations(
     known_records = load_known_records(bucket_name, temp_dir)
 
     new_records = current_records.diff(known_records)
+    # Absence is never deletion: the master is the union of everything ever
+    # seen, so a school whose download fails this run keeps its records in
+    # the master and does not get re-delivered as "new" when it recovers.
+    # (This drift caused real duplicate deliveries under the old
+    # master-equals-current behavior.)
+    master_records = known_records.union(current_records)
     logger.info(
         "Found %d new vaccination records out of %d total",
         len(new_records),
@@ -218,9 +239,9 @@ def process_incremental_vaccinations(
     logger.info("Saved %d new records to %s", len(new_records), diff_filename)
 
     master_file_path = output_folder / ALL_KNOWN_VACCINATIONS_FILE
-    master_text = render_csv(current_records)
+    master_text = render_csv(master_records)
     master_file_path.write_text(master_text, encoding="utf-8")
-    logger.info("Updated master file with %d total records", len(current_records))
+    logger.info("Updated master file with %d total records", len(master_records))
 
     snapshot_path = ""
     if snapshots is not None:
@@ -256,7 +277,7 @@ def process_incremental_vaccinations(
         logger.error("Failed to upload to GCS: %s", error)
 
     logger.info("Completed incremental vaccination processing")
-    return diff_file_path, master_file_path, len(new_records)
+    return diff_file_path, master_file_path, len(new_records), len(known_records)
 
 
 def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id=None):
@@ -474,9 +495,13 @@ def run_download_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
                         transformed_filename(input_file.name)
                     )
                     output_file.write_text(render_csv(records), encoding="utf-8")
-                except (AisrParseError, IcFormatError, OSError):
+                except (AisrParseError, IcFormatError, OSError) as error:
+                    # Error class only: parse error messages can quote a
+                    # malformed field value, and field values are PHI here.
                     logger.error(
-                        "Transform failed for file: %s", input_file, exc_info=True
+                        "Transform failed for file %s: %s",
+                        input_file.name,
+                        type(error).__name__,
                     )
 
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -499,16 +524,35 @@ def run_download_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
                     "for incremental updates"
                 )
 
-                diff_file, _, new_count = process_incremental_vaccinations(
-                    output_files=output_files,
-                    output_folder=output_folder,
-                    bucket_name=bucket_name,
-                    temp_dir=temp_path,
-                    ledger=ledger,
-                    snapshots=snapshots,
+                diff_file, _, new_count, known_count = (
+                    process_incremental_vaccinations(
+                        output_files=output_files,
+                        output_folder=output_folder,
+                        bucket_name=bucket_name,
+                        temp_dir=temp_path,
+                        ledger=ledger,
+                        snapshots=snapshots,
+                    )
                 )
 
                 print(f"Created incremental diff file: {diff_file.name}")
+
+                fraction_env = os.environ.get("DIFF_SANITY_FRACTION", "0.2")
+                if fraction_env != "off" and suspicious_diff(
+                    new_count, known_count, float(fraction_env)
+                ):
+                    reason = (
+                        f"diff of {new_count} records against {known_count} known "
+                        "is suspiciously large; blocking Drive delivery"
+                    )
+                    print(f"BLOCKED: {reason}")
+                    append_event(
+                        ledger,
+                        events.run_failed(
+                            step="diff_sanity", error="SuspiciousDiffVolume"
+                        ),
+                    )
+                    return {"status": "blocked", "reason": reason}
 
                 print(
                     f"Uploading {len(output_files)} full backup files to storage "

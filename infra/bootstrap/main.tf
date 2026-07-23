@@ -39,8 +39,8 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.repository" = "assertion.repository"
   }
 
-  # Only this repository can assume the deployer identity.
-  attribute_condition = "assertion.repository == \"${var.github_repo}\""
+  # Only this repository's main branch can assume the deployer identity.
+  attribute_condition = "assertion.repository == \"${var.github_repo}\" && assertion.ref == \"refs/heads/main\""
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"

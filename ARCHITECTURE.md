@@ -148,21 +148,20 @@ Design points:
 
 ## Drive is the UI
 
-The Drive folder becomes a small protocol instead of a dumping ground:
+The district staff already have a working protocol, and the design adopts
+it rather than inventing one: the diff file lands in the Drive folder, a
+staff member imports it into Infinite Campus, and then **deletes the file
+from Drive** as their own done-signal. Files present in the folder are the
+import queue; an empty folder means caught up; a missed period just means
+importing every diff file sitting there (each diff is small and disjoint,
+which is the whole point of diffs over raw files).
 
-```
-<district folder>/
-  to-import/          the month's diff lands here
-  imported/           the human moves the file here after the IC import
-  backups/<school>/   full per-school transformed files
-```
-
-The human's existing action (move a file between folders) becomes the
-confirmation signal. The download run (or the canary) lists `to-import/`;
-a file that has been moved to `imported/` gets an ImportConfirmed event; a
-file still sitting in `to-import/` after N days triggers an alert. The loop
-closes with zero new surface, no frontend, and no new habits beyond one
-folder move.
+That makes the confirmation signal file *absence*: a later run lists the
+folder, and a previously Delivered diff that is gone gets an
+ImportConfirmed event (how: deleted from Drive); a diff still present
+after N days triggers an alert. Zero new habits, zero new surface.
+Per-school full backups go to school subfolders and are not part of the
+import queue.
 
 If requirements outgrow this (30 districts likely will), the replacement is
 a small web app reading the ledger, and the ledger port is already there.
@@ -285,6 +284,23 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-22 (pre-cutover hardening, after Dillon's review): master file
+  semantics changed from master=current to master=union(known, current).
+  Absence is never deletion: a school whose download fails keeps its
+  records in the master, killing the confirmed drift bug where a failed
+  week followed by a good week re-delivered old records as new. Added a
+  diff-size sanity brake (suspicious_diff): a diff exceeding
+  max(50, 20% of known) blocks Drive delivery and fails the run loudly —
+  floods of duplicates must never reach the nurses (first-ever runs with
+  an empty known set are exempt; tune or disable via
+  DIFF_SANITY_FRACTION). Security review came back clean; its two
+  informational notes are fixed (transform-failure logs now carry error
+  class only, since parse messages can quote a PHI field value; WIF trust
+  now requires refs/heads/main, not just the repository). Operational
+  facts recorded: MIIC emails all nurses on every bulk-query upload, so
+  the query cycle is never run manually and rehearsals use canary or
+  download only; the Drive protocol is delete-as-ack per existing staff
+  habit (see "Drive is the UI").
 - 2026-07-22: branch `rewrite-2026` created; roster and config removed from
   all working trees; `.gitignore` guards added.
 - 2026-07-22: phase 1 done. Five workspaces collapsed into `src/mn_immunization`

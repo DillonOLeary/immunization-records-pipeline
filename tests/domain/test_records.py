@@ -92,6 +92,20 @@ class TestRecordSet:
         new = current.diff(known)
         assert len(new) == 2
 
+    def test_failed_school_does_not_drift_the_master(self):
+        # The real incident: school B's download fails one run, succeeds the
+        # next. With master = union(known, current), B's records never leave
+        # the master, so B's recovery delivers nothing spurious.
+        a, b = record(id_1="school-a"), record(id_1="school-b")
+        known = RecordSet.from_iterable([a, b])
+
+        current_without_b = RecordSet.from_iterable([a])
+        master_after_bad_run = known.union(current_without_b)
+        assert b in master_after_bad_run
+
+        current_with_b_back = RecordSet.from_iterable([a, b])
+        assert len(current_with_b_back.diff(master_after_bad_run)) == 0
+
     def test_date_format_does_not_affect_identity(self):
         # A record parsed from AISR (ISO) must equal the same record parsed
         # back from a master file (IC format), or every diff would re-deliver
