@@ -41,7 +41,7 @@ uv run mock-server                # standalone fake AISR server
 uv run mn-immunization status --bucket <data-bucket>   # recent runs from the ledger
 ```
 
-The pipeline itself runs as a Cloud Run Job (`mn-immunization-job`),
+The pipeline itself runs as a Cloud Run Job (`pipeline-job`),
 triggered by Cloud Scheduler in production and by `gcloud run jobs execute`
 for a manual run; the local `mn-immunization` CLI is a read-only window into
 the run ledger. `config.json.example` documents the config shape. Real

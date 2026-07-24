@@ -36,7 +36,7 @@ uv run mn-immunization status --bucket <data-bucket>  # ledger status
 uv run mock-server                      # local fake AISR
 ```
 
-The pipeline runs as the Cloud Run Job `mn-immunization-job` (dispatch:
+The pipeline runs as the Cloud Run Job `pipeline-job` (dispatch:
 `run` / `canary` / `rebaseline`); a manual run is `gcloud run jobs execute`.
 The `mn-immunization` CLI is status-only.
 

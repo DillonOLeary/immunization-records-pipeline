@@ -1,7 +1,7 @@
 """Command-line interface: `mn-immunization status`.
 
 The CLI is an operator's read-only window into the ledger. Everything
-that changes state runs as the Cloud Run Job (`mn-immunization-job`);
+that changes state runs as the Cloud Run Job (`pipeline-job`);
 manual operation is `gcloud run jobs execute`.
 """
 
