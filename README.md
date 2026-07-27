@@ -5,7 +5,8 @@ into CSV files that school staff import into Infinite Campus.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) is the source of truth for the design, the
 decisions behind it, and the constraints it honors. This README is the quick
-orientation for working in the repo.
+orientation for working in the repo. [ONBOARDING.md](ONBOARDING.md) is the
+runbook for standing up the pipeline for a new district.
 
 ## How it works
 
@@ -44,7 +45,7 @@ uv run mn-immunization status --bucket <data-bucket>   # recent runs from the le
 The pipeline itself runs as a Cloud Run Job (`pipeline-job`),
 triggered by Cloud Scheduler in production and by `gcloud run jobs execute`
 for a manual run; the local `mn-immunization` CLI is a read-only window into
-the run ledger. `config.json.example` documents the config shape. Real
+the run ledger. `config/config.json.example` documents the config shape. Real
 config, rosters, and query files never live in this repo (enforced by
 .gitignore); production reads them from Cloud Storage.
 

@@ -17,6 +17,10 @@ resource "google_cloud_run_v2_job" "pipeline" {
           value = google_storage_bucket.data.name
         }
         env {
+          name  = "GCP_PROJECT"
+          value = local.project_id
+        }
+        env {
           name  = "GOOGLE_DRIVE_FOLDER_ID"
           value = var.google_drive_folder_id
         }
