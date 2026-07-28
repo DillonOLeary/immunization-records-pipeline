@@ -38,6 +38,19 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invokes_job" {
   member   = "serviceAccount:${google_service_account.scheduler.email}"
 }
 
+# Incident 2026-07-28: the first scheduled launch got HTTP 403
+# (PERMISSION_DENIED) calling the v2 jobs:run endpoint even though the
+# job-level run.invoker binding above was in place — the v2 API check did
+# not honor it. Project-level invoker fixes the launch. Blast radius is
+# unchanged in practice: one-project-per-district means this project
+# contains exactly one job. The job-level binding stays as the statement
+# of intent.
+resource "google_project_iam_member" "scheduler_invokes_run" {
+  project = local.project_id
+  role    = "roles/run.invoker"
+  member  = "serviceAccount:${google_service_account.scheduler.email}"
+}
+
 # CI deploys new images to the job, which requires acting as the job's
 # runtime service account — granted on this one SA, never project-wide.
 resource "google_service_account_iam_member" "deployer_acts_as_job" {

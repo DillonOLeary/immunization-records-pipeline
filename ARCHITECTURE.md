@@ -482,6 +482,24 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-07-28: INCIDENT — the first autonomous launch never happened.
+  Cloud Scheduler fired on time (07:09:01Z = 2:09am Chicago) and got
+  HTTP 403 PERMISSION_DENIED calling the v2 `jobs:run` endpoint, despite
+  the job-level `roles/run.invoker` binding for the scheduler SA — the
+  v2 API check did not honor it. The job never started, so no RunFailed
+  event and no execution metric existed: the failure was invisible to
+  the existing alert by construction (the exact gap the alerts.tf
+  limitation note described). Data impact: none — July's cycle had
+  already completed on the 23rd. Fix (this commit): project-level
+  `run.invoker` for the scheduler SA (blast radius unchanged — the
+  district project contains exactly one job) and a log-match alert on
+  `cloud_scheduler_job` severity>=ERROR, which is the only signal that
+  exists when a launch fails. Dillon's call: no July claim backfill, no
+  immediate rerun ("it's the summer") — a supervised run comes later;
+  note that a manual run before Aug 1 would resubmit July rosters and
+  email the nurses, while from Aug 1 submission is the intended monthly
+  one. Terraform applied by hand per the usual split (CI validates,
+  humans apply).
 - 2026-07-23: ImportConfirmed made real (commit 3 of the cleanup sweep).
   The delete-as-ack protocol described under "Drive is the UI" now has
   code: `sinks/drive.py` gained `list_drive_filenames` (drive.file scope,
