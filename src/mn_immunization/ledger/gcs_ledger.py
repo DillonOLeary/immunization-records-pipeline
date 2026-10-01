@@ -73,9 +73,7 @@ class GcsRunLedger:
         if key not in self._won:
             raise ValueError(f"claim {key} was not won by run {self.run_id}")
         generation = self._won.pop(key)
-        self.bucket.blob(f"{CLAIMS_PREFIX}{key}").delete(
-            if_generation_match=generation
-        )
+        self.bucket.blob(f"{CLAIMS_PREFIX}{key}").delete(if_generation_match=generation)
 
     def recent_runs(self, months: int = 2, limit: int | None = None) -> list[dict]:
         """Runs with events in the last `months` calendar months (this one
