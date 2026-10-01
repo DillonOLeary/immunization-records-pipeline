@@ -1,5 +1,5 @@
 # Container for the Cloud Run Job. Built and deployed only by CI.
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim
 
 WORKDIR /app
 

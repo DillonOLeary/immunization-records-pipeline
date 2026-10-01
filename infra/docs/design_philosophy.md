@@ -152,7 +152,7 @@ graph LR
 1. **Serverless**: No infrastructure to manage
 2. **Auto-scaling**: Handles load spikes during enrollment periods
 3. **Pay-per-use**: Cost-effective for periodic workloads
-4. **Python 3.11**: Modern runtime with excellent library support
+4. **Python 3.14**: Modern runtime with excellent library support
 
 ### Why Terraform?
 
