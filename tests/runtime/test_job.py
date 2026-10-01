@@ -8,7 +8,7 @@ import json
 
 import mn_immunization.runtime.job as job
 
-ENV = {"DATA_BUCKET": "test-bucket"}
+ENV = {"DATA_BUCKET": "test-bucket", "DISTRICT_TIME_ZONE": "America/Chicago"}
 SERVICES = object()  # stands in for Services; the fake cycles only pass it on
 
 

@@ -9,7 +9,7 @@ ports (`pipeline.services.Services`) and never names an implementation.
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 from mn_immunization.gcp.secrets import secret_reader
 from mn_immunization.gcp.storage import GcsObjectStore, get_storage_client
@@ -19,7 +19,9 @@ from mn_immunization.pipeline.settings import Settings
 from mn_immunization.sinks.drive import GoogleDriveSink
 from mn_immunization.sources.aisr.client import aisr_opener
 
-SYSTEM_CLOCK = Clock(now=datetime.now, sleep=time.sleep, monotonic=time.monotonic)
+SYSTEM_CLOCK = Clock(
+    now=lambda: datetime.now(UTC), sleep=time.sleep, monotonic=time.monotonic
+)
 
 
 def build_services(settings: Settings, clock: Clock = SYSTEM_CLOCK) -> Services:

@@ -1,20 +1,25 @@
 """Settings.from_env: every environment variable, parsed once, loudly."""
 
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from mn_immunization.pipeline.settings import Settings, SettingsError
 
+CHICAGO = ZoneInfo("America/Chicago")
+BASE = {"DATA_BUCKET": "b", "DISTRICT_TIME_ZONE": "America/Chicago"}
 
-def test_defaults_need_only_the_bucket():
-    settings = Settings.from_env({"DATA_BUCKET": "b"})
-    assert settings == Settings(data_bucket="b")
+
+def test_defaults_need_only_the_bucket_and_the_zone():
+    settings = Settings.from_env(BASE)
+    assert settings == Settings(data_bucket="b", time_zone=CHICAGO)
     assert settings.brake_fraction == 0.2
     assert settings.drive_folder_id is None
 
 
 def test_every_variable_is_read():
     env = {
-        "DATA_BUCKET": "b",
+        **BASE,
         "GCP_PROJECT": "p",
         "GOOGLE_DRIVE_FOLDER_ID": "f",
         "POLL_INTERVAL_SECONDS": "60",
@@ -26,6 +31,7 @@ def test_every_variable_is_read():
     }
     assert Settings.from_env(env) == Settings(
         data_bucket="b",
+        time_zone=CHICAGO,
         gcp_project="p",
         drive_folder_id="f",
         poll_interval_seconds=60,
@@ -38,12 +44,12 @@ def test_every_variable_is_read():
 
 
 def test_the_brake_can_be_turned_off():
-    env = {"DATA_BUCKET": "b", "DIFF_SANITY_FRACTION": "off"}
+    env = {**BASE, "DIFF_SANITY_FRACTION": "off"}
     assert Settings.from_env(env).brake_fraction is None
 
 
 def test_empty_optional_values_mean_unset():
-    env = {"DATA_BUCKET": "b", "GOOGLE_DRIVE_FOLDER_ID": "", "GCP_PROJECT": ""}
+    env = {**BASE, "GOOGLE_DRIVE_FOLDER_ID": "", "GCP_PROJECT": ""}
     settings = Settings.from_env(env)
     assert (settings.drive_folder_id, settings.gcp_project) == (None, None)
 
@@ -51,17 +57,19 @@ def test_empty_optional_values_mean_unset():
 @pytest.mark.parametrize(
     ("env", "variable"),
     [
-        ({}, "DATA_BUCKET"),
+        ({"DISTRICT_TIME_ZONE": "America/Chicago"}, "DATA_BUCKET"),
+        ({"DATA_BUCKET": "b"}, "DISTRICT_TIME_ZONE"),
+        ({**BASE, "DISTRICT_TIME_ZONE": "Mars/Olympus_Mons"}, "DISTRICT_TIME_ZONE"),
         (
-            {"DATA_BUCKET": "b", "POLL_DEADLINE_SECONDS": "soon"},
+            {**BASE, "POLL_DEADLINE_SECONDS": "soon"},
             "POLL_DEADLINE_SECONDS",
         ),
         (
-            {"DATA_BUCKET": "b", "REBASELINE_CHUNK_RECORDS": "0"},
+            {**BASE, "REBASELINE_CHUNK_RECORDS": "0"},
             "REBASELINE_CHUNK_RECORDS",
         ),
-        ({"DATA_BUCKET": "b", "DIFF_SANITY_FRACTION": "lots"}, "DIFF_SANITY_FRACTION"),
-        ({"DATA_BUCKET": "b", "DIFF_SANITY_FRACTION": "-1"}, "DIFF_SANITY_FRACTION"),
+        ({**BASE, "DIFF_SANITY_FRACTION": "lots"}, "DIFF_SANITY_FRACTION"),
+        ({**BASE, "DIFF_SANITY_FRACTION": "-1"}, "DIFF_SANITY_FRACTION"),
     ],
 )
 def test_bad_values_fail_naming_the_variable(env, variable):

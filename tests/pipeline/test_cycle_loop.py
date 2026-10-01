@@ -14,13 +14,14 @@ from mn_immunization.pipeline.execute import Executors
 from mn_immunization.pipeline.policy import DiffResult, Submission
 from mn_immunization.pipeline.settings import Settings
 from mn_immunization.sources.aisr.port import SchoolQueryInformation
-from tests.fakes import FakeClock, make_run_context
+from tests.fakes import DISTRICT, FakeClock, make_run_context
 
 SCHOOLS = 8
 INTERVAL = 14400
 DEADLINE = 72000
 SETTINGS = Settings(
     data_bucket="test-bucket",
+    time_zone=DISTRICT,
     poll_interval_seconds=INTERVAL,
     poll_deadline_seconds=DEADLINE,
     brake_fraction=0.2,

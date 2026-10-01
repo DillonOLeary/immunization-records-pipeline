@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 
 from google.api_core.exceptions import PreconditionFailed
 
@@ -36,9 +36,15 @@ class GcsRunLedger:
         self._seq = 0
         self._won: dict[str, int | None] = {}  # claim key -> its generation
 
+    def _stamp(self) -> datetime:
+        """Ledger time is UTC, stored without an offset (the format every
+        event so far has used)."""
+        at = self._now()
+        return at.astimezone(UTC).replace(tzinfo=None) if at.tzinfo else at
+
     def append(self, event: LedgerEvent) -> None:
         self._seq += 1
-        at = self._now()
+        at = self._stamp()
         blob_name = (
             f"ledger/{at:%Y}/{at:%m}/{self.run_id}/{self._seq:03d}_{event.type}.json"
         )
@@ -56,7 +62,7 @@ class GcsRunLedger:
     def claim(self, key: str) -> bool:
         blob = self.bucket.blob(f"{CLAIMS_PREFIX}{key}")
         payload = json.dumps(
-            {"run_id": self.run_id, "at": self._now().isoformat(timespec="seconds")}
+            {"run_id": self.run_id, "at": self._stamp().isoformat(timespec="seconds")}
         )
         try:
             blob.upload_from_string(
@@ -73,9 +79,7 @@ class GcsRunLedger:
         if key not in self._won:
             raise ValueError(f"claim {key} was not won by run {self.run_id}")
         generation = self._won.pop(key)
-        self.bucket.blob(f"{CLAIMS_PREFIX}{key}").delete(
-            if_generation_match=generation
-        )
+        self.bucket.blob(f"{CLAIMS_PREFIX}{key}").delete(if_generation_match=generation)
 
     def recent_runs(self, months: int = 2, limit: int | None = None) -> list[dict]:
         """Runs with events in the last `months` calendar months (this one

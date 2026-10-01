@@ -6,6 +6,9 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: roster periods and delivery dates use the district's zone
+  (`DISTRICT_TIME_ZONE`, required); ledger stamps stay UTC. `tzdata` added
+  so zones never depend on the base image; deploys smoke-test the image.
 - 2026-10-01: the job gets `DISTRICT_TIME_ZONE` (the schedulers' zone), ahead
   of code that requires it.
 - 2026-10-01: a roster that provably never went out (signing failed,

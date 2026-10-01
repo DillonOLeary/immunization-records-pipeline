@@ -1,7 +1,7 @@
 """CLI entrypoint tests: parsing and dispatch. The CLI is status-only;
 everything that changes state runs as the Cloud Run Job."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -56,7 +56,7 @@ def test_status_prints_the_release_command_for_a_stuck_claim(monkeypatch, capsys
     monkeypatch.delenv("QUERY_PERIOD_FORMAT", raising=False)
     bucket = FakeBucket()
     GcsRunLedger(bucket, run_id="run_x", now=datetime.now).claim(
-        f"{datetime.now():%Y-%m}_query_2543"
+        f"{datetime.now(UTC):%Y-%m}_query_2543"
     )
     monkeypatch.setattr(
         cli,
@@ -68,4 +68,4 @@ def test_status_prints_the_release_command_for_a_stuck_claim(monkeypatch, capsys
 
     out = capsys.readouterr().out
     assert "STUCK ROSTER CLAIMS" in out
-    assert f"gs://data-bucket/ledger/claims/{datetime.now():%Y-%m}_query_2543" in out
+    assert f"gs://data-bucket/ledger/claims/{datetime.now(UTC):%Y-%m}_query_2543" in out

@@ -179,7 +179,7 @@ the claim of a roster that did go out sends every nurse a second email.
 | Runtime config (schools, `iddis`, API hosts) | `config/config.json` in the data bucket | human authors, uploads |
 | Rosters | `data/queries/*.csv` in the data bucket | exported from Infinite Campus |
 | Credentials (2 AISR + 3 Drive) | Secret Manager | human adds versions; shells from Terraform |
-| Job wiring (bucket, project, folder id env vars) | `infra/modules/district/job.tf` | Terraform |
+| Job wiring (bucket, project, folder id, time zone env vars) | `infra/modules/district/job.tf` | Terraform |
 
 ## Known limits (single-district today)
 

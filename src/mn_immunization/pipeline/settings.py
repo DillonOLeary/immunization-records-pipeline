@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class SettingsError(ValueError):
@@ -50,9 +51,21 @@ def _brake(env: Mapping[str, str]) -> float | None:
     return value
 
 
+def _zone(env: Mapping[str, str]) -> ZoneInfo:
+    name = env.get("DISTRICT_TIME_ZONE")
+    if not name:
+        # No code default: the zone decides which month's rosters go out.
+        raise SettingsError("DISTRICT_TIME_ZONE", "is not set")
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise SettingsError("DISTRICT_TIME_ZONE", "is not a known time zone") from None
+
+
 @dataclass(frozen=True)
 class Settings:
     data_bucket: str  # DATA_BUCKET: the district's one bucket
+    time_zone: ZoneInfo  # DISTRICT_TIME_ZONE: periods and dates are local
     gcp_project: str | None = None  # GCP_PROJECT; None: from ADC
     drive_folder_id: str | None = None  # GOOGLE_DRIVE_FOLDER_ID; None: no delivery
     poll_interval_seconds: int = 14400  # POLL_INTERVAL_SECONDS
@@ -69,6 +82,7 @@ class Settings:
             raise SettingsError("DATA_BUCKET", "is not set")
         return cls(
             data_bucket=bucket,
+            time_zone=_zone(env),
             gcp_project=env.get("GCP_PROJECT") or None,
             drive_folder_id=env.get("GOOGLE_DRIVE_FOLDER_ID") or None,
             poll_interval_seconds=_int(env, "POLL_INTERVAL_SECONDS", 14400),

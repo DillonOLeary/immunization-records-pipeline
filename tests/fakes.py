@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from google.api_core.exceptions import NotFound, PreconditionFailed
 
@@ -206,12 +207,23 @@ class InMemorySnapshotStore:
         return bool(self.snapshots)
 
 
+DISTRICT = ZoneInfo("America/Chicago")
+"""The test district's zone (ISD 197's)."""
+
+
+def district_period(now: datetime | None = None) -> str:
+    """This month's roster period in the test district: the default
+    QUERY_PERIOD_FORMAT, in the district's zone."""
+    return (now or datetime.now(UTC)).astimezone(DISTRICT).strftime("%Y-%m")
+
+
 class FakeClock:
-    """Wall time fixed at `at`; monotonic time moves only when the code
-    under test sleeps, and every sleep is recorded."""
+    """Wall time fixed at `at` (UTC-aware, like the real clock); monotonic
+    time moves only when the code under test sleeps, and every sleep is
+    recorded."""
 
     def __init__(self, at: datetime | None = None):
-        self.at = at or datetime.now()
+        self.at = at or datetime.now(UTC)
         self.elapsed = 0.0
         self.sleeps: list[float] = []
 
@@ -251,7 +263,7 @@ def make_run_context(
     object store, a FakeDrive, and an AISR opener that must not be used.
     Pass `drive=None` for a district with no delivery folder."""
     return RunContext(
-        settings=settings or Settings(data_bucket="test-bucket"),
+        settings=settings or Settings(data_bucket="test-bucket", time_zone=DISTRICT),
         clock=clock or FakeClock().as_clock(),
         ledger=ledger or InMemoryRunLedger(),
         snapshots=InMemorySnapshotStore(),

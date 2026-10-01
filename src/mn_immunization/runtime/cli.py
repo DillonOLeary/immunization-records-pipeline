@@ -11,7 +11,7 @@ import argparse
 import logging
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from mn_immunization.gcp.storage import get_storage_client
 from mn_immunization.ledger.events import TERMINAL_TYPES
@@ -65,7 +65,9 @@ def stuck_claims(bucket, now: datetime) -> list[tuple[str, dict]]:
 def handle_status_command(args: argparse.Namespace) -> None:
     """Print recent runs and their terminal outcomes from the ledger, then
     any stuck roster claims."""
-    now = datetime.now()
+    # UTC: ledger folders are UTC months, and a UTC "now" is never behind a
+    # US district's, so this month and last always cover its periods.
+    now = datetime.now(UTC)
     bucket = get_storage_client().bucket(args.bucket)
     runs = read_recent_runs(bucket, recent_months(now, 2), limit=args.limit)
 

@@ -177,7 +177,7 @@ def run_rebaseline_cycle(services: Services, trigger: str = "manual") -> dict:
             return {"status": "failed", "reason": "known-vaccinations master is empty"}
 
         pieces = chunk(known, ctx.settings.rebaseline_chunk_records)
-        date_str = ctx.clock.now().strftime("%Y-%m-%d")
+        date_str = ctx.local_now().strftime("%Y-%m-%d")
 
         for index, piece in enumerate(pieces, start=1):
             filename = f"{date_str}_rebaseline_{index:02d}-of-{len(pieces):02d}.csv"

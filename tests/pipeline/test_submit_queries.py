@@ -21,7 +21,7 @@ from mn_immunization.ledger.gcs_ledger import GcsRunLedger
 from mn_immunization.sources.aisr.authenticate import AuthenticationError
 from mn_immunization.sources.aisr.client import aisr_session
 from mn_immunization.sources.aisr.port import SchoolQueryInformation
-from tests.fakes import FakeBucket, make_run_context
+from tests.fakes import FakeBucket, district_period, make_run_context
 
 SCHOOL_IDS = ["2542", "2543", "2544"]
 
@@ -33,7 +33,7 @@ def bucket():
 
 @pytest.fixture
 def period():
-    return f"{datetime.now():%Y-%m}"  # the default QUERY_PERIOD_FORMAT
+    return district_period()
 
 
 def make_ctx(

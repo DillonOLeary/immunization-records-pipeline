@@ -40,9 +40,20 @@ jobs:
       - name: Configure docker for Artifact Registry
         run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
 
-      - name: Build and push image
+      - name: Build image
+        run: docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+
+      - name: Smoke-test the image
+        # An image that cannot start fails here, before the job points at
+        # it (July's first image failed at start). --help imports every
+        # module; the zone lookup proves time zone data is present.
         run: |
-          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker run --rm "$IMAGE:${{ github.sha }}" --help > /dev/null
+          docker run --rm --entrypoint /app/.venv/bin/python "$IMAGE:${{ github.sha }}" \
+            -c "from zoneinfo import ZoneInfo; ZoneInfo('America/Chicago')"
+
+      - name: Push image
+        run: |
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
 

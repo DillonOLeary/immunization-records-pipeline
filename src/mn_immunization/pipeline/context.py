@@ -9,6 +9,7 @@ clock. Tests build one from fakes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from mn_immunization.gcp.port import ObjectStore
@@ -37,3 +38,9 @@ class RunContext:
     api_url: str
     district: DistrictInfo
     schools: list[SchoolQueryInformation] = field(default_factory=list)
+
+    def local_now(self) -> datetime:
+        """Now in the district's zone: roster periods and delivery dates
+        follow the district's calendar, as its schedulers do. (Ledger
+        timestamps and run ids stay UTC.)"""
+        return self.clock.now().astimezone(self.settings.time_zone)

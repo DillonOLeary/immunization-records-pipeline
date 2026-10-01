@@ -121,7 +121,8 @@ def record_import_confirmations(ctx: RunContext) -> None:
         return
 
     try:
-        now = ctx.clock.now()
+        # Delivered files carry the district-local date they were made on.
+        now = ctx.local_now().replace(tzinfo=None)
         runs = ctx.ledger.recent_runs(limit=50)
 
         delivered: set[str] = set()
@@ -162,7 +163,7 @@ def record_import_confirmations(ctx: RunContext) -> None:
 def query_period(ctx: RunContext) -> str:
     """The roster-submission period key (QUERY_PERIOD_FORMAT, monthly by
     default): one submission per school per period."""
-    return ctx.clock.now().strftime(ctx.settings.query_period_format)
+    return ctx.local_now().strftime(ctx.settings.query_period_format)
 
 
 def submitted_this_period(runs: list[dict], period: str) -> set[str]:
@@ -345,7 +346,7 @@ def _compute_diff(ctx: RunContext) -> DiffResult:
         objects=ctx.objects,
         snapshots=ctx.snapshots,
         ledger=ctx.ledger,
-        now=ctx.clock.now(),
+        now=ctx.local_now(),
     )
     logger.info("Created incremental diff file: %s", diff_path.name)
     return DiffResult(

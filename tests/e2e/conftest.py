@@ -23,7 +23,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 from minnesota_immunization_mock.sample_data import CANARY_PHI
@@ -101,7 +101,11 @@ class World:
         """Test composition: the real GCS adapters over the shared fake
         bucket, the fake Drive, the real AISR opener, no sleeping."""
         assert settings.data_bucket == self.bucket.name
-        clock = Clock(now=datetime.now, sleep=lambda _: None, monotonic=time.monotonic)
+        clock = Clock(
+            now=lambda: datetime.now(UTC),
+            sleep=lambda _: None,
+            monotonic=time.monotonic,
+        )
         return Services(
             settings=settings,
             clock=clock,
@@ -141,6 +145,7 @@ def world(monkeypatch, mock_aisr, caplog):
     drive = FakeDrive()
 
     monkeypatch.setenv("DATA_BUCKET", BUCKET)
+    monkeypatch.setenv("DISTRICT_TIME_ZONE", "America/Chicago")
     monkeypatch.setenv("GOOGLE_DRIVE_FOLDER_ID", "e2e-folder")
     # One staging probe, then proceed: the fake AISR stages at once.
     monkeypatch.setenv("POLL_INTERVAL_SECONDS", "0")
