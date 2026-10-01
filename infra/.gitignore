@@ -3,7 +3,10 @@
 *.tfstate.*
 *.tfvars
 .terraform/
-.terraform.lock.hcl
+# Plan files embed state and config: never commit them. (The lock file,
+# .terraform.lock.hcl, IS committed: it pins provider versions and hashes.)
+*.plan
+*.tfplan
 
 # Sensitive files
 terraform.tfvars

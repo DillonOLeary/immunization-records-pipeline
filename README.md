@@ -7,6 +7,8 @@ into CSV files that school staff import into Infinite Campus.
 decisions behind it, and the constraints it honors. This README is the quick
 orientation for working in the repo. [ONBOARDING.md](ONBOARDING.md) is the
 runbook for standing up the pipeline for a new district.
+[docs/HISTORY.md](docs/HISTORY.md) is the dated log of decisions and
+incidents.
 
 ## How it works
 

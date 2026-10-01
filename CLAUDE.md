@@ -9,9 +9,10 @@ via the AISR bulk interface) to Infinite Campus for school districts, on a
 schedule, with delivery through Google Drive. Student health data flows
 through this system: never put PHI in code, tests, logs, or commits.
 
-Read ARCHITECTURE.md before structural changes. It contains the target
-design, the build-order phases, and a live progress checklist. Keep the
-progress section current as work lands.
+Read ARCHITECTURE.md before structural changes. It describes the design as
+it exists, and only that: when a change lands, update it to stay true.
+Record decisions, incidents, and progress as dated entries (newest first)
+in docs/HISTORY.md; that is where the reasoning trail lives.
 
 ## Layout
 

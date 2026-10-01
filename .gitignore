@@ -163,9 +163,11 @@ cython_debug/
 
 .DS_Store
 
-# Terraform
+# Terraform (.terraform.lock.hcl is committed on purpose: it pins provider
+# versions and hashes. Plan files embed state and config; never commit them.)
 .terraform/
-.terraform.lock.hcl
+*.plan
+*.tfplan
 *.tfstate
 *.tfstate.*
 *.tfvars
