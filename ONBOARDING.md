@@ -1,192 +1,115 @@
-# Onboarding a new district
+# Onboarding a district
 
-The runbook for standing up the pipeline for a school district, start to
-finish. Each step is tagged with where it happens: **[external]** (outside
-any system you control), **[console]** (GCP or Google web UI), or
-**[terminal]** (this repo).
+One district = one GCP project = one `infra/districts/<name>.json` = one
+instance of the district Terraform module.
 
-One district = one GCP project = one JSON file in `infra/districts/` = one
-instance of the district Terraform module. See
-[ARCHITECTURE.md](ARCHITECTURE.md) for the tenancy reasoning and
-[infra/README.md](infra/README.md) for the Terraform layout.
+**PHI rule:** real rosters, config, and records never enter this repo (not
+commits, issues, or logs). They live only in the district's bucket and
+Drive folder.
 
-**PHI rule, before anything else:** real rosters, config, and downloaded
-records never enter this repo — not in commits, branches, issues, or logs.
-They live only in the district's GCS bucket and Drive folder.
+## 1. AISR access [external]
 
-## 1. AISR / MIIC access — [external]
+The district enrolls with MDH for AISR bulk-query access (its MIIC contact
+usually starts this; allow days to weeks). You get an AISR username and
+password, and the district's MDE number (`iddis`, e.g. `0197`).
 
-The district enrolls with the Minnesota Department of Health for AISR
-bulk-query access (the district's MIIC contact usually initiates this).
-You come away with:
+## 2. Platform bootstrap [terminal, once ever]
 
-- an AISR username and password for the pipeline to use
-- the district's MDE number (`iddis` in config, e.g. `0197`)
+Already done if any district is live.
 
-Lead time on MDH is days-to-weeks; start here.
+1. Apply `infra/bootstrap/` (Workload Identity pool and deployer service
+   account; no keys exist anywhere). A fork must set `github_repo` first.
+2. Set GitHub repository **Variables**: `GCP_WIF_PROVIDER` and
+   `GCP_DEPLOYER_SA` (bootstrap outputs), `GCP_PROJECT`, `GCP_REGION`.
 
-## 2. Platform bootstrap — [terminal, once ever]
-
-Already done if any district is live. A fork must override `github_repo`
-in `infra/bootstrap/variables.tf` (only that repo's `main` branch may
-deploy).
-
-1. Apply `infra/bootstrap/` (creates the Workload Identity pool and the
-   deployer service account — keyless; no SA keys exist anywhere).
-2. Set the four GitHub repository **Variables** (not Secrets — none of
-   these are credentials): `GCP_WIF_PROVIDER` and `GCP_DEPLOYER_SA` from
-   the bootstrap outputs, plus `GCP_PROJECT` and `GCP_REGION`. The Deploy
-   workflow wakes up on the next push to `main`.
-
-## 3. Declare the district — [terminal]
+## 3. Declare the district [terminal]
 
 1. Copy `infra/districts/sandbox.json.example` to
-   `infra/districts/<name>.json`. New districts set
-   `create_project: true` with a billing account; the module creates the
-   project, bucket, secret shells, Cloud Run Job, scheduler, IAM, and
-   alerts.
-2. `terraform plan` in `infra/`, read the whole diff, then apply.
-   Terraform is applied by a human, never CI — CI only validates offline
-   and deploys container images.
+   `infra/districts/<name>.json`; new districts set `create_project: true`
+   and a billing account.
+2. `terraform plan` in `infra/`, read the whole diff, apply. Humans apply
+   Terraform; CI only validates.
 
-The `schedule` field is the district's run cadence (cron, district-local
-`time_zone`). Pick it with the district: MIIC emails the school nurses on
-every roster submission, so the cadence is a people decision, not just a
-technical one.
+`schedule` is the run cadence (cron, in `time_zone`); `canary_schedule`
+defaults to the day before. Choose the cadence with the district: every
+run emails its nurses.
 
-## 4. Secret values — [terminal]
+## 4. Secrets [terminal]
 
-Terraform created empty shells; fill them (values never touch Terraform
-state):
+Terraform creates empty shells. Fill the AISR ones (values never touch
+Terraform state):
 
 ```sh
 printf '%s' '<value>' | gcloud secrets versions add aisr-username --project <project> --data-file=-
 printf '%s' '<value>' | gcloud secrets versions add aisr-password --project <project> --data-file=-
 ```
 
-The three `drive-*` secrets come from step 5.
+## 5. Drive folder [console]
 
-## 5. Google Drive delivery folder — [console]
-
-Where nurses pick up their files; Drive is the UI on purpose.
-
-**Preferred (when a district Workspace admin is available):** a Shared
-Drive in the district's own Google Workspace, with the pipeline's job
-service account added as a member. Keyless, no OAuth tokens, and the PHI
-lives under the district's governance. (Migration planned; the OAuth path
-below is what runs today.)
-
-**Current path (OAuth):**
-
-1. In the GCP console, create an OAuth 2.0 Client ID (Desktop app) and
+1. Create an OAuth 2.0 Client ID (Desktop app) in the GCP console and
    download its JSON.
-2. Run `infra/scripts/setup_google_drive_oauth.py credentials.json` and
-   complete the browser flow; it stores `drive-refresh-token`,
-   `drive-client-id`, and `drive-client-secret` in Secret Manager.
-3. Create the delivery folder in that Google account's Drive, share it
-   with the district's health staff, and put its folder id in the
-   district JSON (`google_drive_folder_id`), then re-apply Terraform.
+2. Run `infra/scripts/setup_google_drive_oauth.py credentials.json`; it
+   stores the three `drive-*` secrets.
+3. Create the folder in that account's Drive, share it with the district's
+   health staff, set `google_drive_folder_id` in the district JSON, and
+   re-apply.
 
-## 6. Runtime config and rosters — [terminal]
+## 6. Config and rosters [terminal]
 
-Both live in the district's data bucket, never in the repo.
+1. Write `config.json` from
+   [config/config.json.example](config/config.json.example) (its
+   `_instructions` explain how to read school values from AISR) and upload
+   it to `gs://<data-bucket>/config/config.json`.
+2. Upload each school's roster CSV (exported from Infinite Campus) to the
+   path in its `bulk_query_file`.
 
-1. Author `config.json` from
-   [config/config.json.example](config/config.json.example). The school
-   `id`/`classification`/`email` values must match AISR exactly; the
-   example's `_instructions` document how to read them out of the AISR
-   web app (a `discover-schools` helper is planned). `district.iddis` is
-   the MDE number from step 1.
-2. Upload it: `gsutil cp config.json gs://<data-bucket>/config/config.json`
-3. Export each school's roster from Infinite Campus as CSV and upload to
-   the blob path named in that school's `bulk_query_file` (e.g.
-   `data/queries/<school>.csv`).
-
-## 7. First-run verification — [terminal]
+## 7. Verify [terminal]
 
 ```sh
-# read-only probe: logs into AISR and lists records per school, no PHI moved
 gcloud run jobs execute pipeline-job --args=canary,--trigger,manual \
   --region <region> --project <project>
-
-# then read the ledger
-uv run mn-immunization status --bucket <data-bucket>
+uv run mn-immunization status --bucket <data-bucket>   # canary -> RunCompleted
 ```
 
-`status` should show the canary with a terminal RunCompleted event.
+**Never run `run` as a rehearsal**: it emails every nurse. The first real
+run should be the scheduled one, with the district told to expect it.
 
-**Never run the `run` cycle as a rehearsal**: every roster submission
-triggers MIIC emails to all of the district's school nurses. Rehearsals
-are `canary` only; the first real `run` should be the scheduled one, with
-the district warned to expect the MIIC email.
+## Operations
 
-## Recurring operations
-
-| Task | Cadence | Who / how |
+| Task | When | How |
 |---|---|---|
-| Canary (login + read-only listing; also proves the scheduler can launch the job) | per district `canary_schedule`, default the day before the run | automatic (Cloud Scheduler); alerts on failure |
-| Run cycle (query → poll → deliver) | per district `schedule` | automatic (Cloud Scheduler) |
-| Import the delivered diff into Infinite Campus, then delete the file from Drive | per delivery | school health staff — the deletion is the acknowledgment (`ImportConfirmed`); files lingering past 7 days are flagged |
-| Refresh roster CSVs as enrollment changes | before each run cycle | manual export + upload today; automation planned for fall 2026 |
-| Review and merge Dependabot PRs | weekly-ish | human — deliberately manual, because merging to `main` auto-deploys |
-| Check on runs / respond to alerts | on alert email | `uv run mn-immunization status --bucket <data-bucket>` |
-| Rotate AISR password / Drive token when needed | on demand | new secret version (step 4 / step 5) |
-| Infra changes | on demand | human `terraform apply`; a `rebaseline` run recovers Drive sync trouble |
+| Canary, run cycle | per schedule | automatic; failures email |
+| Import a delivered diff, then delete it from Drive | per delivery | school health staff (the deletion is the acknowledgment) |
+| Refresh rosters | before each run | export from IC, upload |
+| Respond to an alert | on email | `uv run mn-immunization status --bucket <data-bucket>` |
+| Merge Dependabot PRs | weekly-ish | by hand: merging to `main` deploys |
+| Rotate a credential | as needed | add a secret version (steps 4, 5) |
+| Drive out of sync | as needed | `gcloud run jobs execute pipeline-job --args=rebaseline,--trigger,manual` |
 
 ## Stuck roster claims
 
-Each school's roster is submitted at most once per period: the run claims
-`ledger/claims/<period>_query_<school_id>` just before uploading, and records
-a QuerySubmitted event after. A claim with no event means a run claimed
-the school and then failed before recording a submission. Maybe the upload
-never happened (signing failed, the run crashed first), or maybe it did and
-only the record was lost. Runs cannot tell, so they **skip that school**
-rather than risk a second MIIC email to every nurse. The run still delivers
-the other schools, then ends RunFailed with `stuck_schools` (or
-`failed_schools`), and the alert fires.
+A run claims `ledger/claims/<period>_query_<school_id>` just before each
+upload and records QuerySubmitted after it. A claim with no record means
+the upload may or may not have happened, so runs skip that school rather
+than risk emailing every nurse twice, and end failed naming it in
+`stuck_schools`. (A failure before the upload began releases the claim
+by itself; the next run submits that school.)
 
-A failure *before* the upload began (signing failed, the roster file was
-unreadable) is different: MIIC received nothing, so the run releases the
-claim itself. The school appears under `failed_schools`, and the next run
-submits it with no action needed.
+`status` lists stuck claims with the exact release command. For each:
 
-`uv run mn-immunization status --bucket <data-bucket>` lists stuck claims
-under STUCK ROSTER CLAIMS, with the claiming run and the exact release
-command. For each one:
+1. Ask whether MIIC got that school's roster this period (the nurse got
+   the MIIC email; AISR's web app lists the upload).
+2. **No:** release the claim with the printed `gcloud storage rm`, then
+   `gcloud run jobs execute pipeline-job --args=run,--trigger,manual`.
+   Only that school is submitted.
+3. **Yes:** leave it. Its results still flow; runs that period keep
+   flagging it, which is harmless.
 
-1. **Did MIIC receive that school's roster this period?** The school's nurse
-   (or the district's MIIC contact) got the MIIC email if it did; AISR's web
-   app also lists the upload.
-2. **If it did not:** release the claim with the printed command
-   (`gcloud storage rm gs://<data-bucket>/ledger/claims/<period>_query_<id>`),
-   then rerun: `gcloud run jobs execute pipeline-job --args=run,--trigger,manual`.
-   The rerun submits only that school; schools already recorded are not
-   touched, and the diff claim keeps delivery to one per date.
-3. **If it did:** leave the claim. The results will stage and be picked up;
-   `status` keeps listing the claim for the rest of the period, and further
-   runs that period will end failed for that school. That's harmless, and
-   expected.
+Never release a claim without step 1: releasing one whose roster went out
+emails every nurse again.
 
-Never delete a claim "just to make the run pass" without step 1: deleting
-the claim of a roster that did go out sends every nurse a second email.
+## Known limits
 
-## Configuration reference
-
-| Layer | Lives in | Set by |
-|---|---|---|
-| District provisioning (project, image, folder id, schedule, alerts) | `infra/districts/<name>.json` | human + `terraform apply` |
-| GitHub↔GCP deploy trust | `infra/bootstrap/` + 4 GitHub repo Variables | human, once |
-| Runtime config (schools, `iddis`, API hosts) | `config/config.json` in the data bucket | human authors, uploads |
-| Rosters | `data/queries/*.csv` in the data bucket | exported from Infinite Campus |
-| Credentials (2 AISR + 3 Drive) | Secret Manager | human adds versions; shells from Terraform |
-| Job wiring (bucket, project, folder id, time zone env vars) | `infra/modules/district/job.tf` | Terraform |
-
-## Known limits (single-district today)
-
-- The Deploy workflow builds and updates **one** district (the one in the
-  GitHub `GCP_PROJECT` variable). A second district gets infrastructure
-  but not image updates until deploys become a loop over
-  `infra/districts/*.json` with a shared Artifact Registry.
-- Terraform state for all districts lives in the first district's
-  project (`infra/main.tf` backend). A dedicated admin project is the
-  eventual home.
+- Deploys update one district (`GCP_PROJECT`); a second needs the deploy
+  to loop over `infra/districts/*.json`.
+- All districts' Terraform state lives in the first district's project.

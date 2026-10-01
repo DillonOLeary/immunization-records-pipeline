@@ -9,12 +9,10 @@
         "5. This request response contains the id, classification, and email values needed",
         "6. The 'name' field can be any descriptive name, but id, classification, and email must match AISR exactly",
         "7. bulk_query_file is the GCS blob path (within the data bucket) of the school's roster CSV",
-        "8. district.iddis is the district's MDE number; api.s3_upload_host is the MDH ingest bucket host (both were hardcoded to ISD 197 before this became config)"
+        "8. district.iddis is the district's MDE number; api.s3_upload_host is the MDH ingest bucket host"
     ],
     "_mock_server": [
-        "For end-to-end testing, a mock server is available:",
-        "Local development: auth_base_url: http://localhost:8080/mock-auth-server, aisr_api_base_url: http://localhost:8080",
-        "Mock server has hardcoded school IDs: 2542 (Friendly Hills Mid), 2543 (Garlough Elementary)"
+        "`uv run mock-server`: auth_base_url http://localhost:8080/mock-auth-server, aisr_api_base_url http://localhost:8080; schools 2542, 2543, 2544"
     ],
     "district": {
         "iddis": "0197"
