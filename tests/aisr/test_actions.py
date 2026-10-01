@@ -84,10 +84,7 @@ def test_get_latest_vaccination_records_url(fastapi_server):
             school_id="1234",
         )
 
-    assert url is not None, "URL should be returned"
-    assert url == f"{fastapi_server}/test-s3-get-location", (
-        "Correct URL should be returned"
-    )
+    assert url == f"{fastapi_server}/test-s3-get-location/1234"
 
 
 def test_download_vaccination_records(fastapi_server, tmp_path):
@@ -107,13 +104,13 @@ def test_download_vaccination_records(fastapi_server, tmp_path):
             output_path=test_output_path,
         )
 
-    assert "John Doe" in content, "Downloaded text should be returned"
+    assert content.startswith("id_1|id_2|"), "Downloaded text should be returned"
     assert test_output_path.exists(), "Output file should exist"
 
     with open(test_output_path, encoding="utf-8") as file:
         content = file.read()
 
-    assert "John Doe" in content, "Downloaded content should contain expected data"
+    assert "|MMR|" in content or "|DTaP|" in content, "Expected AISR rows"
 
 
 def test_get_and_download_vaccination_records(fastapi_server, tmp_path):
@@ -128,10 +125,10 @@ def test_get_and_download_vaccination_records(fastapi_server, tmp_path):
             output_path=test_output_path,
         )
 
-    assert "John Doe" in content, "Downloaded text should be returned"
+    assert content.startswith("id_1|id_2|"), "Downloaded text should be returned"
     assert test_output_path.exists(), "Output file should exist"
 
     with open(test_output_path, encoding="utf-8") as file:
         content = file.read()
 
-    assert "John Doe" in content, "Downloaded content should contain expected data"
+    assert "|MMR|" in content or "|DTaP|" in content, "Expected AISR rows"

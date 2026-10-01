@@ -6,6 +6,21 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: one fake AISR. The repo had two diverged copies:
+  `tests/mock_server.py` (what tests actually used: strict credentials,
+  fixed port 8000, `sleep(1)` startup) and the `mock/` package (what the
+  README said tests used: any credentials, random sample data, a Cloud Run
+  deployment). Now `mock/` is the only one:
+  `create_mock_app(base_url, credentials, faults)` with per-school
+  injectable faults and a log of received uploads; deterministic sample
+  data whose invented names, DOBs, and ids are collected in `CANARY_PHI`
+  for leak scans; the test fixture binds a free port and polls `/health`.
+  Deleted `tests/mock_server.py`, `mock/main.py` (a hello-world stub),
+  `mock/Dockerfile`, and `mock/terraform/`. The old Cloud Run deployment
+  of the mock was decommissioned along with its image repository, and
+  other unused function-era cloud resources were cleaned up or queued
+  for manual cleanup. Lesson: a deploy path deleted from the repo is not
+  a deployment deleted from the cloud; decommissioning is its own step.
 - 2026-10-01: AISR adapter and loop hardening. (1) The four Keycloak calls
   had no timeout, though this doc claimed all AISR calls did; a hung login
   would have held the job for its 22-hour task timeout. Now `(10, 60)`.

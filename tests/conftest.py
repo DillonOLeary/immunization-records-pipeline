@@ -1,42 +1,83 @@
-"""
-Pytest utils
+"""Shared fixtures: the fake AISR server, running in-process.
+
+One server per test session, on a free port, in a background thread. A
+health poll (not a fixed sleep) decides when it is ready. Faults and the
+upload log live on the app and are reset before every test that asks for
+`mock_aisr`, so tests can inject failures without leaking them.
 """
 
-import multiprocessing
+from __future__ import annotations
+
+import socket
+import threading
 import time
-from multiprocessing import Process
+from dataclasses import dataclass
 
 import pytest
+import requests
 import uvicorn
-
-from tests.mock_server import create_mock_app
-
-# Set the start method to 'fork' to avoid pickling issues on macOS
-try:
-    multiprocessing.set_start_method("fork")
-except RuntimeError:
-    # Method was already set, ignore the error
-    pass
+from fastapi import FastAPI
+from minnesota_immunization_mock.server import MockFaults, create_mock_app
 
 
-def run_server(app):
-    """Run the FastAPI server."""
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+@dataclass
+class MockAisr:
+    base_url: str
+    app: FastAPI
+
+    @property
+    def auth_url(self) -> str:
+        return f"{self.base_url}/mock-auth-server"
+
+    @property
+    def faults(self) -> MockFaults:
+        return self.app.state.faults
+
+    @property
+    def received_uploads(self) -> list[str]:
+        """School ids whose roster upload succeeded, in order."""
+        return self.app.state.received_uploads
 
 
 @pytest.fixture(scope="session")
-def fastapi_server():
-    """
-    Spins up a FastAPI server for testing.
-    """
-    app = create_mock_app()
-    process = Process(target=run_server, args=(app,), daemon=True)
-    process.start()
+def _mock_aisr_server():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    base_url = f"http://127.0.0.1:{sock.getsockname()[1]}"
+    app = create_mock_app(base_url=base_url)
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    thread = threading.Thread(
+        target=server.run, kwargs={"sockets": [sock]}, daemon=True
+    )
+    thread.start()
 
-    # Wait for the server to start up
-    time.sleep(1)
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            if requests.get(f"{base_url}/health", timeout=1).status_code == 200:
+                break
+        except requests.ConnectionError:
+            pass
+        if time.monotonic() > deadline:
+            raise RuntimeError("mock AISR server did not start")
+        time.sleep(0.05)
 
-    yield "http://127.0.0.1:8000"
+    yield MockAisr(base_url=base_url, app=app)
 
-    process.terminate()
-    process.join()
+    server.should_exit = True
+    thread.join(timeout=5)
+    sock.close()
+
+
+@pytest.fixture
+def mock_aisr(_mock_aisr_server: MockAisr) -> MockAisr:
+    """The fake AISR with no faults and an empty upload log."""
+    _mock_aisr_server.faults.clear()
+    _mock_aisr_server.received_uploads.clear()
+    return _mock_aisr_server
+
+
+@pytest.fixture
+def fastapi_server(mock_aisr: MockAisr) -> str:
+    """The fake AISR's base URL (the name older tests use)."""
+    return mock_aisr.base_url

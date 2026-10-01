@@ -1,70 +1,108 @@
-"""
-Sample data generation for mock AISR server
+"""Deterministic fake AISR results, seeded with canary PHI.
+
+Every name, date of birth, and student id here is invented. They are
+distinctive on purpose: tests scan logs, stdout, and ledger objects for
+every value in CANARY_PHI, and any match means record content leaked.
+Student ids start with 81/91 and dates fall in 2008-2021, so none of them
+collide with school ids, run ids, or timestamps a log line may carry.
+
+Output is identical on every call (no randomness, no clock), so tests can
+assert exact diffs and file hashes.
 """
 
-import random
-from datetime import datetime, timedelta
+from __future__ import annotations
+
+from datetime import date
+
+HEADER = "id_1|id_2|name|dob|vaccine_group_name|vaccination_date"
+
+VACCINES = ("MMR", "DTaP", "Polio", "Hepatitis B", "Varicella", "Flu")
+
+# (id_1, id_2, name, dob) per school.
+STUDENTS: dict[str, list[tuple[str, str, str, str]]] = {
+    "2542": [  # Friendly Hills Mid
+        ("8100231", "9100231", "Zelda Canaryfield", "2010-03-14"),
+        ("8100232", "9100232", "Quincy Larkspurr", "2011-07-02"),
+        ("8100233", "9100233", "Odalys Wrenwhistle", "2009-11-23"),
+    ],
+    "2543": [  # Garlough Elementary
+        ("8100341", "9100341", "Barnaby Thistlequill", "2014-01-30"),
+        ("8100342", "9100342", "Mireille Foxglovey", "2013-05-19"),
+    ],
+}
+
+BRAKE_SCHOOL_ID = "2544"
+"""A school large enough to trip the sanity brake: 20 students with 4
+vaccinations each is 80 records, more than max(50, 20% of a small known
+set)."""
+
+STUDENTS[BRAKE_SCHOOL_ID] = [
+    (
+        f"81005{n:02d}",
+        f"91005{n:02d}",
+        f"Pemberton Ashgrove{n:02d}",
+        f"2008-02-{n + 1:02d}",
+    )
+    for n in range(20)
+]
+
+DEFAULT_SCHOOL = "default"
+STUDENTS[DEFAULT_SCHOOL] = [
+    ("8100901", "9100901", "Ignatius Moonfellow", "2012-09-09"),
+]
+
+
+def _vaccination_date(student: int, dose: int) -> date:
+    return date(
+        2019 + (student + dose) % 3,
+        1 + (student * 5 + dose) % 12,
+        1 + (student * 7 + dose * 3) % 28,
+    )
+
+
+def _rows(school_id: str) -> list[tuple[str, str, str, str, str, str]]:
+    students = STUDENTS.get(school_id, STUDENTS[DEFAULT_SCHOOL])
+    doses = 4 if school_id == BRAKE_SCHOOL_ID else 2
+    rows = []
+    for s, (id_1, id_2, name, dob) in enumerate(students):
+        for d in range(doses):
+            vaccine = VACCINES[(s + d) % len(VACCINES)]
+            rows.append(
+                (id_1, id_2, name, dob, vaccine, _vaccination_date(s, d).isoformat())
+            )
+    return rows
 
 
 def get_sample_vaccination_data(school_id: str) -> str:
-    """
-    Generate sample vaccination data in AISR format (pipe-delimited).
-    Different schools get different sample data.
+    """AISR results text (pipe-delimited, ISO dates) for a school."""
+    lines = [HEADER, *("|".join(row) for row in _rows(school_id))]
+    return "\n".join(lines) + "\n"
 
-    Args:
-        school_id: School identifier to generate data for
 
-    Returns:
-        CSV content in AISR format
-    """
-    # Header
-    header = "id_1|id_2|name|dob|vaccine_group_name|vaccination_date\n"
+def expected_ic_rows(school_id: str) -> list[str]:
+    """The same records as the pipeline renders them for Infinite Campus:
+    headerless id_1,id_2,vaccine,MM/DD/YYYY."""
+    out = []
+    for id_1, id_2, _name, _dob, vaccine, iso in _rows(school_id):
+        y, m, d = iso.split("-")
+        out.append(f"{id_1},{id_2},{vaccine},{m}/{d}/{y}")
+    return out
 
-    # Sample data varies by school
-    if school_id == "2542":  # Friendly Hills Mid
-        students = [
-            {"id_1": "123", "id_2": "456", "name": "John Doe", "dob": "2010-01-01"},
-            {"id_1": "789", "id_2": "101", "name": "Jane Smith", "dob": "2011-02-02"},
-            {"id_1": "112", "id_2": "131", "name": "Bob Johnson", "dob": "2012-03-03"},
-            {"id_1": "415", "id_2": "161", "name": "Alice Brown", "dob": "2009-04-04"},
-        ]
-    elif school_id == "2543":  # Garlough Elementary (example second school)
-        students = [
-            {
-                "id_1": "234",
-                "id_2": "567",
-                "name": "Charlie Wilson",
-                "dob": "2013-05-05",
-            },
-            {"id_1": "345", "id_2": "678", "name": "Diana Davis", "dob": "2014-06-06"},
-            {
-                "id_1": "456",
-                "id_2": "789",
-                "name": "Edward Miller",
-                "dob": "2015-07-07",
-            },
-        ]
-    else:  # Default/other schools
-        students = [
-            {"id_1": "999", "id_2": "888", "name": "Test Student", "dob": "2010-01-01"},
-            {"id_1": "777", "id_2": "666", "name": "Sample Child", "dob": "2011-02-02"},
-        ]
 
-    # Generate vaccination records
-    vaccines = ["COVID-19", "Flu", "MMR", "DTaP", "Polio", "Hepatitis B"]
-    records = []
+def _canary_values() -> frozenset[str]:
+    values: set[str] = set()
+    for students in STUDENTS.values():
+        for id_1, id_2, name, dob in students:
+            values.update({id_1, id_2, dob, *name.split()})
+    for school_id in STUDENTS:
+        for row in _rows(school_id):
+            iso = row[5]
+            y, m, d = iso.split("-")
+            values.update({iso, f"{m}/{d}/{y}"})
+    return frozenset(values)
 
-    for student in students:
-        # Each student gets 2-4 random vaccines
-        num_vaccines = random.randint(2, 4)
-        selected_vaccines = random.sample(vaccines, num_vaccines)
 
-        for vaccine in selected_vaccines:
-            # Generate random vaccination date within last 2 years
-            days_ago = random.randint(30, 730)
-            vax_date = datetime.now() - timedelta(days=days_ago)
-
-            record = f"{student['id_1']}|{student['id_2']}|{student['name']}|{student['dob']}|{vaccine}|{vax_date.strftime('%m/%d/%Y')}\n"
-            records.append(record)
-
-    return header + "".join(records)
+CANARY_PHI: frozenset[str] = _canary_values()
+"""Every student-identifying value the mock can emit: ids, name parts,
+DOBs, and vaccination dates in both formats. None may appear in logs,
+stdout, or ledger events."""

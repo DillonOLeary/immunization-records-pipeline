@@ -1,197 +1,49 @@
-# Minnesota Immunization Mock Server
+# Mock AISR server
 
-A mock AISR (Automated Immunization School Registry) server for testing the Minnesota Immunization Records Pipeline. This service provides realistic mock endpoints that replicate the behavior of the actual AISR system, allowing contributors to test the full pipeline without needing access to production systems.
+A fake AISR (MIIC's bulk-query interface) for tests and local development.
+It mirrors the production contract the pipeline's adapter depends on,
+including the awkward parts: the Keycloak login form carries flow
+parameters that must be POSTed back verbatim, the token exchange checks
+the redirect URI, and roster uploads must carry the S3 metadata headers.
 
-## Features
+It is the only fake AISR in the repo. The test suite runs it in-process
+(`tests/conftest.py`, fixture `mock_aisr`), and it runs locally on its own:
 
-- **Complete AISR API mock**: Authentication, file upload, and data retrieval endpoints
-- **Multi-school support**: Different sample data for different school IDs
-- **Realistic data**: Pipe-delimited CSV format matching AISR specifications
-- **Public deployment**: No authentication required for testing
-- **Cloud Run ready**: Containerized and deployable to Google Cloud
-
-## Usage
-
-To use the mock server, you'll need to change the `auth_base_url` and `aisr_api_base_url` in the config files for the CLI and Google Cloud modules to the following values:
-
-```
-"auth_base_url": "https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app/mock-auth-server"
-"aisr_api_base_url": "https://minnesota-immunization-mock-7f3imvzzwq-uc.a.run.app"
+```sh
+uv run mock-server        # http://localhost:8080, log in as test_user / test_password
 ```
 
-The mock server has hardcoded school IDs: 2542 (Friendly Hills Mid) and 2543 (Garlough Elementary).
+Set `MOCK_SERVER_URL` if the server is reachable at another address; it
+appears in redirect and signed URLs, as production's host does.
 
-## Development
+## Sample data
 
-If you want to run the mock server locally or deploy to Google Cloud yourself, follow these steps.
+`sample_data.py` is deterministic (no randomness, no clock), so tests can
+assert exact diffs and file hashes. Schools: `2542` and `2543` (a few
+students each), `2544` (80 records, enough to trip the pipeline's sanity
+brake), and a default for any other id.
 
-### Local Development
+Every name, date of birth, and student id is invented and deliberately
+distinctive. `CANARY_PHI` collects them all; tests scan logs, stdout, and
+ledger events for every value, and any match means record content leaked.
 
-1. **Install dependencies**:
+## Faults
 
-   ```bash
-   cd minnesota-immunization-mock
-   uv sync
-   ```
+`create_mock_app(..., faults=MockFaults(...))`, or mutate
+`app.state.faults` in a test, to make one school's signing, upload, or
+listing return an HTTP status, or to make a school list no results. Every
+successful roster upload is recorded in `app.state.received_uploads` (in
+production, each one emails every nurse), which is how tests prove a
+roster was or was not submitted.
 
-2. **Run the server**:
+## Endpoints
 
-   ```bash
-   uv run mock-server
-   ```
-
-3. **Access the service**:
-   - Server: http://localhost:8080
-   - Health check: http://localhost:8080/health
-   - Mock login: http://localhost:8080/mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth
-
-## Cloud Run Deployment
-
-### Prerequisites
-
-- Google Cloud Project with billing enabled
-- `gcloud` CLI configured
-- Terraform installed
-
-### Deploy Steps
-
-1. **Copy and configure variables**:
-
-   ```bash
-   cd terraform
-   cp terraform.tfvars.example terraform.tfvars
-   # Edit terraform.tfvars with your project ID
-   ```
-
-2. **Initialize Terraform**:
-
-   ```bash
-   terraform init
-   ```
-
-3. **Deploy the infrastructure**:
-
-   ```bash
-   terraform plan
-   terraform apply
-   ```
-
-4. **Build and deploy the container**:
-
-   ```bash
-   # Build locally and push to Artifact Registry
-   gcloud builds submit --tag us-central1-docker.pkg.dev/YOUR-PROJECT/minnesota-immunization-mock/mock-server:latest ../
-
-   # Or use the Cloud Build trigger (requires GitHub integration)
-   gcloud builds triggers run minnesota-immunization-mock-build --branch=main
-   ```
-
-5. **Get the service URL**:
-   ```bash
-   terraform output service_url
-   ```
-
-### Manual Cloud Run Deployment (Alternative)
-
-If you prefer to skip Terraform:
-
-```bash
-# Build and push container
-gcloud builds submit --tag gcr.io/YOUR-PROJECT/minnesota-immunization-mock ../
-
-# Deploy to Cloud Run
-gcloud run deploy minnesota-immunization-mock \
-  --image gcr.io/YOUR-PROJECT/minnesota-immunization-mock \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --port 8080 \
-  --memory 512Mi \
-  --cpu 1 \
-  --min-instances 0 \
-  --max-instances 10
-```
-
-## API Endpoints
-
-### Authentication
-
-- `GET /mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth` - Login form
-- `POST /mock-auth-server/auth/realms/idepc-aisr-realm/login-actions/authenticate` - Login processing
-- `POST /mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/token` - Token exchange
-- `GET /mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout` - Logout
-
-### File Operations
-
-- `POST /signing/puturl` - Get signed URL for file upload
-- `PUT /test-s3-put-location` - Mock S3 file upload
-- `GET /test-s3-get-location/{school_id}` - Get vaccination data for specific school
-
-### Data Retrieval
-
-- `GET /school/query/{school_id}` - Get vaccination records list for school
-- `GET /health` - Health check endpoint
-
-## Sample Data
-
-The mock server provides realistic sample data:
-
-### School ID 2542 (Friendly Hills Mid)
-
-- 4 sample students with vaccination records
-- Mix of COVID-19, Flu, MMR, DTaP, Polio, and Hepatitis B vaccines
-
-### School ID 2543 (Garlough Elementary)
-
-- 3 sample students with vaccination records
-- Different student population for testing multi-school scenarios
-
-### Default/Other Schools
-
-- 2 sample students for any other school ID
-
-## Testing Scenarios
-
-### Full Pipeline Test
-
-1. **Upload Phase** (Monday operation):
-
-   - Mock server accepts bulk query file uploads
-   - Returns success responses for all schools
-
-2. **Download Phase** (Wednesday operation):
-   - Mock server provides vaccination records
-   - Returns different data per school ID
-   - ETL pipeline processes the mock data
-
-### Error Testing
-
-The mock server can be extended to simulate various error conditions:
-
-- Authentication failures
-- File upload errors
-- Missing vaccination records
-- Network timeouts
-
-## Environment Variables
-
-- `MOCK_SERVER_URL`: Base URL for the mock server (auto-configured in Cloud Run)
-- `MOCK_MODE`: Set to `true` in cloud functions to use mock endpoints
-- `MOCK_AISR_URL`: URL of the deployed mock server
-
-## Contributing
-
-To add new test scenarios:
-
-1. **Update sample data** in `src/minnesota_immunization_mock/sample_data.py`
-2. **Add new endpoints** in `src/minnesota_immunization_mock/server.py`
-3. **Update tests** to cover new scenarios
-4. **Deploy changes** using the steps above
-
-## Architecture
-
-The mock server replicates the exact API contract of the real AISR system, allowing the pipeline to be tested end-to-end without requiring production credentials or access.
-
-## License
-
-[GNU General Public License](../LICENSE)
+- `GET /mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth`: login form
+- `POST /mock-auth-server/auth/realms/idepc-aisr-realm/login-actions/authenticate`: login
+- `POST /mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/token`: token exchange
+- `GET /mock-auth-server/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout`: logout
+- `POST /signing/puturl`: signed upload URL
+- `PUT /test-s3-put-location`: roster upload
+- `GET /school/query/{school_id}`: results listing
+- `GET /test-s3-get-location/{school_id}`: results file
+- `GET /health`
