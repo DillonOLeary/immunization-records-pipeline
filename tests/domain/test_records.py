@@ -27,6 +27,15 @@ class TestDateParsing:
         with pytest.raises(RecordValidationError):
             parse_flexible_date("not-a-date")
 
+    def test_error_names_the_field_but_never_quotes_the_value(self):
+        # A shifted column can put a name where the date belongs; exception
+        # text reaches logs, so it must never carry the field's value.
+        with pytest.raises(RecordValidationError) as caught:
+            parse_flexible_date("Zelda Canaryfield")
+        assert "vaccination_date" in str(caught.value)
+        assert "Zelda" not in str(caught.value)
+        assert "Canaryfield" not in str(caught.value)
+
     def test_same_day_in_both_formats_is_equal(self):
         assert parse_flexible_date("2024-11-17") == parse_flexible_date("11/17/2024")
 

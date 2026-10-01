@@ -33,7 +33,7 @@ class DiffResult:
     new_count: int
     known_count: int
     files_transformed: int
-    fetch_failures: int
+    fetch_failures: int  # school files that failed to download OR to parse
     diff_path: Path
     master_path: Path
 
@@ -139,13 +139,14 @@ def decide(state: CycleState, school_count: int, brake_fraction: float | None) -
     diff = state.diff
 
     if diff.files_transformed == 0 and diff.fetch_failures > 0:
-        # Every school's download failed. The old shape reported this as
-        # a completed run with zero files; an all-failure is a failure.
+        # Every school's file failed to download or to parse. The old shape
+        # reported this as a completed run with zero files; an all-failure
+        # is a failure. (A MIIC format change lands here, not in "success".)
         return Finish(
             status="failed",
             step="fetch",
             error="AllDownloadsFailed",
-            reason=f"all {diff.fetch_failures} school downloads failed",
+            reason=f"all {diff.fetch_failures} school files failed to fetch",
         )
 
     if diff.new_count == 0:

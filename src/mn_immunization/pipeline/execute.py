@@ -239,20 +239,9 @@ def _compute_diff(ctx: RunContext, username: str, password: str) -> DiffResult:
                 fetch_failures += 1
                 logger.error("Download failed for %s: %s", school.school_name, error)
 
-    for input_file in input_folder.glob("*.csv"):
-        try:
-            records = parse_aisr_csv(input_file.read_text(encoding="utf-8"))
-            output_file = output_folder / transformed_filename(input_file.name)
-            output_file.write_text(render_csv(records), encoding="utf-8")
-        except (AisrParseError, IcFormatError, OSError) as error:
-            # Error class only: parse messages can quote a PHI field value.
-            logger.error(
-                "Transform failed for file %s: %s",
-                input_file.name,
-                type(error).__name__,
-            )
-
-    output_files = list(output_folder.glob("*.csv"))
+    output_files, transform_failures = transform_downloads(
+        sorted(input_folder.glob("*.csv")), output_folder
+    )
     diff_path, master_path, new_count, known_count = compute_diff(
         output_files=output_files,
         output_folder=output_folder,
@@ -265,10 +254,43 @@ def _compute_diff(ctx: RunContext, username: str, password: str) -> DiffResult:
         new_count=new_count,
         known_count=known_count,
         files_transformed=len(output_files),
-        fetch_failures=fetch_failures,
+        # A file that downloaded but cannot be parsed is as lost as one that
+        # never downloaded: if MIIC changes its format, every school lands
+        # here, and that must read as AllDownloadsFailed, not as an empty
+        # "success".
+        fetch_failures=fetch_failures + transform_failures,
         diff_path=diff_path,
         master_path=master_path,
     )
+
+
+def transform_downloads(
+    input_files: list[Path], output_folder: Path
+) -> tuple[list[Path], int]:
+    """Turn raw AISR downloads into IC-format files.
+
+    Returns (the IC files written, how many inputs failed). A failure is
+    logged by file name and error class only: parse errors describe a
+    line and a field, never its value, but the class is all an operator
+    needs and the rule is simplest stated absolutely.
+    """
+    written: list[Path] = []
+    failures = 0
+    for input_file in input_files:
+        try:
+            records = parse_aisr_csv(input_file.read_text(encoding="utf-8"))
+            output_file = output_folder / transformed_filename(input_file.name)
+            output_file.write_text(render_csv(records), encoding="utf-8")
+        except (AisrParseError, IcFormatError, OSError) as error:
+            failures += 1
+            logger.error(
+                "Transform failed for file %s: %s",
+                input_file.name,
+                type(error).__name__,
+            )
+            continue
+        written.append(output_file)
+    return written, failures
 
 
 def _delivered_elsewhere(ctx: RunContext, diff_filename: str) -> bool:

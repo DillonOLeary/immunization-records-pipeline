@@ -18,6 +18,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from google.api_core.exceptions import NotFound
+
 from mn_immunization.domain.ic_format import (
     IcFormatError,
     parse_ic_csv,
@@ -26,16 +28,24 @@ from mn_immunization.domain.ic_format import (
 from mn_immunization.domain.records import RecordSet
 from mn_immunization.gcp.storage import (
     download_from_storage,
+    prefix_has_objects,
     upload_file_to_storage,
 )
 from mn_immunization.ledger import events
-from mn_immunization.ledger.gcs_ledger import sha256_hex
+from mn_immunization.ledger.gcs_ledger import SNAPSHOT_PREFIX, sha256_hex
 from mn_immunization.pipeline.support import append_event
 
 logger = logging.getLogger(__name__)
 
 # Master file name in GCS output folder
 ALL_KNOWN_VACCINATIONS_FILE = "all_known_vaccinations.csv"
+
+
+class MasterMissingError(Exception):
+    """The master is absent or empty, yet a master was committed before
+    (snapshots exist). Treating that as a first run would deliver every
+    record as new and overwrite the union master with only the current
+    set, so it fails the run instead."""
 
 
 def combine_ic_files(paths: list[Path]) -> RecordSet:
@@ -49,7 +59,9 @@ def combine_ic_files(paths: list[Path]) -> RecordSet:
         try:
             records = parse_ic_csv(Path(file_path).read_text(encoding="utf-8"))
         except (IcFormatError, OSError) as error:
-            logger.error("Failed to read %s: %s", file_path, error)
+            logger.error(
+                "Failed to read %s: %s", Path(file_path).name, type(error).__name__
+            )
             continue
         combined = combined.union(records)
         logger.info("Added %d records from %s", len(records), Path(file_path).name)
@@ -61,22 +73,34 @@ def combine_ic_files(paths: list[Path]) -> RecordSet:
 
 
 def load_known_records(bucket_name: str, temp_dir: Path) -> RecordSet:
-    """Load the known-vaccinations master file from GCS.
+    """Load the known-vaccinations master file from GCS. Fails closed.
 
-    Any failure yields an empty set: the pipeline then treats all current
-    records as new, which is safe for a first run and — combined with the
-    sanity brake — loud instead of harmful otherwise.
+    Only a master that has never existed is an empty known set: that is a
+    genuine first run, and the sanity brake rightly exempts it. Anything
+    else must fail the run, because an empty known set disables the brake
+    and makes every current record "new":
+
+    - absent or empty while snapshots exist -> MasterMissingError (it existed
+      once; something deleted or truncated it);
+    - a transient read error -> propagates (RunFailed, rerun later);
+    - a malformed row -> IcFormatError propagates (one bad line must not
+      turn 170k known records into zero).
     """
     master_file_path = temp_dir / ALL_KNOWN_VACCINATIONS_FILE
     blob_name = f"output/{ALL_KNOWN_VACCINATIONS_FILE}"
     try:
         download_from_storage(bucket_name, blob_name, str(master_file_path))
-        known = parse_ic_csv(master_file_path.read_text(encoding="utf-8"))
-        logger.info("Loaded %d known vaccination records", len(known))
-        return known
-    except Exception as error:
-        logger.info("Master file not found or couldn't be loaded: %s", error)
+    except NotFound:
+        if prefix_has_objects(bucket_name, SNAPSHOT_PREFIX):
+            raise MasterMissingError("master absent but snapshots exist") from None
+        logger.info("No master file yet: first run, known set is empty")
         return RecordSet()
+
+    known = parse_ic_csv(master_file_path.read_text(encoding="utf-8"))
+    if not known and prefix_has_objects(bucket_name, SNAPSHOT_PREFIX):
+        raise MasterMissingError("master empty but snapshots exist")
+    logger.info("Loaded %d known vaccination records", len(known))
+    return known
 
 
 def compute_diff(
@@ -129,7 +153,7 @@ def compute_diff(
             bucket_name, f"output/changes/{diff_filename}", str(diff_path)
         )
     except Exception as error:
-        logger.error("Archive upload of diff to GCS failed: %s", error)
+        logger.error("Archive upload of diff to GCS failed: %s", type(error).__name__)
 
     return diff_path, master_path, len(new_records), len(known_records)
 
@@ -157,7 +181,7 @@ def commit_master(
     try:
         _, snapshot_path = snapshots.put(master_text)
     except Exception as error:
-        logger.warning("snapshot store failed: %s", error)
+        logger.warning("snapshot store failed: %s", type(error).__name__)
 
     append_event(
         ledger,

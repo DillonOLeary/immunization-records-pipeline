@@ -20,7 +20,9 @@ def append_event(ledger, event) -> None:
     try:
         ledger.append(event)
     except Exception as error:
-        logger.warning("ledger append failed for %s: %s", event.type, error)
+        logger.warning(
+            "ledger append failed for %s: %s", event.type, type(error).__name__
+        )
 
 
 def claim_or_proceed(ledger, key: str) -> bool:
@@ -31,7 +33,9 @@ def claim_or_proceed(ledger, key: str) -> bool:
         return ledger.claim(key)
     except Exception as error:
         logger.warning(
-            "claim check for %s failed (%s); proceeding without guard", key, error
+            "claim check for %s failed (%s); proceeding without guard",
+            key,
+            type(error).__name__,
         )
         return True
 

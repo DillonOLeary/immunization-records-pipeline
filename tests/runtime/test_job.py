@@ -1,5 +1,7 @@
 """Job entrypoint tests: dispatch, trigger plumbing, and env guards."""
 
+import json
+
 import mn_immunization.runtime.job as job
 
 
@@ -40,3 +42,24 @@ def test_skipped_status_is_success_exit(monkeypatch):
     monkeypatch.setenv("DATA_BUCKET", "test-bucket")
     monkeypatch.setitem(job.CYCLES, "run", lambda b, trigger: {"status": "skipped"})
     assert job.main(["run"]) == 0
+
+
+def test_uncaught_exception_prints_class_and_location_never_the_message(
+    monkeypatch, capsys
+):
+    # Exception messages can carry response bodies or field values; the job
+    # must exit 1 with only the class and code location on its output.
+    def exploding_cycle(bucket_name, trigger="scheduled"):
+        raise ValueError("Zelda Canaryfield 1999-12-31")
+
+    monkeypatch.setenv("DATA_BUCKET", "test-bucket")
+    monkeypatch.setitem(job.CYCLES, "run", exploding_cycle)
+
+    assert job.main(["run"]) == 1
+
+    out = capsys.readouterr()
+    assert "Zelda" not in out.out + out.err
+    result = json.loads(out.out.strip().splitlines()[-1])
+    assert result["status"] == "failed"
+    assert result["error"] == "ValueError"
+    assert any("exploding_cycle" in frame for frame in result["where"])

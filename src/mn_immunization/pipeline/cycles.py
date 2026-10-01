@@ -234,26 +234,35 @@ def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
 
 
 def run_canary_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
-    """Read-only readiness probe: login plus staged-results count per
-    school. Touches no PHI; sends no email."""
+    """Read-only readiness probe: AISR login plus a staged-results count per
+    school, and a full read of the known-vaccinations master, so that an
+    unreadable master (MasterMissingError, a malformed row) fails here, a day
+    before the run. Moves no PHI and sends no email: the master is read
+    in memory, and only counts are logged or recorded."""
     with pipeline_run("canary", bucket_name, trigger) as ctx:
         username, password = get_aisr_credentials()
         with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
             available = staged_school_count(client, ctx.schools)
+        known = load_known_records(ctx.bucket_name, ctx.temp)
 
         append_event(
             ctx.ledger,
             events.run_completed(
-                schools_checked=len(ctx.schools), records_available=available
+                schools_checked=len(ctx.schools),
+                records_available=available,
+                known_records=len(known),
             ),
         )
         logger.info(
-            "Canary passed: login ok, %d/%d schools have records available",
+            "Canary passed: login ok, %d/%d schools have records available, "
+            "master readable with %d known records",
             available,
             len(ctx.schools),
+            len(known),
         )
         return {
             "status": "success",
             "schools_checked": len(ctx.schools),
             "records_available": available,
+            "known_records": len(known),
         }

@@ -150,6 +150,14 @@ Design points:
   commit also writes a content-addressed snapshot to `snapshots/`,
   referenced by hash from MasterCommitted. History is never overwritten,
   and any run's diff is reproducible from its inputs.
+- The master loads fail-closed (`load_known_records`). An empty known set
+  exempts a run from the sanity brake and makes every record "new", so
+  only a master that has never existed (GCS NotFound and nothing under
+  `snapshots/`) may load as empty. Absent-or-empty while snapshots exist
+  is MasterMissingError; a transient read error or a single malformed row
+  propagates. All three end the run as RunFailed(compute_diff) before
+  anything is delivered or committed. The canary reads the master too,
+  so this surfaces the day before a run.
 - Idempotency via claim objects. Before delivering, the run creates
   `ledger/claims/<YYYY-MM-DD>_diff` with an if-generation-match=0
   precondition; exactly one run per date can win. A run that loses the

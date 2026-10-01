@@ -32,7 +32,9 @@ def parse_flexible_date(raw: str) -> date:
     try:
         return datetime.strptime(text, "%m/%d/%Y").date()
     except ValueError:
-        raise RecordValidationError(f"unparseable date: {raw!r}") from None
+        # Never quote the value: a shifted column can put a name or DOB
+        # here, and exception messages travel into logs and tracebacks.
+        raise RecordValidationError("vaccination_date is unparseable") from None
 
 
 @dataclass(frozen=True, slots=True)

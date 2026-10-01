@@ -40,3 +40,11 @@ def download_from_storage(
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     blob.download_to_filename(destination_path)
+
+
+def prefix_has_objects(bucket_name: str, prefix: str) -> bool:
+    """True if at least one object exists under prefix (a one-object
+    listing, so it costs the same for one snapshot or thousands)."""
+    client = get_storage_client()
+    blobs = client.list_blobs(bucket_name, prefix=prefix, max_results=1)
+    return any(True for _ in blobs)

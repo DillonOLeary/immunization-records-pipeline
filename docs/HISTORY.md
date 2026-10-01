@@ -6,6 +6,31 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: the master loads fail-closed, and three silent-failure paths
+  are closed. (1) `load_known_records` used to turn *any* exception into
+  an empty known set, and `suspicious_diff` exempts an empty known set
+  as a "first run": a transient GCS error, or one malformed row in the
+  170k-row master, would have delivered every current record as new and
+  then overwritten the union master with only the current set — the
+  exact flood the brake exists to stop, with the brake switched off by
+  its own exemption. Now only GCS NotFound with nothing under
+  `snapshots/` is a first run; absent-or-empty with snapshots is
+  MasterMissingError, and every other error propagates to
+  RunFailed(compute_diff). A test had encoded the old behavior; it is
+  replaced by five cases. (2) A downloaded file that failed to parse was
+  logged and dropped without counting, so if MIIC changed its file
+  format every school would vanish and the run would record an empty
+  "success" each month; parse failures now count toward fetch_failures,
+  so all-unparseable is AllDownloadsFailed. (3) An uncaught exception
+  printed a traceback ending in its message, and messages can carry
+  response bodies or field values; `job.main` now catches, prints only
+  the class and the innermost frames (file:line function), and exits 1.
+  Also: `RecordValidationError` names the field and never quotes the
+  value (a shifted column can put a name in the date field); the
+  remaining message-logging sites log the error class; the canary reads
+  the master and reports `known_records`, so an unreadable master alerts
+  the day before the run; transformed files are processed in sorted
+  order, so diff row order is deterministic.
 - 2026-10-01: repo hygiene. Moved the Build order and Progress sections
   here verbatim from ARCHITECTURE.md (all six phases are done; the design
   doc should describe what exists, not narrate how). Removed three

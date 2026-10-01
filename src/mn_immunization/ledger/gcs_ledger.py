@@ -68,13 +68,18 @@ class GcsRunLedger:
         return True
 
 
+SNAPSHOT_PREFIX = "snapshots/"
+"""Every master commit writes a snapshot here, so anything under this
+prefix means a master has been committed before."""
+
+
 class GcsSnapshotStore:
     def __init__(self, bucket) -> None:
         self.bucket = bucket
 
     def put(self, content: str) -> tuple[str, str]:
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        path = f"snapshots/{digest}.csv"
+        path = f"{SNAPSHOT_PREFIX}{digest}.csv"
         blob = self.bucket.blob(path)
         try:
             blob.upload_from_string(
