@@ -61,8 +61,8 @@ config, rosters, and query files never live in this repo (enforced by
   - `ledger/` - the append-only run ledger (events, claims, snapshots)
   - `pipeline/` - the application layer: a pure decider (`policy.py`) and the
     runner loop (`execute.py`) that drive the run/canary/rebaseline cycles
-  - `runtime/` - the two entrypoints: `job.py` (Cloud Run Job) and `cli.py`
-    (the status CLI)
+  - `runtime/` - `composition.py` (builds every adapter) and the entrypoints:
+    `job.py` (Cloud Run Job) and `cli.py` (the status CLI)
 - `mock/` - fake AISR server (uv workspace member, used by tests and local dev)
 - `infra/` - Terraform for the GCP deployment
 - `tests/` - mirrors the slices; `tests/cli` runs the real CLI in a subprocess

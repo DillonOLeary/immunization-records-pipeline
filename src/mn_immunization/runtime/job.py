@@ -1,11 +1,16 @@
 """Cloud Run Job entrypoint.
 
-One container, two cycles: `mn-immunization-job run|canary`. Cloud
-Scheduler executes `run` on the configured cadence; a human reruns it with
-`gcloud run jobs execute pipeline-job --args=run,--trigger,manual` (safe:
-ledger claims prevent duplicate emails and deliveries). `canary` is a
-read-only readiness probe; `rebaseline` pushes the whole known set to
-Drive in chunks to recover from sync trouble (idempotent on the IC side).
+One container, three cycles: `mn-immunization-job run|canary|rebaseline`.
+Cloud Scheduler executes `run` and `canary` on the configured cadences; a
+human reruns with `gcloud run jobs execute pipeline-job
+--args=run,--trigger,manual` (safe: ledger claims prevent duplicate
+emails and deliveries). `canary` is a read-only readiness probe;
+`rebaseline` pushes the whole known set to Drive in chunks to recover
+from sync trouble (idempotent on the IC side).
+
+This is where the environment is read (once, into Settings) and where
+the adapters are built (runtime/composition.py); everything below
+receives them.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import logging
 import os
 import sys
 import traceback
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from mn_immunization.pipeline.cycles import (
@@ -23,6 +29,9 @@ from mn_immunization.pipeline.cycles import (
     run_cycle,
     run_rebaseline_cycle,
 )
+from mn_immunization.pipeline.services import Services
+from mn_immunization.pipeline.settings import Settings, SettingsError
+from mn_immunization.runtime.composition import build_services
 
 CYCLES = {
     "run": run_cycle,
@@ -31,7 +40,11 @@ CYCLES = {
 }
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    env: Mapping[str, str] = os.environ,
+    build: Callable[[Settings], Services] = build_services,
+) -> int:
     # stdout on purpose: Cloud Run ingests stderr with ERROR severity, and
     # routine info lines must not read as errors in Cloud Logging.
     logging.basicConfig(
@@ -45,17 +58,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--trigger",
         choices=["scheduled", "manual"],
-        default=os.environ.get("TRIGGER", "scheduled"),
+        default=env.get("TRIGGER", "scheduled"),
     )
     args = parser.parse_args(argv)
 
-    bucket_name = os.environ.get("DATA_BUCKET")
-    if not bucket_name:
-        print("DATA_BUCKET is not set", file=sys.stderr)
+    try:
+        settings = Settings.from_env(env)
+    except SettingsError as error:
+        print(f"configuration error: {error.variable} {error.problem}", file=sys.stderr)
         return 2
 
     try:
-        result = CYCLES[args.cycle](bucket_name, trigger=args.trigger)
+        result = CYCLES[args.cycle](build(settings), trigger=args.trigger)
     except Exception as error:
         # An uncaught exception would print a traceback whose last line is
         # the exception message, and messages can carry response bodies or

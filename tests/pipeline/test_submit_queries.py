@@ -10,18 +10,17 @@ as production runs do.
 """
 
 import json
+from datetime import datetime
 
 import pytest
 
 import mn_immunization.pipeline.execute as execute
 from mn_immunization.gcp.storage import GcsObjectStore
 from mn_immunization.ledger.gcs_ledger import GcsRunLedger
-from mn_immunization.ledger.memory import InMemorySnapshotStore
-from mn_immunization.pipeline.cycles import RunContext
 from mn_immunization.sources.aisr.authenticate import AuthenticationError
 from mn_immunization.sources.aisr.client import aisr_session
-from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
-from tests.fakes import FakeBucket, FakeDrive
+from mn_immunization.sources.aisr.port import SchoolQueryInformation
+from tests.fakes import FakeBucket, make_run_context
 
 SCHOOL_IDS = ["2542", "2543", "2544"]
 
@@ -33,7 +32,7 @@ def bucket():
 
 @pytest.fixture
 def period():
-    return execute.query_period()
+    return f"{datetime.now():%Y-%m}"  # the default QUERY_PERIOD_FORMAT
 
 
 def make_ctx(
@@ -57,18 +56,15 @@ def make_ctx(
                 query_file_path=str(roster),
             )
         )
-    return RunContext(
-        ledger=ledger_cls(bucket, run_id),
-        snapshots=InMemorySnapshotStore(),
+    ctx = make_run_context(
+        tmp_path,
+        ledger=ledger_cls(bucket, run_id, now=datetime.now),
         objects=GcsObjectStore(bucket),
-        drive=FakeDrive(),
         open_source=lambda auth, api: aisr_session(auth, api, "test_user", password),
-        temp=tmp_path,
-        auth_url=mock_aisr.auth_url,
-        api_url=mock_aisr.base_url,
-        district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
         schools=schools,
     )
+    ctx.auth_url, ctx.api_url = mock_aisr.auth_url, mock_aisr.base_url
+    return ctx
 
 
 def submit(ctx):

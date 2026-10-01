@@ -4,8 +4,8 @@ It guards the date's diff delivery, where acting twice is survivable and
 never acting is not. Roster submission does NOT use it: per-school query
 claims fail closed (see test_submit_queries.py)."""
 
-from mn_immunization.ledger.memory import InMemoryRunLedger
 from mn_immunization.pipeline.support import claim_or_proceed
+from tests.fakes import InMemoryRunLedger
 
 
 def test_diff_claim_wins_exactly_once_per_date():

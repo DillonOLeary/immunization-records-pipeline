@@ -7,11 +7,11 @@ Everything is best-effort: a listing failure must never sink the run.
 """
 
 import mn_immunization.pipeline.execute as execute
-from mn_immunization.gcp.storage import GcsObjectStore
-from mn_immunization.ledger.memory import InMemoryRunLedger, InMemorySnapshotStore
-from mn_immunization.pipeline.cycles import RunContext
-from mn_immunization.sources.aisr.port import DistrictInfo
-from tests.fakes import FakeBucket, FakeDrive
+from tests.fakes import (
+    FakeDrive,
+    InMemoryRunLedger,
+    make_run_context,
+)
 
 
 def delivered_event(file_name: str, run_id: str, seq: int = 1) -> dict:
@@ -34,20 +34,8 @@ def confirmed_event(file_name: str, run_id: str, seq: int = 2) -> dict:
     }
 
 
-def make_ctx(ledger_payloads: list[dict], tmp_path) -> RunContext:
-    ledger = InMemoryRunLedger(history=ledger_payloads)
-    return RunContext(
-        ledger=ledger,
-        snapshots=InMemorySnapshotStore(),
-        objects=GcsObjectStore(FakeBucket()),
-        drive=FakeDrive(),
-        open_source=lambda auth_url, api_url: None,
-        temp=tmp_path,
-        auth_url="https://auth.test",
-        api_url="https://api.test",
-        district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
-        schools=[],
-    )
+def make_ctx(ledger_payloads: list[dict], tmp_path):
+    return make_run_context(tmp_path, ledger=InMemoryRunLedger(history=ledger_payloads))
 
 
 def stub_folder(ctx, present: set[str]) -> None:

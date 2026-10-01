@@ -25,10 +25,8 @@ Rules:
    `logger.exception(...)` and `exc_info=` are banned outright. Messages
    can carry response bodies or field values; classes cannot.
 
-ALLOWED is the ratchet: violations that exist today, each named. A new
-violation fails the test; so does an ALLOWED entry that no longer occurs,
-so the list can only shrink. The refactor that introduces the
-composition root empties it.
+ALLOWED is a ratchet for any exception that must exist temporarily, each
+named; a stale entry fails the test, so it can only shrink. It is empty.
 """
 
 from __future__ import annotations
@@ -57,30 +55,7 @@ CLOCK_AND_ENV = {
 }
 LOG_METHODS = {"debug", "info", "warning", "error", "critical", "exception", "log"}
 
-ALLOWED: set[str] = {
-    # pipeline_run still constructs the adapters (everything else in the
-    # pipeline sees only ports); the composition root (PR9) moves
-    # construction to runtime/composition.py and these go.
-    "mn_immunization.pipeline.cycles imports mn_immunization.sinks.drive",
-    "mn_immunization.pipeline.cycles imports mn_immunization.gcp.secrets",
-    "mn_immunization.pipeline.cycles imports mn_immunization.gcp.storage",
-    "mn_immunization.pipeline.cycles imports mn_immunization.ledger.gcs_ledger",
-    "mn_immunization.pipeline.cycles imports mn_immunization.sources.aisr.client",
-    # Environment read outside runtime: Settings parsed once (PR9).
-    "mn_immunization.gcp.secrets uses os.environ",
-    "mn_immunization.pipeline.cycles uses os.environ",
-    "mn_immunization.pipeline.execute uses os.environ",
-    # Clock read outside runtime: injected as Services.now/sleep/monotonic
-    # (PR9, PR11).
-    "mn_immunization.ledger.gcs_ledger uses datetime.now",
-    "mn_immunization.ledger.memory uses datetime.now",
-    "mn_immunization.pipeline.cycles uses datetime.now",
-    "mn_immunization.pipeline.execute uses datetime.now",
-    "mn_immunization.pipeline.execute uses time.monotonic",
-    "mn_immunization.pipeline.execute uses time.sleep",
-    "mn_immunization.pipeline.incremental uses datetime.now",
-    "mn_immunization.pipeline.support uses datetime.now",
-}
+ALLOWED: set[str] = set()
 
 
 def module_name(path: Path) -> str:

@@ -10,16 +10,15 @@ decision they might have been tempted to make lives in `policy.decide`.
 from __future__ import annotations
 
 import logging
-import os
-import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from mn_immunization.domain.hashing import sha256_hex
 from mn_immunization.domain.records import RecordSet
 from mn_immunization.ledger import events
+from mn_immunization.pipeline.context import RunContext
 from mn_immunization.pipeline.incremental import commit_master, compute_diff
 from mn_immunization.pipeline.policy import (
     AwaitStaging,
@@ -39,9 +38,6 @@ from mn_immunization.sources.aisr.port import (
     SchoolQueryInformation,
 )
 
-if TYPE_CHECKING:
-    from mn_immunization.pipeline.cycles import RunContext
-
 logger = logging.getLogger(__name__)
 
 STEP_NAMES = {
@@ -60,7 +56,7 @@ class StagingProbe:
 
 
 def probe_staging(
-    source: ImmunizationSource, schools: list[SchoolQueryInformation]
+    source: ImmunizationSource, schools: list[SchoolQueryInformation], now: datetime
 ) -> StagingProbe:
     """Read-only listing of every school's results.
 
@@ -71,7 +67,7 @@ def probe_staging(
     listed" is not "staged for this period", which matters before any move
     to a weekly cadence.
     """
-    now = datetime.now(UTC)
+    now_utc = now.astimezone(UTC)
     staged = failed = 0
     for school in schools:
         try:
@@ -89,7 +85,7 @@ def probe_staging(
             "Results listing for %s: %d entries, newest upload %s, staged=%s",
             school.school_name,
             results.entries,
-            f"{(now - newest).days}d ago" if newest else "undated",
+            f"{(now_utc - newest).days}d ago" if newest else "undated",
             results.available,
         )
         if results.available:
@@ -124,7 +120,7 @@ def record_import_confirmations(ctx: RunContext) -> None:
         return
 
     try:
-        now = datetime.now()
+        now = ctx.clock.now()
         runs = ctx.ledger.recent_runs(limit=50)
 
         delivered: set[str] = set()
@@ -145,7 +141,7 @@ def record_import_confirmations(ctx: RunContext) -> None:
         logger.warning("import-confirmation check skipped (%s)", type(error).__name__)
         return
 
-    reminder_days = int(os.environ.get("IMPORT_REMINDER_DAYS", "7"))
+    reminder_days = ctx.settings.import_reminder_days
     for filename in sorted(outstanding):
         if filename not in present:
             append_event(
@@ -162,10 +158,10 @@ def record_import_confirmations(ctx: RunContext) -> None:
                 )
 
 
-def query_period() -> str:
+def query_period(ctx: RunContext) -> str:
     """The roster-submission period key (QUERY_PERIOD_FORMAT, monthly by
     default): one submission per school per period."""
-    return datetime.now().strftime(os.environ.get("QUERY_PERIOD_FORMAT", "%Y-%m"))
+    return ctx.clock.now().strftime(ctx.settings.query_period_format)
 
 
 def submitted_this_period(runs: list[dict], period: str) -> set[str]:
@@ -198,7 +194,7 @@ def _submit_queries(ctx: RunContext) -> Submission:
     Ledger reads happen before anything is claimed, and login before any
     claim too, so a read error or a failed login leaves no claims behind.
     """
-    period = query_period()
+    period = query_period(ctx)
     prefix = f"{period}_query"
     runs = ctx.ledger.recent_runs()
     held = ctx.ledger.held_claims(prefix)
@@ -277,7 +273,7 @@ def _probe_staged(ctx: RunContext, school_ids: frozenset[str]) -> int:
     are not waited for."""
     schools = [school for school in ctx.schools if school.school_id in school_ids]
     with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
-        probe = probe_staging(source, schools)
+        probe = probe_staging(source, schools, ctx.clock.now())
     logger.info("%d/%d schools have results staged", probe.staged, len(schools))
     return probe.staged
 
@@ -325,6 +321,7 @@ def _compute_diff(ctx: RunContext) -> DiffResult:
         objects=ctx.objects,
         snapshots=ctx.snapshots,
         ledger=ctx.ledger,
+        now=ctx.clock.now(),
     )
     logger.info("Created incremental diff file: %s", diff_path.name)
     return DiffResult(
@@ -398,11 +395,6 @@ def _commit_master(ctx: RunContext, diff: DiffResult) -> None:
     )
 
 
-def _brake_fraction() -> float | None:
-    raw = os.environ.get("DIFF_SANITY_FRACTION", "0.2")
-    return None if raw == "off" else float(raw)
-
-
 def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
     """The one place terminal events are written."""
     diff = state.diff
@@ -455,11 +447,29 @@ def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
     return {"status": step.status, "reason": step.reason, **detail}
 
 
-def run_to_completion(
-    ctx: RunContext,
-    sleep=time.sleep,
-    clock=time.monotonic,
-) -> dict:
+@dataclass(frozen=True)
+class Executors:
+    """The I/O behind each Step. Production runs REAL_EXECUTORS; the loop
+    tests pass stubs, so the loop is tested without touching an adapter
+    and without monkeypatching."""
+
+    submit: Callable[[RunContext], Submission]
+    probe: Callable[[RunContext, frozenset[str]], int]
+    compute: Callable[[RunContext], DiffResult]
+    deliver: Callable[[RunContext, DiffResult], str]
+    commit: Callable[[RunContext, DiffResult], None]
+
+
+REAL_EXECUTORS = Executors(
+    submit=_submit_queries,
+    probe=_probe_staged,
+    compute=_compute_diff,
+    deliver=_deliver_diff,
+    commit=_commit_master,
+)
+
+
+def run_to_completion(ctx: RunContext, executors: Executors = REAL_EXECUTORS) -> dict:
     """Drive the cycle to its terminal event, one decided step at a time.
 
     A step that raises becomes a loud RunFailed naming the step; nothing
@@ -474,9 +484,10 @@ def run_to_completion(
         )
         return {"status": "failed", "reason": "GOOGLE_DRIVE_FOLDER_ID not set"}
 
-    interval = int(os.environ.get("POLL_INTERVAL_SECONDS", "14400"))
-    deadline = int(os.environ.get("POLL_DEADLINE_SECONDS", "72000"))
-    brake = _brake_fraction()
+    interval = ctx.settings.poll_interval_seconds
+    deadline = ctx.settings.poll_deadline_seconds
+    brake = ctx.settings.brake_fraction
+    clock, sleep = ctx.clock.monotonic, ctx.clock.sleep
 
     state = CycleState()
     start = clock()
@@ -490,7 +501,7 @@ def run_to_completion(
         name = STEP_NAMES[type(step)]
         try:
             if isinstance(step, SubmitQueries):
-                state = state.with_submission(_submit_queries(ctx))
+                state = state.with_submission(executors.submit(ctx))
             elif isinstance(step, AwaitStaging):
                 if probed:
                     remaining = deadline - (clock() - start)
@@ -502,7 +513,7 @@ def run_to_completion(
                 # decide only waits once a submission exists
                 submission = state.submission or Submission()
                 try:
-                    staged = _probe_staged(ctx, submission.submitted)
+                    staged = executors.probe(ctx, submission.submitted)
                 except Exception as error:
                     # One AISR blip (a failed login, a maintenance page)
                     # must not end a 20-hour wait. Keep the last count,
@@ -515,16 +526,16 @@ def run_to_completion(
                 else:
                     state = state.with_staged(staged)
             elif isinstance(step, ComputeDiff):
-                state = state.with_diff(_compute_diff(ctx))
+                state = state.with_diff(executors.compute(ctx))
             elif isinstance(step, DeliverDiff):
-                outcome = _deliver_diff(ctx, step.diff)
+                outcome = executors.deliver(ctx, step.diff)
                 state = (
                     state.with_delivered_elsewhere()
                     if outcome == "already_delivered"
                     else state.with_delivered()
                 )
             elif isinstance(step, CommitMaster):
-                _commit_master(ctx, step.diff)
+                executors.commit(ctx, step.diff)
                 state = state.with_master_committed()
         except Exception as error:
             append_event(

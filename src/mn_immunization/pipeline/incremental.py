@@ -74,6 +74,7 @@ def compute_diff(
     objects: ObjectStore,
     snapshots: SnapshotStore,
     ledger: RunLedger,
+    now: datetime,
 ) -> tuple[Path, Path, int, int]:
     """Diff current records against the known set; write both files to temp.
 
@@ -93,7 +94,7 @@ def compute_diff(
         len(current),
     )
 
-    diff_filename = f"{datetime.now():%Y-%m-%d}_new_vaccinations.csv"
+    diff_filename = f"{now:%Y-%m-%d}_new_vaccinations.csv"
     diff_path = output_folder / diff_filename
     diff_text = render_csv(new_records)
     diff_path.write_text(diff_text, encoding="utf-8")

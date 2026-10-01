@@ -3,59 +3,34 @@
 The policy tests prove `decide` names the right steps; these prove the
 loop executes them faithfully: polling at the interval, stopping at the
 deadline, failing loudly mid-step with the master untouched, and writing
-exactly one terminal event per run.
+exactly one terminal event per run. The stubs are injected as an
+`Executors` table: no monkeypatching.
 """
 
-import pytest
+from dataclasses import replace
 
 import mn_immunization.pipeline.execute as execute
-from mn_immunization.gcp.storage import GcsObjectStore
-from mn_immunization.ledger.memory import InMemoryRunLedger, InMemorySnapshotStore
-from mn_immunization.pipeline.cycles import RunContext
+from mn_immunization.pipeline.execute import Executors
 from mn_immunization.pipeline.policy import DiffResult, Submission
-from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
-from tests.fakes import FakeBucket, FakeDrive
+from mn_immunization.pipeline.settings import Settings
+from mn_immunization.sources.aisr.port import SchoolQueryInformation
+from tests.fakes import FakeClock, make_run_context
 
 SCHOOLS = 8
 INTERVAL = 14400
 DEADLINE = 72000
+SETTINGS = Settings(
+    data_bucket="test-bucket",
+    poll_interval_seconds=INTERVAL,
+    poll_deadline_seconds=DEADLINE,
+    brake_fraction=0.2,
+)
 
 
-class FakeClock:
-    def __init__(self):
-        self.now = 0.0
-        self.sleeps: list[float] = []
-
-    def clock(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.sleeps.append(seconds)
-        self.now += seconds
-
-
-@pytest.fixture
-def env(monkeypatch):
-    monkeypatch.setenv("POLL_INTERVAL_SECONDS", str(INTERVAL))
-    monkeypatch.setenv("POLL_DEADLINE_SECONDS", str(DEADLINE))
-    monkeypatch.setenv("DIFF_SANITY_FRACTION", "0.2")
-
-
-def no_source(auth_url, api_url):
-    raise AssertionError("executors are stubbed; no AISR session expected")
-
-
-def make_ctx(tmp_path, schools: int = SCHOOLS) -> RunContext:
-    return RunContext(
-        ledger=InMemoryRunLedger(),
-        snapshots=InMemorySnapshotStore(),
-        objects=GcsObjectStore(FakeBucket()),
-        drive=FakeDrive(),
-        open_source=no_source,
-        temp=tmp_path,
-        auth_url="https://auth.test",
-        api_url="https://api.test",
-        district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
+def make_ctx(tmp_path, schools: int = SCHOOLS):
+    return make_run_context(
+        tmp_path,
+        settings=SETTINGS,
         schools=[
             SchoolQueryInformation(
                 school_name=f"school-{i}",
@@ -80,17 +55,21 @@ def make_diff(tmp_path, new=648, known=170_361, files=8, failures=0) -> DiffResu
     )
 
 
-def stub_executors(
-    monkeypatch, staged, diff, deliver_outcome="delivered", submission=None
-):
-    """Replace the I/O executors; the loop under test stays real.
+class Stubs(list):
+    """The ordered call log, plus the Executors that write to it."""
+
+    executors: Executors
+
+
+def stub_executors(staged, diff, deliver_outcome="delivered", submission=None):
+    """Stub executors; the loop under test stays real.
 
     `staged` is the sequence of probe results (the last repeats); an
     exception in it is raised by that probe. `deliver_outcome` is
     "delivered", "already_delivered", or an exception to raise. Returns
-    the ordered call log.
+    the call log, carrying the executors as `.executors`.
     """
-    calls = []
+    calls = Stubs()
     staged_iter = iter(staged)
     last = {"outcome": 0}
 
@@ -116,30 +95,27 @@ def stub_executors(
             raise deliver_outcome
         return deliver_outcome
 
-    monkeypatch.setattr(execute, "_submit_queries", fake_submit)
-    monkeypatch.setattr(execute, "_probe_staged", fake_probe)
-    monkeypatch.setattr(
-        execute, "_compute_diff", lambda ctx: (calls.append("compute"), diff)[1]
-    )
-    monkeypatch.setattr(execute, "_deliver_diff", fake_deliver)
-    monkeypatch.setattr(
-        execute, "_commit_master", lambda ctx, d: calls.append("commit")
+    calls.executors = Executors(
+        submit=fake_submit,
+        probe=fake_probe,
+        compute=lambda ctx: (calls.append("compute"), diff)[1],
+        deliver=fake_deliver,
+        commit=lambda ctx, d: calls.append("commit"),
     )
     return calls
 
 
-def run(ctx, fake_clock):
-    return execute.run_to_completion(
-        ctx, sleep=fake_clock.sleep, clock=fake_clock.clock
-    )
+def run(ctx, fake_clock, calls):
+    ctx.clock = fake_clock.as_clock()
+    return execute.run_to_completion(ctx, calls.executors)
 
 
-def test_happy_path_runs_the_steps_in_order(env, monkeypatch, tmp_path):
+def test_happy_path_runs_the_steps_in_order(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(monkeypatch, staged=[SCHOOLS], diff=make_diff(tmp_path))
+    calls = stub_executors(staged=[SCHOOLS], diff=make_diff(tmp_path))
     fake = FakeClock()
 
-    result = run(ctx, fake)
+    result = run(ctx, fake, calls)
 
     assert calls == ["submit", "probe", "compute", "deliver", "commit"]
     assert result == {
@@ -151,24 +127,24 @@ def test_happy_path_runs_the_steps_in_order(env, monkeypatch, tmp_path):
     assert fake.sleeps == []
 
 
-def test_polls_at_interval_until_staged(env, monkeypatch, tmp_path):
+def test_polls_at_interval_until_staged(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(monkeypatch, staged=[2, 5, 8], diff=make_diff(tmp_path))
+    calls = stub_executors(staged=[2, 5, 8], diff=make_diff(tmp_path))
     fake = FakeClock()
 
-    result = run(ctx, fake)
+    result = run(ctx, fake, calls)
 
     assert result["status"] == "success"
     assert fake.sleeps == [INTERVAL, INTERVAL]
     assert calls.count("probe") == 3
 
 
-def test_nothing_staged_by_deadline_fails_loudly(env, monkeypatch, tmp_path):
+def test_nothing_staged_by_deadline_fails_loudly(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(monkeypatch, staged=[0], diff=make_diff(tmp_path))
+    calls = stub_executors(staged=[0], diff=make_diff(tmp_path))
     fake = FakeClock()
 
-    result = run(ctx, fake)
+    result = run(ctx, fake, calls)
 
     assert result["status"] == "failed"
     assert sum(fake.sleeps) == DEADLINE
@@ -180,18 +156,17 @@ def test_nothing_staged_by_deadline_fails_loudly(env, monkeypatch, tmp_path):
     }
 
 
-def test_a_failed_probe_mid_wait_does_not_end_the_run(env, monkeypatch, tmp_path):
+def test_a_failed_probe_mid_wait_does_not_end_the_run(tmp_path):
     # One AISR blip during the 20-hour wait (a failed login, a maintenance
     # page) used to be a RunFailed; now the loop keeps waiting.
     ctx = make_ctx(tmp_path)
     calls = stub_executors(
-        monkeypatch,
         staged=[2, ConnectionError("aisr blip"), SCHOOLS],
         diff=make_diff(tmp_path),
     )
     fake = FakeClock()
 
-    result = run(ctx, fake)
+    result = run(ctx, fake, calls)
 
     assert result["status"] == "success"
     assert fake.sleeps == [INTERVAL, INTERVAL]
@@ -199,16 +174,14 @@ def test_a_failed_probe_mid_wait_does_not_end_the_run(env, monkeypatch, tmp_path
     assert ctx.ledger.event_types() == ["RunCompleted"]
 
 
-def test_probes_failing_through_the_deadline_fail_naming_the_error(
-    env, monkeypatch, tmp_path
-):
+def test_probes_failing_through_the_deadline_fail_naming_the_error(tmp_path):
     ctx = make_ctx(tmp_path)
     calls = stub_executors(
-        monkeypatch, staged=[ConnectionError("aisr down")], diff=make_diff(tmp_path)
+        staged=[ConnectionError("aisr down")], diff=make_diff(tmp_path)
     )
     fake = FakeClock()
 
-    result = run(ctx, fake)
+    result = run(ctx, fake, calls)
 
     assert result["status"] == "failed"
     assert sum(fake.sleeps) == DEADLINE
@@ -219,29 +192,27 @@ def test_probes_failing_through_the_deadline_fail_naming_the_error(
     }
 
 
-def test_partial_staging_past_deadline_proceeds(env, monkeypatch, tmp_path):
+def test_partial_staging_past_deadline_proceeds(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(monkeypatch, staged=[4], diff=make_diff(tmp_path))
+    calls = stub_executors(staged=[4], diff=make_diff(tmp_path))
     fake = FakeClock()
 
-    result = run(ctx, fake)
+    result = run(ctx, fake, calls)
 
     assert result["status"] == "success"
     assert sum(fake.sleeps) == DEADLINE
     assert calls[-3:] == ["compute", "deliver", "commit"]
 
 
-def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(
-    env, monkeypatch, tmp_path
-):
+def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(tmp_path):
     ctx = make_ctx(tmp_path)
     ids = frozenset(s.school_id for s in ctx.schools)
     stuck = Submission(submitted=ids - {"1000"}, stuck=frozenset({"1000"}))
     calls = stub_executors(
-        monkeypatch, staged=[SCHOOLS - 1], diff=make_diff(tmp_path), submission=stuck
+        staged=[SCHOOLS - 1], diff=make_diff(tmp_path), submission=stuck
     )
 
-    result = run(ctx, FakeClock())
+    result = run(ctx, FakeClock(), calls)
 
     assert calls == ["submit", "probe", "compute", "deliver", "commit"]
     assert result["status"] == "failed"
@@ -255,18 +226,17 @@ def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(
     }
 
 
-def test_nothing_submitted_fails_without_waiting(env, monkeypatch, tmp_path):
+def test_nothing_submitted_fails_without_waiting(tmp_path):
     ctx = make_ctx(tmp_path)
     ids = frozenset(s.school_id for s in ctx.schools)
     calls = stub_executors(
-        monkeypatch,
         staged=[0],
         diff=make_diff(tmp_path),
         submission=Submission(failed=ids),
     )
     fake = FakeClock()
 
-    result = run(ctx, fake)
+    result = run(ctx, fake, calls)
 
     assert calls == ["submit"]
     assert fake.sleeps == []
@@ -274,40 +244,37 @@ def test_nothing_submitted_fails_without_waiting(env, monkeypatch, tmp_path):
     assert ctx.ledger.events[0]["data"]["error"] == "NoQueriesSubmitted"
 
 
-def test_staging_waits_only_for_submitted_schools(env, monkeypatch, tmp_path):
+def test_staging_waits_only_for_submitted_schools(tmp_path):
     ctx = make_ctx(tmp_path)
     ids = frozenset(s.school_id for s in ctx.schools)
     one_failed = Submission(submitted=ids - {"1003"}, failed=frozenset({"1003"}))
     probed = []
     calls = stub_executors(
-        monkeypatch,
         staged=[SCHOOLS - 1],
         diff=make_diff(tmp_path),
         submission=one_failed,
     )
-    real_probe = execute._probe_staged
+    stubbed_probe = calls.executors.probe
 
     def recording_probe(ctx, school_ids):
         probed.append(school_ids)
-        return real_probe(ctx, school_ids)
+        return stubbed_probe(ctx, school_ids)
 
-    monkeypatch.setattr(execute, "_probe_staged", recording_probe)
+    calls.executors = replace(calls.executors, probe=recording_probe)
     fake = FakeClock()
 
-    run(ctx, fake)
+    run(ctx, fake, calls)
 
     assert probed == [ids - {"1003"}]
     assert fake.sleeps == []  # 7 of 7 expected schools staged at once
     assert "compute" in calls
 
 
-def test_brake_blocks_before_delivery_and_commit(env, monkeypatch, tmp_path):
+def test_brake_blocks_before_delivery_and_commit(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(
-        monkeypatch, staged=[SCHOOLS], diff=make_diff(tmp_path, new=100_000)
-    )
+    calls = stub_executors(staged=[SCHOOLS], diff=make_diff(tmp_path, new=100_000))
 
-    result = run(ctx, FakeClock())
+    result = run(ctx, FakeClock(), calls)
 
     assert result["status"] == "blocked"
     assert "deliver" not in calls
@@ -319,21 +286,18 @@ def test_brake_blocks_before_delivery_and_commit(env, monkeypatch, tmp_path):
     }
 
 
-def test_delivery_failure_fails_loudly_with_master_untouched(
-    env, monkeypatch, tmp_path
-):
+def test_delivery_failure_fails_loudly_with_master_untouched(tmp_path):
     # The flaw this architecture exists to kill: a failed Drive upload used
     # to be a warning followed by RunCompleted, after the master had
     # already absorbed the records.
     ctx = make_ctx(tmp_path)
     calls = stub_executors(
-        monkeypatch,
         staged=[SCHOOLS],
         diff=make_diff(tmp_path),
         deliver_outcome=ConnectionError("drive down"),
     )
 
-    result = run(ctx, FakeClock())
+    result = run(ctx, FakeClock(), calls)
 
     assert result["status"] == "failed"
     assert "ConnectionError" in result["reason"]
@@ -345,45 +309,42 @@ def test_delivery_failure_fails_loudly_with_master_untouched(
     }
 
 
-def test_diff_already_delivered_still_commits_then_skips(env, monkeypatch, tmp_path):
+def test_diff_already_delivered_still_commits_then_skips(tmp_path):
     # A crashed prior run may have delivered without committing; the
     # rerun's job is to finish the commit, then record the skip.
     ctx = make_ctx(tmp_path)
     calls = stub_executors(
-        monkeypatch,
         staged=[SCHOOLS],
         diff=make_diff(tmp_path),
         deliver_outcome="already_delivered",
     )
 
-    result = run(ctx, FakeClock())
+    result = run(ctx, FakeClock(), calls)
 
     assert result["status"] == "skipped"
     assert calls[-2:] == ["deliver", "commit"]
     assert ctx.ledger.event_types() == ["RunSkipped"]
 
 
-def test_empty_diff_completes_without_delivering(env, monkeypatch, tmp_path):
+def test_empty_diff_completes_without_delivering(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(
-        monkeypatch, staged=[SCHOOLS], diff=make_diff(tmp_path, new=0)
-    )
+    calls = stub_executors(staged=[SCHOOLS], diff=make_diff(tmp_path, new=0))
 
-    result = run(ctx, FakeClock())
+    result = run(ctx, FakeClock(), calls)
 
     assert result == {"status": "success", "files_transformed": 8, "new_records": 0}
     assert "deliver" not in calls
     assert "commit" not in calls
 
 
-def test_missing_drive_folder_fails_before_any_step(env, monkeypatch, tmp_path):
+def test_missing_drive_folder_fails_before_any_step(tmp_path):
     # Checked before SubmitQueries: a misconfigured delivery target must
     # not cost the period's one roster submission (and its nurse email).
     ctx = make_ctx(tmp_path)
     ctx.drive = None
-    calls = stub_executors(monkeypatch, staged=[SCHOOLS], diff=make_diff(tmp_path))
+    calls = stub_executors(staged=[SCHOOLS], diff=make_diff(tmp_path))
 
-    result = run(ctx, FakeClock())
+    result = run(ctx, FakeClock(), calls)
 
     assert result["status"] == "failed"
     assert calls == []
@@ -391,15 +352,6 @@ def test_missing_drive_folder_fails_before_any_step(env, monkeypatch, tmp_path):
         "step": "delivery",
         "error": "NoDriveFolder",
     }
-
-
-def test_brake_fraction_parsing(monkeypatch):
-    monkeypatch.delenv("DIFF_SANITY_FRACTION", raising=False)
-    assert execute._brake_fraction() == 0.2
-    monkeypatch.setenv("DIFF_SANITY_FRACTION", "off")
-    assert execute._brake_fraction() is None
-    monkeypatch.setenv("DIFF_SANITY_FRACTION", "0.5")
-    assert execute._brake_fraction() == 0.5
 
 
 # --- the real _deliver_diff, with only the Drive upload stubbed ---

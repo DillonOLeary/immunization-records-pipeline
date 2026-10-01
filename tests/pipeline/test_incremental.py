@@ -12,13 +12,12 @@ from google.api_core.exceptions import ServiceUnavailable
 from mn_immunization.domain.ic_format import IcFormatError
 from mn_immunization.domain.records import RecordSet
 from mn_immunization.gcp.storage import GcsObjectStore
-from mn_immunization.ledger.memory import InMemorySnapshotStore
 from mn_immunization.pipeline.incremental import (
     MASTER_PATH,
     MasterMissingError,
     load_known_records,
 )
-from tests.fakes import FakeBucket
+from tests.fakes import FakeBucket, InMemorySnapshotStore
 
 
 def stores(master: str | None, snapshots_exist: bool):

@@ -60,15 +60,17 @@ src/mn_immunization/
   ledger/
     events.py                   event types (dataclasses, JSON-serialized)
     gcs_ledger.py               append-only ledger on GCS objects
-    memory.py                   in-memory ledger for tests and local runs
     port.py                     RunLedger / SnapshotStore protocols
   pipeline/                     the application layer
     policy.py                   the decider: CycleState, Steps, decide() (pure)
     execute.py                  executors + the runner loop
     cycles.py                   use-case entrypoints and shared scaffolding
+    settings.py                 every env var, parsed once
+    services.py, context.py     what a cycle is given: ports, settings, clock
     incremental.py              known set (fail-closed), compute_diff, commit_master
     support.py                  run ids, best-effort appends, the diff claim
-  runtime/                      entrypoints only
+  runtime/                      entrypoints and wiring only
+    composition.py              the composition root: builds every adapter
     job.py                      Cloud Run Job entrypoint (run|canary|rebaseline)
     cli.py                      mn-immunization status (read-only ledger window)
 mock/                           fake AISR server (dev dependency, promoted

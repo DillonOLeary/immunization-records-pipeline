@@ -7,14 +7,26 @@ raises the real NotFound / PreconditionFailed exceptions, so adapter code
 under test takes its real error paths. `fail_next_write` injects one
 failure into a named object's next write, to crash a run at an exact
 point. FakeStorageClient wraps it as a client; FakeDrive records what was
-delivered to the Drive folder.
+delivered to the Drive folder. InMemoryRunLedger and InMemorySnapshotStore
+are the ledger ports with nothing behind them, for unit tests that need a
+ledger but not storage semantics.
 """
 
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from google.api_core.exceptions import NotFound, PreconditionFailed
+
+from mn_immunization.gcp.storage import GcsObjectStore
+from mn_immunization.ledger.events import LedgerEvent
+from mn_immunization.pipeline.context import RunContext
+from mn_immunization.pipeline.services import Clock
+from mn_immunization.pipeline.settings import Settings
+from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
 
 
 class FakeBlob:
@@ -119,3 +131,131 @@ class FakeDrive:
         if self.list_error is not None:
             raise self.list_error
         return set(self.files)
+
+
+class InMemoryRunLedger:
+    """`history` is earlier runs' event envelopes, as recent_runs would
+    read them from storage; `claims` maps each held key to its payload."""
+
+    def __init__(
+        self,
+        run_id: str = "test-run",
+        now: Callable[[], datetime] = datetime.now,
+        history: list[dict] | None = None,
+    ) -> None:
+        self.run_id = run_id
+        self._now = now
+        self.events: list[dict] = []
+        self.history: list[dict] = list(history or [])
+        self.claims: dict[str, dict] = {}
+
+    def append(self, event: LedgerEvent) -> None:
+        self.events.append(
+            {
+                "run_id": self.run_id,
+                "seq": len(self.events) + 1,
+                "type": event.type,
+                "at": self._now().isoformat(timespec="seconds"),
+                "data": event.data,
+            }
+        )
+
+    def claim(self, key: str) -> bool:
+        if key in self.claims:
+            return False
+        self.claims[key] = {
+            "run_id": self.run_id,
+            "at": self._now().isoformat(timespec="seconds"),
+        }
+        return True
+
+    def recent_runs(self, months: int = 2, limit: int | None = None) -> list[dict]:
+        by_run: dict[str, list[dict]] = {}
+        for event in [*self.history, *self.events]:
+            by_run.setdefault(event["run_id"], []).append(event)
+        runs = [
+            {"run_id": run_id, "events": sorted(evs, key=lambda e: e["seq"])}
+            for run_id, evs in by_run.items()
+        ]
+        runs.sort(key=lambda r: r["events"][0]["at"], reverse=True)
+        return runs if limit is None else runs[:limit]
+
+    def held_claims(self, prefix: str) -> dict[str, dict]:
+        return {k: v for k, v in self.claims.items() if k.startswith(prefix)}
+
+    def event_types(self) -> list[str]:
+        return [event["type"] for event in self.events]
+
+
+class InMemorySnapshotStore:
+    def __init__(self) -> None:
+        self.snapshots: dict[str, str] = {}
+
+    def put(self, content: str) -> tuple[str, str]:
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        path = f"snapshots/{digest}.csv"
+        self.snapshots[path] = content
+        return digest, path
+
+    def any_stored(self) -> bool:
+        return bool(self.snapshots)
+
+
+class FakeClock:
+    """Wall time fixed at `at`; monotonic time moves only when the code
+    under test sleeps, and every sleep is recorded."""
+
+    def __init__(self, at: datetime | None = None):
+        self.at = at or datetime.now()
+        self.elapsed = 0.0
+        self.sleeps: list[float] = []
+
+    def now(self) -> datetime:
+        return self.at
+
+    def monotonic(self) -> float:
+        return self.elapsed
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.elapsed += seconds
+
+    def as_clock(self) -> Clock:
+        return Clock(now=self.now, sleep=self.sleep, monotonic=self.monotonic)
+
+
+def no_source(auth_url: str, api_url: str):
+    raise AssertionError("no AISR session expected in this test")
+
+
+_DEFAULT = object()
+
+
+def make_run_context(
+    tmp_path: Path,
+    *,
+    settings: Settings | None = None,
+    clock: Clock | None = None,
+    ledger=None,
+    objects=None,
+    drive=_DEFAULT,
+    open_source=no_source,
+    schools: list[SchoolQueryInformation] | None = None,
+) -> RunContext:
+    """A RunContext of fakes: in-memory ledger and snapshots, a FakeBucket
+    object store, a FakeDrive, and an AISR opener that must not be used.
+    Pass `drive=None` for a district with no delivery folder."""
+    return RunContext(
+        settings=settings or Settings(data_bucket="test-bucket"),
+        clock=clock or FakeClock().as_clock(),
+        ledger=ledger or InMemoryRunLedger(),
+        snapshots=InMemorySnapshotStore(),
+        objects=objects or GcsObjectStore(FakeBucket()),
+        drive=FakeDrive() if drive is _DEFAULT else drive,
+        open_source=open_source,
+        temp=tmp_path,
+        auth_url="https://auth.test",
+        api_url="https://api.test",
+        district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
+        schools=schools or [],
+    )

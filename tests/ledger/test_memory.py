@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from mn_immunization.ledger import events
-from mn_immunization.ledger.memory import InMemoryRunLedger, InMemorySnapshotStore
+from tests.fakes import InMemoryRunLedger, InMemorySnapshotStore
 
 
 def fixed_now():

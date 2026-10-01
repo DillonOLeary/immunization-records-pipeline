@@ -9,11 +9,10 @@ on. The autouse PHI scan (conftest) runs on every one of them.
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 
 from google.api_core.exceptions import ServiceUnavailable
 from minnesota_immunization_mock.sample_data import expected_ic_rows
-
-import mn_immunization.pipeline.execute as execute
 
 MASTER = "output/all_known_vaccinations.csv"
 
@@ -148,7 +147,7 @@ def test_a_miic_format_change_fails_the_run_instead_of_succeeding_empty(world, c
 
 
 def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(world, capsys):
-    period = execute.query_period()
+    period = f"{datetime.now():%Y-%m}"  # the default QUERY_PERIOD_FORMAT
     world.bucket.write(
         f"ledger/claims/{period}_query_2543",
         '{"run_id": "crashed-run", "at": "2026-10-28T07:10:00"}',

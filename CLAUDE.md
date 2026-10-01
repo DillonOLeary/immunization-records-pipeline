@@ -22,7 +22,8 @@ slices: `domain/` (pure records/diff/IC-format logic, no I/O),
 (Drive, storage, secrets adapters), `ledger/` (append-only run ledger),
 `pipeline/` (the application layer: `policy.py` the pure decider,
 `execute.py` the runner loop, `cycles.py` the use-cases, `incremental.py`
-the diff math), `runtime/` (two entrypoints only: `job.py`, `cli.py`).
+the diff math), `runtime/` (the entrypoints `job.py`, `cli.py`, and
+`composition.py`, the only place adapters are built).
 `mock/` is a workspace member with a fake AISR server. `infra/` is
 Terraform. `tests/` mirrors the slices.
 

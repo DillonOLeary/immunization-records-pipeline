@@ -20,78 +20,44 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import tempfile
 from contextlib import contextmanager
-from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 
 from mn_immunization.domain.ic_format import chunk, render_csv
 from mn_immunization.gcp.port import ObjectStore
-from mn_immunization.gcp.secrets import get_secret
-from mn_immunization.gcp.storage import GcsObjectStore, get_storage_client
 from mn_immunization.ledger import events
-from mn_immunization.ledger.gcs_ledger import GcsRunLedger, GcsSnapshotStore
-from mn_immunization.ledger.port import RunLedger, SnapshotStore
+from mn_immunization.pipeline.context import RunContext
 from mn_immunization.pipeline.execute import (
     probe_staging,
     record_import_confirmations,
     run_to_completion,
 )
 from mn_immunization.pipeline.incremental import load_known_records
+from mn_immunization.pipeline.services import Services
 from mn_immunization.pipeline.support import append_event, new_run_id
-from mn_immunization.sinks.drive import GoogleDriveSink
-from mn_immunization.sinks.port import DriveSink
-from mn_immunization.sources.aisr.client import aisr_opener
-from mn_immunization.sources.aisr.port import (
-    DistrictInfo,
-    SchoolQueryInformation,
-    SourceOpener,
-)
+from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class RunContext:
-    """Everything a cycle touches, as ports: the pipeline never sees an
-    adapter class, a bucket, or a credential. Tests pass fakes."""
-
-    ledger: RunLedger
-    snapshots: SnapshotStore
-    objects: ObjectStore
-    drive: DriveSink | None  # None: no delivery folder configured
-    open_source: SourceOpener
-    temp: Path
-    auth_url: str
-    api_url: str
-    district: DistrictInfo
-    schools: list[SchoolQueryInformation] = field(default_factory=list)
-
-
 @contextmanager
 def pipeline_run(
-    kind: str, bucket_name: str, trigger: str, include_query_files: bool = False
+    kind: str, services: Services, trigger: str, include_query_files: bool = False
 ):
-    """Common cycle scaffolding: adapters, ledger, config, schools, temp
+    """Common cycle scaffolding: the run's ledger, config, schools, temp
     dir, and the guarantee that an escaping exception is recorded as
     RunFailed."""
-    bucket = get_storage_client().bucket(bucket_name)
-    ledger = GcsRunLedger(bucket, new_run_id(kind))
-    snapshots = GcsSnapshotStore(bucket)
-    objects = GcsObjectStore(bucket)
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-    drive = GoogleDriveSink(folder_id, get_secret) if folder_id else None
+    ledger = services.new_ledger(new_run_id(kind, services.clock.now()))
     append_event(ledger, events.run_started(kind=kind, trigger=trigger))
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            config = json.loads(objects.read_text("config/config.json"))
+            config = json.loads(services.objects.read_text("config/config.json"))
             auth_url, api_url = get_aisr_urls_from_config(config)
             district = get_district_from_config(config)
             schools = create_school_info_list(
-                config, objects, temp_path, include_query_files
+                config, services.objects, temp_path, include_query_files
             )
             logger.info(
                 "Loaded configuration for %d schools: %s",
@@ -99,11 +65,13 @@ def pipeline_run(
                 ", ".join(s.school_name for s in schools),
             )
             yield RunContext(
+                settings=services.settings,
+                clock=services.clock,
                 ledger=ledger,
-                snapshots=snapshots,
-                objects=objects,
-                drive=drive,
-                open_source=aisr_opener(get_secret),
+                snapshots=services.snapshots,
+                objects=services.objects,
+                drive=services.drive,
+                open_source=services.open_source,
                 temp=temp_path,
                 auth_url=auth_url,
                 api_url=api_url,
@@ -170,19 +138,19 @@ def get_district_from_config(config: dict) -> DistrictInfo:
     )
 
 
-def run_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
+def run_cycle(services: Services, trigger: str = "scheduled") -> dict:
     """The whole pipeline, one execution: decide, execute, repeat.
 
     Before the cycle, reconcile the Drive import queue: files staff have
     deleted (imported) since last run get an ImportConfirmed event. This
     is best-effort and never blocks the delivery work.
     """
-    with pipeline_run("run", bucket_name, trigger, include_query_files=True) as ctx:
+    with pipeline_run("run", services, trigger, include_query_files=True) as ctx:
         record_import_confirmations(ctx)
         return run_to_completion(ctx)
 
 
-def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
+def run_rebaseline_cycle(services: Services, trigger: str = "manual") -> dict:
     """Push the entire known set to Drive as numbered chunk files.
 
     Recovery tool for sync trouble (missed imports, IC drift): every chunk
@@ -192,7 +160,7 @@ def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
     exists only to keep individual IC uploads manageable
     (REBASELINE_CHUNK_RECORDS, default 10000).
     """
-    with pipeline_run("rebaseline", bucket_name, trigger) as ctx:
+    with pipeline_run("rebaseline", services, trigger) as ctx:
         if ctx.drive is None:
             append_event(
                 ctx.ledger,
@@ -208,9 +176,8 @@ def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
             )
             return {"status": "failed", "reason": "known-vaccinations master is empty"}
 
-        max_records = int(os.environ.get("REBASELINE_CHUNK_RECORDS", "10000"))
-        pieces = chunk(known, max_records)
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        pieces = chunk(known, ctx.settings.rebaseline_chunk_records)
+        date_str = ctx.clock.now().strftime("%Y-%m-%d")
 
         for index, piece in enumerate(pieces, start=1):
             filename = f"{date_str}_rebaseline_{index:02d}-of-{len(pieces):02d}.csv"
@@ -233,15 +200,15 @@ def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
         return {"status": "success", "chunks": len(pieces), "records": len(known)}
 
 
-def run_canary_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
+def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
     """Read-only readiness probe: AISR login plus a staged-results count per
     school, and a full read of the known-vaccinations master, so that an
     unreadable master (MasterMissingError, a malformed row) fails here, a day
     before the run. Moves no PHI and sends no email: the master is read
     in memory, and only counts are logged or recorded."""
-    with pipeline_run("canary", bucket_name, trigger) as ctx:
+    with pipeline_run("canary", services, trigger) as ctx:
         with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
-            probe = probe_staging(source, ctx.schools)
+            probe = probe_staging(source, ctx.schools, ctx.clock.now())
         available = probe.staged
         if probe.failed:
             # The run cycle tolerates a failed listing (it retries for

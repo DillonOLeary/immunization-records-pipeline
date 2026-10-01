@@ -55,7 +55,9 @@ def test_stuck_claims_are_claims_without_a_submission_event(monkeypatch):
 def test_status_prints_the_release_command_for_a_stuck_claim(monkeypatch, capsys):
     monkeypatch.delenv("QUERY_PERIOD_FORMAT", raising=False)
     bucket = FakeBucket()
-    GcsRunLedger(bucket, run_id="run_x").claim(f"{datetime.now():%Y-%m}_query_2543")
+    GcsRunLedger(bucket, run_id="run_x", now=datetime.now).claim(
+        f"{datetime.now():%Y-%m}_query_2543"
+    )
     monkeypatch.setattr(
         cli,
         "get_storage_client",

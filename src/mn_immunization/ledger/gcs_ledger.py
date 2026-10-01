@@ -29,12 +29,7 @@ class GcsRunLedger:
     a compatible .blob(name) / .list_blobs(prefix) interface).
     """
 
-    def __init__(
-        self,
-        bucket,
-        run_id: str,
-        now: Callable[[], datetime] = datetime.now,
-    ) -> None:
+    def __init__(self, bucket, run_id: str, now: Callable[[], datetime]) -> None:
         self.bucket = bucket
         self.run_id = run_id
         self._now = now

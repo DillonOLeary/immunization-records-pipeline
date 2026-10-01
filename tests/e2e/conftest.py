@@ -3,8 +3,9 @@
 Every test here runs `job.main([...])`, which runs the real cycles, the
 real decider and executors, the real AISR adapter (against the in-process
 fake AISR), and the real GCS ledger, snapshot, and master code over one
-shared FakeBucket. Only the edges are swapped: the storage client, Secret
-Manager, and the Drive API.
+shared FakeBucket. Only the edges are swapped, by handing `job.main` a
+`build` that composes test services: the bucket, Secret Manager, Drive,
+and a clock that never sleeps.
 
 Two guarantees ride along on every test that uses `world`:
 
@@ -12,28 +13,34 @@ Two guarantees ride along on every test that uses `world`:
   and up), everything printed, and every ledger object is scanned for
   each value in the fake AISR's CANARY_PHI. The master, diff, and Drive
   files legitimately hold records and are not scanned.
-- Nothing reaches real GCP: the seams are patched before the test body.
-
-The seams are patched at the modules that use them. When the composition
-root lands, this harness switches to building test services instead, and
-the scenarios do not change.
+- Nothing reaches real GCP: there is no patching at all; the services
+  simply contain no real cloud adapter.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
 import pytest
 from minnesota_immunization_mock.sample_data import CANARY_PHI
 
-import mn_immunization.pipeline.cycles as cycles
 import mn_immunization.runtime.job as job
-from mn_immunization.ledger.gcs_ledger import read_recent_runs, recent_months
+from mn_immunization.gcp.storage import GcsObjectStore
+from mn_immunization.ledger.gcs_ledger import (
+    GcsRunLedger,
+    GcsSnapshotStore,
+    read_recent_runs,
+    recent_months,
+)
+from mn_immunization.pipeline.services import Clock, Services
+from mn_immunization.pipeline.settings import Settings
+from mn_immunization.sources.aisr.client import aisr_opener
 from tests.conftest import MockAisr
-from tests.fakes import FakeBucket, FakeDrive, FakeStorageClient
+from tests.fakes import FakeBucket, FakeDrive
 
 BUCKET = "e2e-bucket"
 SCHOOLS = {"2542": "Friendly Hills Mid", "2543": "Garlough Elementary"}
@@ -84,11 +91,26 @@ class World:
         """Run one cycle through the job entrypoint; returns (exit code,
         printed result)."""
         before = self.run_ids()
-        code = job.main([cycle, "--trigger", "manual"])
+        code = job.main([cycle, "--trigger", "manual"], build=self.build)
         (self.last_run_id,) = self.run_ids() - before
         printed = capsys.readouterr().out.strip().splitlines()[-1]
         self.printed.append(printed)
         return code, json.loads(printed)
+
+    def build(self, settings: Settings) -> Services:
+        """Test composition: the real GCS adapters over the shared fake
+        bucket, the fake Drive, the real AISR opener, no sleeping."""
+        assert settings.data_bucket == self.bucket.name
+        clock = Clock(now=datetime.now, sleep=lambda _: None, monotonic=time.monotonic)
+        return Services(
+            settings=settings,
+            clock=clock,
+            new_ledger=lambda run_id: GcsRunLedger(self.bucket, run_id, now=clock.now),
+            snapshots=GcsSnapshotStore(self.bucket),
+            objects=GcsObjectStore(self.bucket),
+            drive=self.drive if settings.drive_folder_id else None,
+            open_source=aisr_opener(SECRETS.__getitem__),
+        )
 
     def run_ids(self) -> set[str]:
         """Ids of every run with events (ledger/YYYY/MM/<run_id>/...)."""
@@ -117,11 +139,6 @@ def world(monkeypatch, mock_aisr, caplog):
     caplog.set_level(logging.DEBUG)
     bucket = FakeBucket(BUCKET)
     drive = FakeDrive()
-    client = FakeStorageClient(bucket)
-
-    monkeypatch.setattr(cycles, "get_storage_client", lambda: client)
-    monkeypatch.setattr(cycles, "get_secret", SECRETS.__getitem__)
-    monkeypatch.setattr(cycles, "GoogleDriveSink", lambda folder_id, secret: drive)
 
     monkeypatch.setenv("DATA_BUCKET", BUCKET)
     monkeypatch.setenv("GOOGLE_DRIVE_FOLDER_ID", "e2e-folder")

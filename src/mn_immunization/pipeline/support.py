@@ -13,8 +13,8 @@ from mn_immunization.ledger.port import RunLedger
 logger = logging.getLogger(__name__)
 
 
-def new_run_id(kind: str) -> str:
-    return f"{kind}_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:8]}"
+def new_run_id(kind: str, now: datetime) -> str:
+    return f"{kind}_{now:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:8]}"
 
 
 def append_event(ledger: RunLedger, event: LedgerEvent) -> None:

@@ -6,6 +6,10 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: composition root. Settings parsed once in `job.py`; every
+  adapter built in `runtime/composition.py`; the clock injected; an
+  `Executors` table replaces monkeypatching in the loop tests. The
+  architecture ratchet is empty.
 - 2026-10-01: the pipeline reaches every adapter through a port (the
   composition-root refactor, part 1). New ports: `gcp/port.ObjectStore`
   (read/write named text objects; GcsObjectStore implements it),
