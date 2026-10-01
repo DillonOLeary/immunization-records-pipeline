@@ -136,7 +136,10 @@ means an earlier run may have uploaded and crashed before recording it:
 the school is *stuck*, never resubmitted automatically, and the run
 delivers the other schools and then ends RunFailed naming it
 (`stuck_schools`). `mn-immunization status` lists stuck claims with the
-command to release one; ONBOARDING has the procedure. A claim that cannot
+command to release one; ONBOARDING has the procedure. A submission that
+fails before its upload begins (`QueryNotSentError`: signing failed or the
+roster was unreadable) releases its own claim, generation-matched, so the
+next run retries it; MIIC received nothing. A claim that cannot
 be checked at all is a failure, not a pass (unlike the diff claim below,
 where acting twice is the survivable side). The period format is
 configuration (monthly today, QUERY_PERIOD_FORMAT). Claims named

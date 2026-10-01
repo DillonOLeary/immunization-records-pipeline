@@ -6,6 +6,9 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: a roster that provably never went out (signing failed,
+  file unreadable) releases its claim, so the next run retries it with no
+  human; an upload with an unknown outcome still sticks.
 - 2026-10-01: composition root. Settings parsed once in `job.py`; every
   adapter built in `runtime/composition.py`; the clock injected; an
   `Executors` table replaces monkeypatching in the loop tests. The

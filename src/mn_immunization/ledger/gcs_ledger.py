@@ -34,6 +34,7 @@ class GcsRunLedger:
         self.run_id = run_id
         self._now = now
         self._seq = 0
+        self._won: dict[str, int | None] = {}  # claim key -> its generation
 
     def append(self, event: LedgerEvent) -> None:
         self._seq += 1
@@ -63,7 +64,18 @@ class GcsRunLedger:
             )
         except PreconditionFailed:
             return False
+        self._won[key] = blob.generation
         return True
+
+    def release(self, key: str) -> None:
+        """Delete a claim this run won, if its generation is unchanged:
+        never someone else's, never one rewritten since."""
+        if key not in self._won:
+            raise ValueError(f"claim {key} was not won by run {self.run_id}")
+        generation = self._won.pop(key)
+        self.bucket.blob(f"{CLAIMS_PREFIX}{key}").delete(
+            if_generation_match=generation
+        )
 
     def recent_runs(self, months: int = 2, limit: int | None = None) -> list[dict]:
         """Runs with events in the last `months` calendar months (this one

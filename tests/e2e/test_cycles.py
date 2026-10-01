@@ -169,6 +169,28 @@ def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(world, capsys):
     }
 
 
+def test_a_signing_failure_fails_loudly_then_the_rerun_recovers_alone(world, capsys):
+    # Signing failed for 2543: nothing reached MIIC, so its claim is
+    # released. The run still delivers, then fails naming 2543; the next
+    # run submits 2543 (and only 2543) with no human involved.
+    world.aisr.faults.puturl_status["2543"] = 500
+
+    code, result = world.run("run", capsys)
+
+    assert code == 1
+    assert result["failed_schools"] == ["2543"]
+    assert world.aisr.received_uploads == ["2542"]
+
+    world.aisr.faults.clear()
+    world.aisr.received_uploads.clear()
+    code, result = world.run("run", capsys)
+
+    assert code == 0
+    assert result["status"] == "success"
+    assert world.aisr.received_uploads == ["2543"]
+    assert len(world.drive.uploads) == 1
+
+
 def test_the_brake_blocks_a_flood_and_leaves_the_master_alone(world, capsys):
     world.set_schools(["2542", "2544"])
     seed_master(world, ic_text("2542"))

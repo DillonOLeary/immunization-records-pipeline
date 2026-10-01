@@ -11,6 +11,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 import requests
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
@@ -18,6 +19,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from mn_immunization.sources.aisr.port import (
     AISRActionFailedError,
     DistrictInfo,
+    QueryNotSentError,
     SchoolQueryInformation,
     StagedResults,
 )
@@ -108,7 +110,7 @@ def _get_put_url(
 
 
 def _put_file_to_s3(
-    session: requests.Session, s3_url: str, headers: S3UploadHeaders, file_name: str
+    session: requests.Session, s3_url: str, headers: S3UploadHeaders, payload: bytes
 ) -> None:
     """Upload the roster file to S3 with the signed URL.
 
@@ -124,9 +126,6 @@ def _put_file_to_s3(
         "x-amz-meta-iddis": headers.iddis,
         "host": headers.host,
     }
-
-    with open(file_name, "rb") as file:
-        payload = file.read()
 
     res = session.request("PUT", s3_url, headers=headers_json, data=payload, timeout=60)
 
@@ -245,18 +244,30 @@ def bulk_query_aisr(
     query_info: SchoolQueryInformation,
     district: DistrictInfo,
 ) -> None:
-    """Submit one school's roster as a bulk query: sign, then upload.
+    """Submit one school's roster as a bulk query: read, sign, then upload.
 
-    The local file path is sent as `filePath` to MDH signing, as it always
-    has been; MDH accepts it.
+    Everything that can fail without MIIC receiving anything happens
+    first, and raises QueryNotSentError: the caller may safely release its
+    claim and let a rerun try again. The upload itself is never retried
+    and its failures are not QueryNotSentError: by then the outcome is
+    unknown. The local file path is sent as `filePath` to MDH signing, as
+    it always has been; MDH accepts it.
     """
-    signed_s3_url = _get_put_url(
-        session,
-        base_url,
-        access_token,
-        query_info.query_file_path,
-        query_info.school_id,
-    )
+    try:
+        payload = Path(query_info.query_file_path).read_bytes()
+        signed_s3_url = _get_put_url(
+            session,
+            base_url,
+            access_token,
+            query_info.query_file_path,
+            query_info.school_id,
+        )
+    except Exception as error:
+        raise QueryNotSentError(
+            f"roster for school {query_info.school_id} not sent "
+            f"({type(error).__name__} before upload)",
+            status_code=getattr(error, "status_code", None),
+        ) from error
     _put_file_to_s3(
         session,
         signed_s3_url,
@@ -267,5 +278,5 @@ def bulk_query_aisr(
             iddis=district.iddis,
             host=district.s3_upload_host,
         ),
-        query_info.query_file_path,
+        payload,
     )

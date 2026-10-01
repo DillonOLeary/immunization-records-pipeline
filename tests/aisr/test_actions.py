@@ -44,7 +44,9 @@ def test_upload_file_to_s3(fastapi_server, tmp_path):
 
     with requests.Session() as local_session:
         # Success is the absence of an exception.
-        _put_file_to_s3(local_session, test_url, test_headers, test_file_name)
+        _put_file_to_s3(
+            local_session, test_url, test_headers, test_file_name.read_bytes()
+        )
 
 
 def test_failed_upload_raises_exception(fastapi_server, tmp_path):
@@ -57,7 +59,9 @@ def test_failed_upload_raises_exception(fastapi_server, tmp_path):
 
     with requests.Session() as local_session:
         with pytest.raises(AISRActionFailedError):
-            _put_file_to_s3(local_session, test_url, test_headers, test_file_name)
+            _put_file_to_s3(
+                local_session, test_url, test_headers, test_file_name.read_bytes()
+            )
 
 
 def test_complete_query_action(fastapi_server, tmp_path):

@@ -29,6 +29,12 @@ class AISRActionFailedError(Exception):
         self.status_code = status_code
 
 
+class QueryNotSentError(AISRActionFailedError):
+    """A roster submission failed before its upload began (the roster file
+    could not be read, or signing failed), so MIIC received nothing and
+    emailed no one. The one failure after which a retry is safe."""
+
+
 @dataclass
 class DistrictInfo:
     """District-scoped values for the roster upload.
@@ -84,7 +90,9 @@ class ImmunizationSource(Protocol):
     def submit_roster_query(
         self, school: SchoolQueryInformation, district: DistrictInfo
     ) -> None:
-        """Send a school's roster. In MIIC this emails every nurse."""
+        """Send a school's roster. In MIIC this emails every nurse. Raises
+        QueryNotSentError if it failed before anything was uploaded; any
+        other error leaves the outcome unknown."""
         ...
 
     def staged_results(self, school_id: str) -> StagedResults:

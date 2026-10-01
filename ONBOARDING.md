@@ -145,6 +145,11 @@ rather than risk a second MIIC email to every nurse. The run still delivers
 the other schools, then ends RunFailed with `stuck_schools` (or
 `failed_schools`), and the alert fires.
 
+A failure *before* the upload began (signing failed, the roster file was
+unreadable) is different: MIIC received nothing, so the run releases the
+claim itself. The school appears under `failed_schools`, and the next run
+submits it with no action needed.
+
 `uv run mn-immunization status --bucket <data-bucket>` lists stuck claims
 under STUCK ROSTER CLAIMS, with the claiming run and the exact release
 command. For each one:

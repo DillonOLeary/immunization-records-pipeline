@@ -35,6 +35,7 @@ from mn_immunization.pipeline.policy import (
 from mn_immunization.pipeline.support import append_event, claim_or_proceed
 from mn_immunization.sources.aisr.port import (
     ImmunizationSource,
+    QueryNotSentError,
     SchoolQueryInformation,
 )
 
@@ -189,7 +190,9 @@ def _submit_queries(ctx: RunContext) -> Submission:
     - a claim that cannot even be checked is `failed`, with nothing sent
       (this is the one claim that fails closed: here, acting twice is the
       failure that matters);
-    - an upload that raises is `failed`.
+    - an upload that raises is `failed`; if it failed before anything was
+      uploaded (QueryNotSentError), its claim is released so a rerun can
+      submit it, since MIIC received nothing.
 
     Ledger reads happen before anything is claimed, and login before any
     claim too, so a read error or a failed login leaves no claims behind.
@@ -248,6 +251,8 @@ def _submit_queries(ctx: RunContext) -> Submission:
                     type(error).__name__,
                     getattr(error, "status_code", None),
                 )
+                if isinstance(error, QueryNotSentError):
+                    _release_unsent(ctx, key, school.school_name)
                 continue
             submitted.add(school.school_id)
             query_text = Path(school.query_file_path).read_text(
@@ -265,6 +270,25 @@ def _submit_queries(ctx: RunContext) -> Submission:
         submitted=frozenset(submitted),
         stuck=frozenset(stuck),
         failed=frozenset(failed),
+    )
+
+
+def _release_unsent(ctx: RunContext, key: str, school_name: str) -> None:
+    """The upload never began, so MIIC emailed no one: give the claim back
+    and a rerun submits the school. If the release itself fails, the
+    claim stays held and the school shows as stuck, which is safe."""
+    try:
+        ctx.ledger.release(key)
+    except Exception as error:
+        logger.warning(
+            "Could not release the claim for %s (%s); it will show as stuck",
+            school_name,
+            type(error).__name__,
+        )
+        return
+    logger.info(
+        "Roster for %s was never sent; claim released, a rerun will submit it",
+        school_name,
     )
 
 

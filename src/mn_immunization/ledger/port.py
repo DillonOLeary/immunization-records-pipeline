@@ -18,6 +18,11 @@ class RunLedger(Protocol):
         """Atomically claim a key. True exactly once per key, across runs."""
         ...
 
+    def release(self, key: str) -> None:
+        """Give back a claim this run won, only if it is unchanged since.
+        For the one case where the guarded action provably never started."""
+        ...
+
     def recent_runs(self, months: int = 2, limit: int | None = None) -> list[dict]:
         """Recent runs (this run included), newest first: dicts of run_id
         and events, each event the stored envelope (type, data, at, ...)."""

@@ -124,3 +124,23 @@ def test_held_claims_returns_payloads_under_a_prefix(bucket):
 
     assert sorted(held) == ["2026-07_query_2542", "2026-07_query_2543"]
     assert held["2026-07_query_2542"]["run_id"] == "run-a"
+
+
+def test_a_run_can_release_only_its_own_unchanged_claim(bucket):
+    from google.api_core.exceptions import PreconditionFailed
+
+    mine = GcsRunLedger(bucket, run_id="run-a", now=fixed_now)
+    theirs = GcsRunLedger(bucket, run_id="run-b", now=fixed_now)
+    assert mine.claim("2026-07_query_2542")
+
+    with pytest.raises(ValueError):
+        theirs.release("2026-07_query_2542")  # never someone else's
+
+    mine.release("2026-07_query_2542")
+    assert "ledger/claims/2026-07_query_2542" not in bucket.objects
+    assert theirs.claim("2026-07_query_2542")  # free again
+
+    assert mine.claim("2026-07_query_2543")
+    bucket.write("ledger/claims/2026-07_query_2543", "{}")  # rewritten since
+    with pytest.raises(PreconditionFailed):
+        mine.release("2026-07_query_2543")

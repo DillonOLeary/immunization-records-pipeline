@@ -169,6 +169,11 @@ class InMemoryRunLedger:
         }
         return True
 
+    def release(self, key: str) -> None:
+        if self.claims.get(key, {}).get("run_id") != self.run_id:
+            raise ValueError(f"claim {key} was not won by run {self.run_id}")
+        del self.claims[key]
+
     def recent_runs(self, months: int = 2, limit: int | None = None) -> list[dict]:
         by_run: dict[str, list[dict]] = {}
         for event in [*self.history, *self.events]:

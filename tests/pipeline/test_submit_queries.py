@@ -11,6 +11,7 @@ as production runs do.
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -143,24 +144,58 @@ def test_a_claim_without_an_event_is_stuck_and_never_resent(
     )
 
 
-def test_a_failed_upload_is_named_and_its_claim_stays_held(
+def test_a_signing_failure_releases_its_claim_and_a_rerun_sends_it_once(
     bucket, tmp_path, mock_aisr, period
 ):
+    # Signing failed, so the upload never began and MIIC emailed no one:
+    # the claim is given back and the next run submits the school.
     mock_aisr.faults.puturl_status["2543"] = 500
 
     first = submit(make_ctx(bucket, tmp_path, mock_aisr, "run-1"))
 
     assert first.failed == frozenset({"2543"})
     assert mock_aisr.received_uploads == ["2542", "2544"]
+    assert f"{period}_query_2543" not in claims(bucket)
 
-    # Fail closed: the rerun does not resend 2543 on its own; it reports
-    # it stuck for a human, even though the fault has cleared.
+    mock_aisr.faults.clear()
+    mock_aisr.received_uploads.clear()
+    second = submit(make_ctx(bucket, tmp_path, mock_aisr, "run-2"))
+
+    assert second.submitted == frozenset(SCHOOL_IDS)
+    assert not second.incomplete
+    assert mock_aisr.received_uploads == ["2543"]
+    assert_every_upload_was_claimed_by(bucket, ["2543"], "run-2", period)
+
+
+def test_a_failed_upload_keeps_its_claim_and_is_never_resent(
+    bucket, tmp_path, mock_aisr, period
+):
+    # The upload itself failed: MIIC may or may not have it, so the claim
+    # stays held and the rerun reports the school stuck for a human.
+    mock_aisr.faults.upload_status["2543"] = 500
+
+    first = submit(make_ctx(bucket, tmp_path, mock_aisr, "run-1"))
+
+    assert first.failed == frozenset({"2543"})
+    assert claims(bucket)[f"{period}_query_2543"]["run_id"] == "run-1"
+
     mock_aisr.faults.clear()
     mock_aisr.received_uploads.clear()
     second = submit(make_ctx(bucket, tmp_path, mock_aisr, "run-2"))
 
     assert second.stuck == frozenset({"2543"})
     assert mock_aisr.received_uploads == []
+
+
+def test_an_unreadable_roster_releases_its_claim(bucket, tmp_path, mock_aisr, period):
+    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1")
+    Path(ctx.schools[1].query_file_path).unlink()
+
+    result = submit(ctx)
+
+    assert result.failed == frozenset({"2543"})
+    assert f"{period}_query_2543" not in claims(bucket)
+    assert mock_aisr.received_uploads == ["2542", "2544"]
 
 
 def test_a_failed_login_leaves_no_claims(bucket, tmp_path, mock_aisr):
