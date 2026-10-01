@@ -301,8 +301,12 @@ MIIC has said the website may change. The blast radius is confined to
   Workload Identity Federation; humans use their own identities.
 - Secrets (AISR credentials, Drive OAuth) live only in Secret Manager.
 - No PHI in logs or ledger events, ever. Logs carry counts, hashes, school
-  names, and error classes. This is a hard rule enforced in review and by a
-  log-scanning test in e2e.
+  names, and error classes. Enforced three ways: exceptions are value-free
+  by construction (validation errors carry a field name, never a value;
+  AISR errors carry a status, never a body); `tests/test_architecture.py`
+  fails on any exception value reaching a log line or f-string; and every
+  end-to-end test (`tests/e2e/`) scans all log records, printed output,
+  and ledger objects for the fake AISR's canary PHI.
 - No PHI in the repo tree, enforced by .gitignore (`config.json`,
   `*_students.csv`, `*.tfvars`) and by keeping rosters and query files only
   in GCS.

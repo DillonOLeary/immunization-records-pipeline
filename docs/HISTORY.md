@@ -6,6 +6,22 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: end-to-end characterization tests, and the PHI log scan
+  this document had claimed since July. `tests/e2e/` runs the real job
+  entrypoint, cycles, decider, executors, AISR adapter (against the fake
+  AISR), and GCS ledger/snapshot/master code over one shared FakeBucket;
+  only the storage client, Secret Manager, and Drive are swapped. Eleven
+  scenarios pin each run's exact ledger event sequence, Drive output,
+  master, rosters sent, and exit code: first run; same-day rerun (nothing
+  sent, nothing delivered); a crash between delivery and commit resuming
+  at commit with no second delivery; unparseable master; missing master
+  with history; a stuck school (others delivered, run fails naming it);
+  the brake; canary (healthy, a failed listing, a missing master); and
+  rebaseline chunking. Every scenario then scans all log records (DEBUG
+  up), printed output, and ledger objects for every canary PHI value; a
+  planted-leak test proves the scan catches one. These land before the
+  composition-root refactor so they guard it: the harness changes, the
+  scenarios must not.
 - 2026-10-01: the architecture's rules are now enforced by code, not
   review. basedpyright runs in CI (standard mode over `src/`; chosen over
   the `pyright` PyPI wrapper because that one downloads npm at run time,

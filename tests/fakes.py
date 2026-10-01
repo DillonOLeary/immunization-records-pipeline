@@ -4,7 +4,10 @@ FakeBucket stands in for a google.cloud.storage Bucket at the surface the
 pipeline's GCS adapters use. It honors the one semantic the claim
 guarantee rests on, `if_generation_match=0` (create only if absent), and
 raises the real NotFound / PreconditionFailed exceptions, so adapter code
-under test takes its real error paths.
+under test takes its real error paths. `fail_next_write` injects one
+failure into a named object's next write, to crash a run at an exact
+point. FakeStorageClient wraps it as a client; FakeDrive records what was
+delivered to the Drive folder.
 """
 
 from __future__ import annotations
@@ -24,11 +27,13 @@ class FakeBlob:
         return self.bucket.generations.get(self.name)
 
     def upload_from_string(self, data, content_type=None, if_generation_match=None):
+        self.bucket.maybe_fail(self.name)
         if if_generation_match == 0 and self.name in self.bucket.objects:
             raise PreconditionFailed(f"object {self.name} already exists")
         self.bucket.write(self.name, data if isinstance(data, str) else data.decode())
 
     def upload_from_filename(self, filename, content_type=None):
+        self.bucket.maybe_fail(self.name)
         self.bucket.write(self.name, Path(filename).read_text(encoding="utf-8"))
 
     def download_as_text(self) -> str:
@@ -56,6 +61,15 @@ class FakeBucket:
         self.objects: dict[str, str] = {}
         self.generations: dict[str, int] = {}
         self._next_generation = 1
+        self._failures: dict[str, Exception] = {}
+
+    def fail_next_write(self, name: str, error: Exception) -> None:
+        self._failures[name] = error
+
+    def maybe_fail(self, name: str) -> None:
+        error = self._failures.pop(name, None)
+        if error is not None:
+            raise error
 
     def write(self, name: str, text: str) -> None:
         self.objects[name] = text
@@ -70,3 +84,34 @@ class FakeBucket:
         if max_results is not None:
             names = names[:max_results]
         return [FakeBlob(self, name) for name in names]
+
+
+class FakeStorageClient:
+    """A storage.Client serving exactly one FakeBucket."""
+
+    def __init__(self, bucket: FakeBucket):
+        self._bucket = bucket
+
+    def bucket(self, name: str) -> FakeBucket:
+        assert name == self._bucket.name, f"unexpected bucket {name}"
+        return self._bucket
+
+    def list_blobs(self, bucket_name: str, prefix: str = "", max_results=None):
+        return self.bucket(bucket_name).list_blobs(prefix, max_results)
+
+
+class FakeDrive:
+    """The Drive import queue: what was uploaded, and what is still there
+    (staff delete a file once imported)."""
+
+    def __init__(self):
+        self.files: dict[str, str] = {}
+        self.uploads: list[str] = []
+
+    def upload(self, file_path, filename, folder_id, **_credentials) -> str:
+        self.files[filename] = Path(file_path).read_text(encoding="utf-8")
+        self.uploads.append(filename)
+        return f"drive-file-{len(self.uploads)}"
+
+    def list_names(self, folder_id, **_credentials) -> set[str]:
+        return set(self.files)
