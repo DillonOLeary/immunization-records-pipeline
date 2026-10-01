@@ -6,6 +6,14 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: the district module removes the project-wide Editor role
+  Google grants by default to the default compute and App Engine service
+  accounts (`google_project_iam_member_remove`, a no-op where absent).
+  Nothing in the pipeline runs as either; the job and scheduler have
+  their own least-privilege accounts. Declarative, so districts created
+  later get it too. Also dropped a stale parenthetical from the security
+  model ("the current deployment grants storage.admin"), untrue since the
+  July cutover.
 - 2026-10-01: one fake AISR. The repo had two diverged copies:
   `tests/mock_server.py` (what tests actually used: strict credentials,
   fixed port 8000, `sleep(1)` startup) and the `mock/` package (what the

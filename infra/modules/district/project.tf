@@ -14,8 +14,14 @@ resource "google_project" "district" {
   }
 }
 
+data "google_project" "adopted" {
+  count      = var.create_project ? 0 : 1
+  project_id = var.project_id
+}
+
 locals {
-  project_id = var.create_project ? google_project.district[0].project_id : var.project_id
+  project_id     = var.create_project ? google_project.district[0].project_id : var.project_id
+  project_number = var.create_project ? google_project.district[0].number : data.google_project.adopted[0].number
 }
 
 resource "google_project_service" "apis" {

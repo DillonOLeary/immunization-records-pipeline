@@ -277,8 +277,10 @@ MIIC has said the website may change. The blast radius is confined to
 ## Security model
 
 - Least privilege: the job's service account gets objectAdmin on the one
-  data bucket and accessor on its secrets, nothing project-wide. (The current
-  deployment grants storage.admin; this is a downgrade on purpose.)
+  data bucket and accessor on its secrets, nothing project-wide; the
+  scheduler's can launch the one job. Nothing runs as Google's default
+  compute or App Engine service accounts, and the module removes the
+  project-wide Editor role Google grants them by default.
 - No service account keys anywhere. GitHub Actions authenticates with
   Workload Identity Federation; humans use their own identities.
 - Secrets (AISR credentials, Drive OAuth) live only in Secret Manager.

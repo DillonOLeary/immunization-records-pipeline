@@ -2,6 +2,9 @@
 # - the job's service account can touch objects in the ONE data bucket and
 #   read its own secrets; nothing project-wide
 # - the scheduler's service account can invoke the ONE job and nothing else
+# - Google's default compute and App Engine service accounts hold nothing:
+#   Google grants each roles/editor on the whole project, and nothing in
+#   this pipeline runs as either
 
 resource "google_service_account" "job" {
   project      = local.project_id
@@ -50,4 +53,23 @@ resource "google_service_account_iam_member" "deployer_acts_as_job" {
   service_account_id = google_service_account.job.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${var.deployer_service_account}"
+}
+
+# Google grants roles/editor on the project to its default compute and App
+# Engine service accounts. Nothing here runs as either (the job and the
+# scheduler have their own accounts above), so the grants are only attack
+# surface: any workload that ever runs as a default account would get
+# editor on the project that holds the data bucket and the secrets.
+# Removing them declaratively strips them in every district, including
+# ones created later. A no-op where the grant (or the account) is absent.
+resource "google_project_iam_member_remove" "default_compute_not_editor" {
+  project = local.project_id
+  role    = "roles/editor"
+  member  = "serviceAccount:${local.project_number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_project_iam_member_remove" "default_appengine_not_editor" {
+  project = local.project_id
+  role    = "roles/editor"
+  member  = "serviceAccount:${local.project_id}@appspot.gserviceaccount.com"
 }
