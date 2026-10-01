@@ -50,7 +50,7 @@ variable "canary_schedule" {
 }
 
 variable "time_zone" {
-  description = "Scheduler time zone"
+  description = "District time zone: schedulers, roster periods, delivery dates"
   type        = string
   default     = "America/Chicago"
 }

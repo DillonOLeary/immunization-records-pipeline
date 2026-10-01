@@ -24,6 +24,12 @@ resource "google_cloud_run_v2_job" "pipeline" {
           name  = "GOOGLE_DRIVE_FOLDER_ID"
           value = var.google_drive_folder_id
         }
+        # Roster periods and delivery dates are district-local, the same
+        # zone the schedulers run in.
+        env {
+          name  = "DISTRICT_TIME_ZONE"
+          value = var.time_zone
+        }
 
         resources {
           limits = {
