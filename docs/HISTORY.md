@@ -6,6 +6,31 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: AISR adapter and loop hardening. (1) The four Keycloak calls
+  had no timeout, though this doc claimed all AISR calls did; a hung login
+  would have held the job for its 22-hour task timeout. Now `(10, 60)`.
+  (2) Retries matched `"502" in str(e)`, and the message included the
+  response body, so a body mentioning 502 retried and a 503 phrased
+  differently didn't; `AISRActionFailedError` now carries `status_code`
+  and the predicate checks it. Signing is retried too (no side effects;
+  MIIC emails on upload, not signing); the upload never is. (3) Error
+  messages no longer include response bodies (`TokenRequestError`
+  either). (4) `_get_put_url` never checked the status, so a failed
+  signing surfaced as a JSONDecodeError or a PUT to `None`, escaping the
+  per-school `except AISRActionFailedError` and aborting every remaining
+  school; it now validates status and URL, and the per-school submit,
+  probe, and download loops catch any exception for that school alone.
+  (5) A single failed staging probe (one login blip in a 20-hour window)
+  used to fail the run; probes are now tolerated until the deadline
+  (`CycleState.probe_error`), and the canary is the strict one. (6) The
+  login form posts a dict, so the username is encoded (it went in raw).
+  (7) A failed logout in `aisr_session`'s `finally` could replace the
+  error that ended the session; it is now logged by class and swallowed.
+  (8) Observation only: each probe logs per-school entry counts and the
+  age of the newest upload, to learn whether AISR keeps old results.
+  Deleted the vestigial `AISRFileUploadResponse`/`AISRFileDownloadResponse`
+  (always `is_successful=True` or raise) and the dead
+  `query_file_path is None` check.
 - 2026-10-01: the master loads fail-closed, and three silent-failure paths
   are closed. (1) `load_known_records` used to turn *any* exception into
   an empty known set, and `suspicious_diff` exempts an empty known set

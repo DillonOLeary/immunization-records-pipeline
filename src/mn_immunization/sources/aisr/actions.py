@@ -1,59 +1,54 @@
+"""AISR bulk-query actions: roster upload, results listing, results download.
+
+Errors carry an HTTP status and a short description of what was being
+attempted, never the response body: bodies can echo request content, and
+these messages reach logs. Retries key off the status, not message text.
 """
-Module for query interactions with AISR
-"""
+
+from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
-from tenacity import (
-    retry,
-    retry_if_exception,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
+TRANSIENT_STATUSES = frozenset({502, 503, 504})
+
 
 class AISRActionFailedError(Exception):
-    """Custom exception for AISR failures."""
+    """An AISR call failed. `status_code` is the HTTP status when there
+    was a response, None otherwise. The message never includes a body."""
 
-    def __init__(self, message: str):
+    def __init__(self, message: str, status_code: int | None = None):
         super().__init__(message)
+        self.status_code = status_code
 
 
-def _get_put_url(
-    session: requests.Session,
-    base_url: str,
-    access_token: str,
-    file_path: str,
-    school_id: str,
-) -> str:
-    """
-    Get the the signed S3 URL for uploading the bulk query file.
-    """
-    payload = json.dumps(
-        {
-            "filePath": file_path,
-            "contentType": "text/csv",
-            "schoolId": school_id,
-        }
-    )
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-    }
-
-    res = session.post(
-        f"{base_url}/signing/puturl", headers=headers, data=payload, timeout=60
+def _is_transient(error: BaseException) -> bool:
+    if isinstance(
+        error, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
+    ):
+        return True
+    return (
+        isinstance(error, AISRActionFailedError)
+        and error.status_code in TRANSIENT_STATUSES
     )
 
-    json_string = res.content.decode("utf-8")
-    return json.loads(json_string).get("url")
+
+# Up to 5 attempts, exponential backoff 4-60s, on connection errors,
+# timeouts, and 502/503/504. Applied only to calls with no side effects.
+_transient_retry = retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    retry=retry_if_exception(_is_transient),
+    reraise=True,
+)
 
 
 @dataclass
@@ -86,31 +81,83 @@ class S3UploadHeaders:
 
 
 @dataclass
-class AISRFileUploadResponse:
+class SchoolQueryInformation:
     """
-    Dataclass to hold the response from the file upload.
-    """
-
-    is_successful: bool
-    message: str
-
-
-@dataclass
-class AISRFileDownloadResponse:
-    """
-    Dataclass to hold the response from the file download.
+    Class to hold the information needed to query a school.
     """
 
-    is_successful: bool
-    message: str
-    content: str | None = None
+    school_name: str
+    classification: str
+    school_id: str
+    email_contact: str
+    query_file_path: str
+
+
+@dataclass(frozen=True)
+class StagedResults:
+    """What AISR lists for one school. `available` is the staging signal
+    the pipeline acts on; `entries` and `newest_upload_at` are recorded
+    only to learn whether AISR keeps old results between runs (if it
+    does, "any result listed" is not "staged for this period")."""
+
+    available: bool
+    entries: int
+    newest_upload_at: datetime | None
+
+
+@_transient_retry
+def _get_put_url(
+    session: requests.Session,
+    base_url: str,
+    access_token: str,
+    file_path: str,
+    school_id: str,
+) -> str:
+    """Get the signed S3 URL for uploading the bulk query file.
+
+    Retried like any read: signing has no side effects. MIIC emails the
+    nurses on the roster *upload* (`_put_file_to_s3`), not on signing.
+    """
+    payload = json.dumps(
+        {
+            "filePath": file_path,
+            "contentType": "text/csv",
+            "schoolId": school_id,
+        }
+    )
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+
+    res = session.post(
+        f"{base_url}/signing/puturl", headers=headers, data=payload, timeout=60
+    )
+    if res.status_code != 200:
+        raise AISRActionFailedError(
+            f"HTTP {res.status_code} requesting upload URL for school {school_id}",
+            status_code=res.status_code,
+        )
+    try:
+        body = res.json()
+    except ValueError:
+        raise AISRActionFailedError(
+            f"unreadable upload-URL response for school {school_id}"
+        ) from None
+    url = body.get("url") if isinstance(body, dict) else None
+    if not isinstance(url, str) or not url:
+        raise AISRActionFailedError(f"no upload URL returned for school {school_id}")
+    return url
 
 
 def _put_file_to_s3(
     session: requests.Session, s3_url: str, headers: S3UploadHeaders, file_name: str
-) -> AISRFileUploadResponse:
-    """
-    Upload a file to S3 with signed url and the specified headers.
+) -> None:
+    """Upload the roster file to S3 with the signed URL.
+
+    Never retried: this upload is what makes MIIC email every nurse, and a
+    timeout here leaves the outcome unknown. Retrying an unknown outcome
+    risks a duplicate email; the run fails loudly instead.
     """
     headers_json = {
         "x-amz-meta-classification": headers.classification,
@@ -126,132 +173,98 @@ def _put_file_to_s3(
 
     res = session.request("PUT", s3_url, headers=headers_json, data=payload, timeout=60)
 
-    if res.status_code == 200:
-        return AISRFileUploadResponse(
-            is_successful=True,
-            message="File uploaded successfully",
+    if res.status_code != 200:
+        raise AISRActionFailedError(
+            f"HTTP {res.status_code} uploading roster for school {headers.school_id}",
+            status_code=res.status_code,
         )
-    raise AISRActionFailedError(
-        f"Failed to upload file: {res.status_code} - {res.text}"
+
+
+@_transient_retry
+def list_result_entries(
+    session: requests.Session,
+    base_url: str,
+    access_token: str,
+    school_id: str,
+) -> list[dict]:
+    """List the bulk-query result entries AISR holds for a school, oldest
+    first (AISR's order)."""
+    res = session.get(
+        f"{base_url}/school/query/{school_id}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=120,
+    )
+    if res.status_code != 200:
+        raise AISRActionFailedError(
+            f"HTTP {res.status_code} listing results for school {school_id}",
+            status_code=res.status_code,
+        )
+    try:
+        entries = res.json()
+    except ValueError:
+        raise AISRActionFailedError(
+            f"unreadable results listing for school {school_id}"
+        ) from None
+    return entries if isinstance(entries, list) else []
+
+
+def _upload_time(entry: dict) -> datetime | None:
+    """AISR's uploadDateTime is epoch milliseconds."""
+    value = entry.get("uploadDateTime")
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value / 1000, tz=UTC)
+    return None
+
+
+def staged_results(
+    session: requests.Session,
+    base_url: str,
+    access_token: str,
+    school_id: str,
+) -> StagedResults:
+    """Whether the latest listed entry has a full results file, plus the
+    listing's shape for the retention question."""
+    entries = list_result_entries(session, base_url, access_token, school_id)
+    times = [t for t in (_upload_time(e) for e in entries) if t is not None]
+    return StagedResults(
+        available=bool(entries and entries[-1].get("fullVaccineFileUrl")),
+        entries=len(entries),
+        newest_upload_at=max(times) if times else None,
     )
 
 
-@dataclass
-class SchoolQueryInformation:
-    """
-    Class to hold the information needed to query a school.
-    """
-
-    school_name: str
-    classification: str
-    school_id: str
-    email_contact: str
-    query_file_path: str
-
-
-@retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=2, min=4, max=60),
-    retry=(
-        retry_if_exception_type(
-            (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
-        )
-        | retry_if_exception(
-            lambda e: (
-                isinstance(e, AISRActionFailedError)
-                and any(code in str(e) for code in ["502", "503", "504"])
-            )
-        )
-    ),
-    reraise=True,
-)
 def get_latest_vaccination_records_url(
     session: requests.Session,
     base_url: str,
     access_token: str,
     school_id: str,
 ) -> str | None:
-    """
-    Get the URL for the latest full vaccination records file.
-
-    This function fetches the list of vaccination records for a school
-    and returns the URL for the most recent full vaccination file.
-
-    Returns None if no records are available.
-
-    Retries up to 5 times with exponential backoff (4-60s) on:
-    - Connection/timeout errors
-    - HTTP 502/503/504 server errors
-    """
-    url = f"{base_url}/school/query/{school_id}"
-
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-    }
-
-    res = session.get(url, headers=headers, timeout=120)
-
-    if res.status_code != 200:
-        raise AISRActionFailedError(
-            f"Failed to get vaccination records: {res.status_code} - {res.text}"
-        )
-
-    records_list = json.loads(res.content.decode("utf-8"))
-
-    # Get the latest record URL
-    if not records_list or len(records_list) == 0:
+    """URL of the latest full vaccination records file, or None if AISR
+    lists no results for the school."""
+    entries = list_result_entries(session, base_url, access_token, school_id)
+    if not entries:
         return None
-
-    # Get the last (most recent) record
-    latest_record = records_list[-1]
-    return latest_record.get("fullVaccineFileUrl")
+    return entries[-1].get("fullVaccineFileUrl")
 
 
-@retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=2, min=4, max=60),
-    retry=(
-        retry_if_exception_type(
-            (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
-        )
-        | retry_if_exception(
-            lambda e: (
-                isinstance(e, AISRActionFailedError)
-                and any(code in str(e) for code in ["502", "503", "504"])
-            )
-        )
-    ),
-    reraise=True,
-)
+@_transient_retry
 def download_vaccination_records(
     session: requests.Session, file_url: str, output_path: Path
-) -> AISRFileDownloadResponse:
-    """
-    Download a vaccination records file from the provided URL
-    and save it to the specified path.
-
-    Returns a response indicating success or failure.
-
-    Retries up to 5 times with exponential backoff (4-60s) on:
-    - Connection/timeout errors
-    - HTTP 502/503/504 server errors
-    """
+) -> str:
+    """Download a vaccination records file to output_path; returns its
+    text."""
     res = session.get(file_url, timeout=300)
 
     if res.status_code != 200:
         raise AISRActionFailedError(
-            f"Failed to download file: {res.status_code} - {res.text}"
+            f"HTTP {res.status_code} downloading results file",
+            status_code=res.status_code,
         )
 
     content = res.content.decode("utf-8")
     with open(output_path, "w", encoding="utf-8") as file:
         file.write(content)
-
-    return AISRFileDownloadResponse(
-        is_successful=True,
-        message=f"File downloaded successfully to {output_path}",
-        content=content,
-    )
+    return content
 
 
 def get_and_download_vaccination_records(
@@ -260,34 +273,19 @@ def get_and_download_vaccination_records(
     base_url: str,
     school_id: str,
     output_path: Path,
-) -> AISRFileDownloadResponse:
-    """
-    Get the latest vaccination records URL and download the file to the specified path.
-
-    Args:
-        session: Requests session with authentication
-        access_token: AISR access token
-        base_url: AISR API base URL
-        school_id: School ID to get vaccination records for
-        output_path: Path to save the downloaded file
-
-    Returns:
-        AISRFileDownloadResponse containing success status and message
-    """
-    # Get the URL for the latest vaccination records
+) -> str:
+    """Download the latest results file for a school to output_path;
+    returns its text. Raises AISRActionFailedError if none is listed."""
     url = get_latest_vaccination_records_url(
         session=session,
         base_url=base_url,
         access_token=access_token,
         school_id=school_id,
     )
-
     if not url:
         raise AISRActionFailedError(
             f"No vaccination records available for school ID {school_id}"
         )
-
-    # Download the file
     return download_vaccination_records(
         session=session, file_url=url, output_path=output_path
     )
@@ -299,12 +297,12 @@ def bulk_query_aisr(
     base_url: str,
     query_info: SchoolQueryInformation,
     district: DistrictInfo,
-) -> AISRFileUploadResponse:
+) -> None:
+    """Submit one school's roster as a bulk query: sign, then upload.
+
+    The local file path is sent as `filePath` to MDH signing, as it always
+    has been; MDH accepts it.
     """
-    Perform a bulk query to AISR.
-    """
-    if query_info.query_file_path is None:
-        raise AISRActionFailedError("Query file path is not set.")
     signed_s3_url = _get_put_url(
         session,
         base_url,
@@ -323,7 +321,4 @@ def bulk_query_aisr(
             host=district.s3_upload_host,
         ),
         query_info.query_file_path,
-    )
-    return AISRFileUploadResponse(
-        is_successful=True, message="File uploaded successfully"
     )

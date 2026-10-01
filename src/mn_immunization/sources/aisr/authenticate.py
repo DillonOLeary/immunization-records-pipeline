@@ -5,12 +5,16 @@ Handle authentication with AISR.
 import logging
 import uuid
 from dataclasses import dataclass
-from urllib.parse import parse_qs, quote, urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup, Tag
 
 logger = logging.getLogger(__name__)
+
+# (connect, read) seconds for every Keycloak call. Without a timeout a
+# hung login would hold the job until its 22-hour task timeout.
+AUTH_TIMEOUT = (10, 60)
 
 
 class CodeNotFoundError(Exception):
@@ -69,7 +73,7 @@ def _get_login_action_url(session: requests.Session, base_url: str) -> str:
 
     url = f"{base_url}/auth/realms/idepc-aisr-realm/protocol/openid-connect/auth?client_id=aisr-app&redirect_uri=https%3A%2F%2Faisr.web.health.state.mn.us%2Fhome&state={state}&response_mode=fragment&response_type=code&scope=openid&nonce={nonce}"  # noqa: E501
 
-    response = session.request("GET", url, headers={}, data={})
+    response = session.request("GET", url, timeout=AUTH_TIMEOUT)
     soup = BeautifulSoup(response.content, "html.parser")
     form_element = soup.find("form", id="kc-form-login")
 
@@ -118,11 +122,17 @@ def _get_access_token_using_response_code(
     }
 
     response = session.request(
-        "POST", url, headers=headers, data=payload, allow_redirects=False
+        "POST",
+        url,
+        headers=headers,
+        data=payload,
+        allow_redirects=False,
+        timeout=AUTH_TIMEOUT,
     )
 
     if response.status_code != 200:
-        raise TokenRequestError(response.status_code, response.text)
+        # Status only: the body is not ours to put in a log line.
+        raise TokenRequestError(response.status_code)
     return response.json().get("access_token")
 
 
@@ -141,11 +151,14 @@ def login(
     logger.info("Logging into MIIC")
     action_url = _get_login_action_url(session, base_url)
 
-    payload = f"password={quote(password)}&username={username}"
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
+    # A dict body is form-encoded by requests, so both fields are escaped
+    # (the username used to go in raw, breaking on "+" or "&").
     response = session.request(
-        "POST", action_url, headers=headers, data=payload, allow_redirects=False
+        "POST",
+        action_url,
+        data={"username": username, "password": password},
+        allow_redirects=False,
+        timeout=AUTH_TIMEOUT,
     )
 
     if response.status_code == 302 and "KEYCLOAK_IDENTITY" in session.cookies:
@@ -172,5 +185,5 @@ def logout(session: requests.Session, base_url: str) -> None:
     Log out of AISR.
     """
     url = f"{base_url}/auth/realms/idepc-aisr-realm/protocol/openid-connect/logout?client_id=aisr-app"  # noqa: E501
-    session.request("GET", url, headers={}, data={})
+    session.request("GET", url, timeout=AUTH_TIMEOUT)
     logger.info("Logged out successfully")

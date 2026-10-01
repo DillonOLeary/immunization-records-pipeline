@@ -255,11 +255,24 @@ MIIC has said the website may change. The blast radius is confined to
 - The canary cycle (login plus a read-only records listing) runs on its
   own schedule the day before the run cycle (`canary_schedule`), through
   the same scheduler launch path, so both MIIC breakage and a broken launch
-  alert a day early; it also runs by hand as a readiness probe. The same
-  staged-results check runs inside the unified cycle's polling loop, so
-  MIIC breakage on run day surfaces as a loud RunFailed rather than a
-  silent stall.
-- All AISR HTTP calls have explicit timeouts.
+  alert a day early; it also runs by hand as a readiness probe. Any
+  school's listing failing fails the canary. The same staged-results check
+  runs inside the unified cycle's polling loop, where it is tolerant on
+  purpose: a failed probe (or one school's failed listing) is logged and
+  retried at the next interval, and only nothing staged at the deadline
+  fails the run, naming the last probe error if there was one.
+- All AISR HTTP calls have explicit timeouts, Keycloak's included.
+- Retries key off the HTTP status (502/503/504) or a connection error or
+  timeout, never message text, and apply only to calls without side
+  effects: signing, listing, downloading. The roster upload is never
+  retried: it is what makes MIIC email every nurse, and an unknown outcome
+  fails loudly instead of risking a second email.
+- `AISRActionFailedError` carries `status_code` and a short description of
+  the attempt; no AISR error message includes a response body.
+- Each staging probe logs per school how many result entries AISR lists
+  and the age of the newest upload (no PHI). "Staged" means the latest
+  listed entry has a results file; whether AISR keeps old results between
+  runs is not yet known, and must be before any move to a weekly cadence.
 
 ## Security model
 

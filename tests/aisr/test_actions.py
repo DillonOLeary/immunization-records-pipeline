@@ -41,11 +41,8 @@ def test_upload_file_to_s3(fastapi_server, tmp_path):
     test_headers = S3UploadHeaders("", "", "", "", "")
 
     with requests.Session() as local_session:
-        response = _put_file_to_s3(
-            local_session, test_url, test_headers, test_file_name
-        )
-
-    assert response.is_successful, "File upload should be successful"
+        # Success is the absence of an exception.
+        _put_file_to_s3(local_session, test_url, test_headers, test_file_name)
 
 
 def test_failed_upload_raises_exception(fastapi_server, tmp_path):
@@ -67,7 +64,7 @@ def test_complete_query_action(fastapi_server, tmp_path):
         file.write("test data")
 
     with requests.Session() as local_session:
-        response = bulk_query_aisr(
+        bulk_query_aisr(
             session=local_session,
             access_token="mocked-access-token",
             base_url=fastapi_server,
@@ -76,8 +73,6 @@ def test_complete_query_action(fastapi_server, tmp_path):
             ),
             district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
         )
-
-    assert response.is_successful, "File upload should be successful"
 
 
 def test_get_latest_vaccination_records_url(fastapi_server):
@@ -106,13 +101,13 @@ def test_download_vaccination_records(fastapi_server, tmp_path):
             school_id="1234",
         )
 
-        response = download_vaccination_records(
+        content = download_vaccination_records(
             session=local_session,
             file_url=url,
             output_path=test_output_path,
         )
 
-    assert response.is_successful, "File download should be successful"
+    assert "John Doe" in content, "Downloaded text should be returned"
     assert test_output_path.exists(), "Output file should exist"
 
     with open(test_output_path, encoding="utf-8") as file:
@@ -125,7 +120,7 @@ def test_get_and_download_vaccination_records(fastapi_server, tmp_path):
     test_output_path = tmp_path / "downloaded_vaccinations_combined.csv"
 
     with requests.Session() as local_session:
-        response = get_and_download_vaccination_records(
+        content = get_and_download_vaccination_records(
             session=local_session,
             access_token="mocked-access-token",
             base_url=fastapi_server,
@@ -133,7 +128,7 @@ def test_get_and_download_vaccination_records(fastapi_server, tmp_path):
             output_path=test_output_path,
         )
 
-    assert response.is_successful, "File download should be successful"
+    assert "John Doe" in content, "Downloaded text should be returned"
     assert test_output_path.exists(), "Output file should exist"
 
     with open(test_output_path, encoding="utf-8") as file:

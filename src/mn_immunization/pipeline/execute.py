@@ -12,7 +12,8 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -38,10 +39,7 @@ from mn_immunization.pipeline.policy import (
 )
 from mn_immunization.pipeline.support import append_event, claim_or_proceed
 from mn_immunization.sinks.drive import list_drive_filenames, upload_to_google_drive
-from mn_immunization.sources.aisr.actions import (
-    AISRActionFailedError,
-    get_latest_vaccination_records_url,
-)
+from mn_immunization.sources.aisr.actions import SchoolQueryInformation
 from mn_immunization.sources.aisr.client import AisrClient, aisr_session
 from mn_immunization.sources.aisr.parsing import AisrParseError, parse_aisr_csv
 
@@ -59,19 +57,48 @@ STEP_NAMES = {
 }
 
 
-def staged_school_count(client: AisrClient, schools) -> int:
-    """How many schools have results staged, via read-only listing."""
-    staged = 0
+@dataclass(frozen=True)
+class StagingProbe:
+    staged: int  # schools whose latest listed entry has a results file
+    failed: int  # schools whose listing call failed
+
+
+def probe_staging(
+    client: AisrClient, schools: list[SchoolQueryInformation]
+) -> StagingProbe:
+    """Read-only listing of every school's results.
+
+    A school whose listing fails is counted in `failed` and logged by
+    error class; it never aborts the others. Each school's listing shape
+    is logged too (entry count, age of the newest upload; no PHI) to learn
+    whether AISR keeps old results between runs. If it does, "any result
+    listed" is not "staged for this period", which matters before any move
+    to a weekly cadence.
+    """
+    now = datetime.now(UTC)
+    staged = failed = 0
     for school in schools:
-        url = get_latest_vaccination_records_url(
-            session=client.session,
-            base_url=client.api_base_url,
-            access_token=client.access_token,
-            school_id=school.school_id,
+        try:
+            results = client.staged_results(school.school_id)
+        except Exception as error:
+            failed += 1
+            logger.warning(
+                "Staging check failed for %s: %s",
+                school.school_name,
+                type(error).__name__,
+            )
+            continue
+        newest = results.newest_upload_at
+        logger.info(
+            "Results listing for %s: %d entries, newest upload %s, staged=%s",
+            school.school_name,
+            results.entries,
+            f"{(now - newest).days}d ago" if newest else "undated",
+            results.available,
         )
-        if url:
+        if results.available:
             staged += 1
-    return staged
+    return StagingProbe(staged=staged, failed=failed)
 
 
 def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id=None):
@@ -181,9 +208,15 @@ def submit_roster_queries(ctx: RunContext, username: str, password: str) -> int:
                         ),
                     ),
                 )
-            except AISRActionFailedError as error:
+            except Exception as error:
+                # Any failure is this school's alone; the others still go.
                 failures += 1
-                logger.error("Bulk query failed for %s: %s", school.school_name, error)
+                logger.error(
+                    "Bulk query failed for %s: %s (HTTP %s)",
+                    school.school_name,
+                    type(error).__name__,
+                    getattr(error, "status_code", None),
+                )
     return failures
 
 
@@ -206,9 +239,9 @@ def _submit_queries(ctx: RunContext, username: str, password: str) -> None:
 
 def _probe_staged(ctx: RunContext, username: str, password: str) -> int:
     with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
-        staged = staged_school_count(client, ctx.schools)
-    logger.info("%d/%d schools have results staged", staged, len(ctx.schools))
-    return staged
+        probe = probe_staging(client, ctx.schools)
+    logger.info("%d/%d schools have results staged", probe.staged, len(ctx.schools))
+    return probe.staged
 
 
 def _compute_diff(ctx: RunContext, username: str, password: str) -> DiffResult:
@@ -235,9 +268,16 @@ def _compute_diff(ctx: RunContext, username: str, password: str) -> DiffResult:
                         byte_size=len(content.encode("utf-8")),
                     ),
                 )
-            except AISRActionFailedError as error:
+            except Exception as error:
+                # One school's failure (after retries) is counted, never
+                # fatal to the others; all failing is AllDownloadsFailed.
                 fetch_failures += 1
-                logger.error("Download failed for %s: %s", school.school_name, error)
+                logger.error(
+                    "Download failed for %s: %s (HTTP %s)",
+                    school.school_name,
+                    type(error).__name__,
+                    getattr(error, "status_code", None),
+                )
 
     output_files, transform_failures = transform_downloads(
         sorted(input_folder.glob("*.csv")), output_folder
@@ -441,8 +481,20 @@ def run_to_completion(
                         state = state.with_staging_deadline_passed()
                         continue
                     sleep(min(interval, remaining))
-                state = state.with_staged(_probe_staged(ctx, username, password))
                 probed = True
+                try:
+                    staged = _probe_staged(ctx, username, password)
+                except Exception as error:
+                    # One AISR blip (a failed login, a maintenance page)
+                    # must not end a 20-hour wait. Keep the last count,
+                    # remember why, and let the deadline decide.
+                    logger.warning(
+                        "Staging probe failed (%s); retrying next interval",
+                        type(error).__name__,
+                    )
+                    state = state.with_probe_error(type(error).__name__)
+                else:
+                    state = state.with_staged(staged)
             elif isinstance(step, ComputeDiff):
                 state = state.with_diff(_compute_diff(ctx, username, password))
             elif isinstance(step, DeliverDiff):

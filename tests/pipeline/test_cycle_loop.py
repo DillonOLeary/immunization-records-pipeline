@@ -78,21 +78,24 @@ def make_diff(tmp_path, new=648, known=170_361, files=8, failures=0) -> DiffResu
 def stub_executors(monkeypatch, staged, diff, deliver_outcome="delivered"):
     """Replace the I/O executors; the loop under test stays real.
 
-    `staged` is the sequence of probe results (the last repeats).
-    `deliver_outcome` is "delivered", "already_delivered", or an
-    exception to raise. Returns the ordered call log.
+    `staged` is the sequence of probe results (the last repeats); an
+    exception in it is raised by that probe. `deliver_outcome` is
+    "delivered", "already_delivered", or an exception to raise. Returns
+    the ordered call log.
     """
     calls = []
     staged_iter = iter(staged)
-    last_staged = {"value": 0}
+    last = {"outcome": 0}
 
     def fake_probe(ctx, username, password):
         calls.append("probe")
         try:
-            last_staged["value"] = next(staged_iter)
+            last["outcome"] = next(staged_iter)
         except StopIteration:
             pass
-        return last_staged["value"]
+        if isinstance(last["outcome"], Exception):
+            raise last["outcome"]
+        return last["outcome"]
 
     def fake_deliver(ctx, d, folder_id):
         calls.append("deliver")
@@ -163,6 +166,45 @@ def test_nothing_staged_by_deadline_fails_loudly(env, monkeypatch, tmp_path):
     assert ctx.ledger.events[0]["data"] == {
         "step": "awaiting_results",
         "error": "NoResultsStaged",
+    }
+
+
+def test_a_failed_probe_mid_wait_does_not_end_the_run(env, monkeypatch, tmp_path):
+    # One AISR blip during the 20-hour wait (a failed login, a maintenance
+    # page) used to be a RunFailed; now the loop keeps waiting.
+    ctx = make_ctx(tmp_path)
+    calls = stub_executors(
+        monkeypatch,
+        staged=[2, ConnectionError("aisr blip"), SCHOOLS],
+        diff=make_diff(tmp_path),
+    )
+    fake = FakeClock()
+
+    result = run(ctx, fake)
+
+    assert result["status"] == "success"
+    assert fake.sleeps == [INTERVAL, INTERVAL]
+    assert calls.count("probe") == 3
+    assert ctx.ledger.event_types() == ["RunCompleted"]
+
+
+def test_probes_failing_through_the_deadline_fail_naming_the_error(
+    env, monkeypatch, tmp_path
+):
+    ctx = make_ctx(tmp_path)
+    calls = stub_executors(
+        monkeypatch, staged=[ConnectionError("aisr down")], diff=make_diff(tmp_path)
+    )
+    fake = FakeClock()
+
+    result = run(ctx, fake)
+
+    assert result["status"] == "failed"
+    assert sum(fake.sleeps) == DEADLINE
+    assert "compute" not in calls
+    assert ctx.ledger.events[0]["data"] == {
+        "step": "awaiting_results",
+        "error": "ConnectionError",
     }
 
 

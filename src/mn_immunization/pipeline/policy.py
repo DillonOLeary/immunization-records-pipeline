@@ -43,6 +43,7 @@ class CycleState:
     query_submitted: bool = False
     staged: int = 0
     staging_deadline_passed: bool = False
+    probe_error: str = ""  # class of the last failed staging probe, if any
     diff: DiffResult | None = None
     delivered: bool = False
     delivered_elsewhere: bool = False
@@ -53,7 +54,14 @@ class CycleState:
         return replace(self, query_submitted=True)
 
     def with_staged(self, count: int) -> CycleState:
-        return replace(self, staged=count)
+        """A probe succeeded: its count replaces the last one, and any
+        earlier probe failure is forgotten."""
+        return replace(self, staged=count, probe_error="")
+
+    def with_probe_error(self, error: str) -> CycleState:
+        """A probe failed: the staged count stands, the error is kept so a
+        deadline with nothing staged can name it."""
+        return replace(self, probe_error=error)
 
     def with_staging_deadline_passed(self) -> CycleState:
         return replace(self, staging_deadline_passed=True)
@@ -123,10 +131,12 @@ def decide(state: CycleState, school_count: int, brake_fraction: float | None) -
         return AwaitStaging()
 
     if state.staged == 0:
+        # If probes were failing at the deadline, that failure is the
+        # likelier story than "MDH never staged anything"; name it.
         return Finish(
             status="failed",
             step="awaiting_results",
-            error="NoResultsStaged",
+            error=state.probe_error or "NoResultsStaged",
             reason="no results staged by deadline",
         )
     # Partial staging past the deadline proceeds: missing schools are

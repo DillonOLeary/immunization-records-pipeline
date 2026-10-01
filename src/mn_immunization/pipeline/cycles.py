@@ -34,9 +34,9 @@ from mn_immunization.ledger import events
 from mn_immunization.ledger.gcs_ledger import GcsRunLedger, GcsSnapshotStore
 from mn_immunization.ledger.port import RunLedger, SnapshotStore
 from mn_immunization.pipeline.execute import (
+    probe_staging,
     record_import_confirmations,
     run_to_completion,
-    staged_school_count,
     upload_to_drive_with_secrets,
 )
 from mn_immunization.pipeline.incremental import load_known_records
@@ -242,7 +242,24 @@ def run_canary_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
     with pipeline_run("canary", bucket_name, trigger) as ctx:
         username, password = get_aisr_credentials()
         with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
-            available = staged_school_count(client, ctx.schools)
+            probe = probe_staging(client, ctx.schools)
+        available = probe.staged
+        if probe.failed:
+            # The run cycle tolerates a failed listing (it retries for
+            # hours); the canary exists to notice one, so it fails loudly.
+            append_event(
+                ctx.ledger,
+                events.run_failed(step="canary", error="StagingCheckFailed"),
+            )
+            logger.error(
+                "Canary failed: results listing failed for %d/%d schools",
+                probe.failed,
+                len(ctx.schools),
+            )
+            return {
+                "status": "failed",
+                "reason": f"results listing failed for {probe.failed} school(s)",
+            }
         known = load_known_records(ctx.bucket_name, ctx.temp)
 
         append_event(

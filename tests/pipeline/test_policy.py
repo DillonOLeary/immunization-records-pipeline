@@ -62,6 +62,23 @@ def test_partial_staging_before_the_deadline_waits():
     assert decide(state, SCHOOLS, BRAKE) == AwaitStaging()
 
 
+def test_nothing_staged_with_failing_probes_names_the_probe_error():
+    state = (
+        CycleState()
+        .with_query_submitted()
+        .with_probe_error("ConnectionError")
+        .with_staging_deadline_passed()
+    )
+    step = decide(state, SCHOOLS, BRAKE)
+    assert isinstance(step, Finish)
+    assert (step.status, step.error) == ("failed", "ConnectionError")
+
+
+def test_a_successful_probe_clears_an_earlier_probe_error():
+    state = CycleState().with_query_submitted().with_probe_error("ConnectionError")
+    assert state.with_staged(3).probe_error == ""
+
+
 def test_full_staging_moves_on_to_the_diff():
     state = CycleState().with_query_submitted().with_staged(SCHOOLS)
     assert decide(state, SCHOOLS, BRAKE) == ComputeDiff()
