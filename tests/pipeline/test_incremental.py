@@ -56,5 +56,13 @@ def test_combine_skips_unparseable_files(tmp_path):
     assert result.records[0].id_1 == "12347"
 
 
-def test_load_known_records_without_cloud_storage_returns_empty(tmp_path):
+def test_load_known_records_without_cloud_storage_returns_empty(tmp_path, monkeypatch):
+    # Stub the download so the test never reaches real GCS with whatever
+    # credentials the developer's machine happens to have.
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr(
+        "mn_immunization.pipeline.incremental.download_from_storage", unavailable
+    )
     assert load_known_records("test-bucket", tmp_path) == RecordSet()
