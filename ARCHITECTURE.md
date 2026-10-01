@@ -482,6 +482,15 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-10-01: INCIDENT FOLLOW-UP — the 2026-07-28 fix was wrong. The
+  2026-09-28 scheduled launch got the same 403 with project-level
+  `run.invoker` in place. Real cause: the scheduler body carries
+  `overrides.containerOverrides[].args = ["run"]`, and a `jobs:run`
+  request with overrides requires `run.jobs.runWithOverrides`, which
+  `run.invoker` does not include. Fix: the job-level binding becomes
+  `roles/run.jobsExecutorWithOverrides`; the project-level invoker is
+  removed. September's cycle ran by hand on 2026-09-27 (Chicago), so no
+  data impact. Terraform applied by hand 2026-10-01.
 - 2026-07-28: INCIDENT — the first autonomous launch never happened.
   Cloud Scheduler fired on time (07:09:01Z = 2:09am Chicago) and got
   HTTP 403 PERMISSION_DENIED calling the v2 `jobs:run` endpoint, despite
