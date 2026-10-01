@@ -30,6 +30,7 @@ dev = [
     "python-multipart",
     "types-requests",
     "minnesota-immunization-mock",
+    "basedpyright>=1.40.1",
 ]
 
 [tool.uv.workspace]
@@ -56,9 +57,6 @@ select = ["E", "F", "I", "W", "N", "B", "UP", "C4"]
 known-first-party = ["mn_immunization"]
 
 [tool.ruff.lint.per-file-ignores]
-# Long literal strings in mock sample data.
-"mock/src/minnesota_immunization_mock/sample_data.py" = ["E501"]
-"mock/src/minnesota_immunization_mock/server.py" = ["E501"]
 # Copy-pasteable gcloud command strings in the one-off OAuth setup script.
 "infra/scripts/setup_google_drive_oauth.py" = ["E501"]
 
@@ -66,3 +64,8 @@ known-first-party = ["mn_immunization"]
 testpaths = ["tests"]
 python_files = "test_*.py"
 pythonpath = ["."]
+
+[tool.basedpyright]
+include = ["src"]
+typeCheckingMode = "standard"
+pythonVersion = "3.11"

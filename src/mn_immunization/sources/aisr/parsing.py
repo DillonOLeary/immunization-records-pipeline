@@ -43,5 +43,7 @@ def parse_aisr_csv(text: str) -> RecordSet:
                 )
             )
         except RecordValidationError as error:
-            raise AisrParseError(f"line {line_number}: {error}") from error
+            raise AisrParseError(
+                f"line {line_number}: {error.field} {error.problem}"
+            ) from error
     return RecordSet.from_iterable(records)

@@ -33,6 +33,7 @@ from mn_immunization.gcp.storage import (
 )
 from mn_immunization.ledger import events
 from mn_immunization.ledger.gcs_ledger import SNAPSHOT_PREFIX, sha256_hex
+from mn_immunization.ledger.port import RunLedger, SnapshotStore
 from mn_immunization.pipeline.support import append_event
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ def compute_diff(
     output_folder: Path,
     bucket_name: str,
     temp_dir: Path,
-    ledger,
+    ledger: RunLedger,
 ) -> tuple[Path, Path, int, int]:
     """Diff current records against the known set; write both files to temp.
 
@@ -161,8 +162,8 @@ def compute_diff(
 def commit_master(
     bucket_name: str,
     master_path: Path,
-    ledger,
-    snapshots,
+    ledger: RunLedger,
+    snapshots: SnapshotStore,
     record_count: int,
 ) -> None:
     """Advance durable state: upload the union master and snapshot it.

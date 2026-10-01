@@ -102,7 +102,7 @@ def probe_staging(
     return StagingProbe(staged=staged, failed=failed)
 
 
-def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id=None):
+def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id: str) -> str:
     """Upload file to Google Drive using secrets from Secret Manager"""
     return upload_to_google_drive(
         file_path=file_path,

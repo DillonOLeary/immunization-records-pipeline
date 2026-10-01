@@ -40,6 +40,7 @@ graph LR
 uv sync                           # installs the package, dev deps, and mock
 uv run pytest                     # full test suite (spins a local mock AISR)
 uv run ruff check src tests mock  # lint
+uv run basedpyright               # type check
 uv run mock-server                # standalone fake AISR server
 uv run mn-immunization status --bucket <data-bucket>   # recent runs from the ledger
 ```

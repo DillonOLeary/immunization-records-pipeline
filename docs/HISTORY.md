@@ -6,6 +6,26 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: the architecture's rules are now enforced by code, not
+  review. basedpyright runs in CI (standard mode over `src/`; chosen over
+  the `pyright` PyPI wrapper because that one downloads npm at run time,
+  outside `uv.lock`); it found four small errors, all fixed, and the
+  ledger/snapshot parameters are now typed against their ports.
+  `tests/test_architecture.py` reads every module with `ast` and checks
+  the dependency direction (domain pure; ports depend only on ports;
+  adapters never import pipeline or runtime; pipeline reaches adapters
+  only through ports; policy imports only domain), that only runtime/
+  reads the environment or the clock, and that no exception value ever
+  reaches a log line or f-string (`logger.exception` and `exc_info`
+  banned). A ratchet `ALLOWED` list names today's 27 exceptions, every
+  one scheduled for the composition-root refactor; a stale entry fails
+  the test, so the list only shrinks. The PHI rule caught two real
+  sites: `IcFormatError`/`AisrParseError` interpolated the inner
+  validation error, value-free only by convention; `RecordValidationError`
+  now carries `field` and `problem`, and the wrappers build their
+  messages from those. CI also runs on every pull request regardless of
+  base (stacked PRs were getting no checks) and no longer watches the
+  long-gone `rewrite-2026` branch.
 - 2026-10-01: per-school query claims that fail closed (Dillon's call:
   never resubmit a roster that may have gone out; skip it and fail
   loudly). The period-wide `<period>_query` claim was taken before any

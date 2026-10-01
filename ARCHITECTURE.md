@@ -79,9 +79,13 @@ infra/                          Terraform module, instantiated per district
 ```
 
 The dependency rule, same as any hexagonal design: domain imports nothing.
-Sources, sinks, and ledger define ports; adapters implement them; only
-runtime/composition.py touches both sides. A second SIS (Skyward, JMC) is a
-new adapter behind an existing port, not a refactor.
+Sources, sinks, and ledger define ports; adapters implement them; the
+pipeline reaches adapters only through ports; only runtime/ reads the
+environment or the clock. A second SIS (Skyward, JMC) is a new adapter
+behind an existing port, not a refactor. `tests/test_architecture.py`
+enforces these rules (and the no-exception-values-in-logs rule) by
+reading the code; its `ALLOWED` list names every exception that remains
+and can only shrink.
 
 ## Domain: dataclasses, not pandas
 
@@ -304,11 +308,12 @@ MIIC has said the website may change. The blast radius is confined to
   in GCS.
 - Per-district GCP project isolation stays. It is the strongest tenancy
   boundary available and the compliance story writes itself.
-- CI: pytest, ruff (lint and format check), pip-audit, gitleaks, offline
-  terraform fmt/validate, and CodeQL (GitHub default setup, python +
-  actions) on every PR and push to main. Dependabot automerges patch and
-  minor bumps only after the required checks pass; branch protection
-  lists those checks.
+- CI: pytest (including the architecture-rules test), ruff (lint and
+  format check), basedpyright (standard mode, over `src/`), pip-audit,
+  gitleaks, offline terraform fmt/validate, and CodeQL (GitHub default
+  setup, python + actions) on every pull request (stacked ones included)
+  and every push to main. Branch protection lists the required checks.
+  Dependabot PRs are merged by hand, because merging to main deploys.
 
 ## The 30-district ramp
 

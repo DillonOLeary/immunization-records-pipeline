@@ -15,7 +15,17 @@ from datetime import date, datetime
 
 
 class RecordValidationError(ValueError):
-    """A row could not be turned into a valid vaccination record."""
+    """A row could not be turned into a valid vaccination record.
+
+    Carries the field's name and what is wrong with it, never the field's
+    value: a shifted column can put a name or a DOB anywhere, and
+    exception text travels into logs and tracebacks.
+    """
+
+    def __init__(self, field: str, problem: str):
+        super().__init__(f"{field} {problem}")
+        self.field = field
+        self.problem = problem
 
 
 def parse_flexible_date(raw: str) -> date:
@@ -32,9 +42,7 @@ def parse_flexible_date(raw: str) -> date:
     try:
         return datetime.strptime(text, "%m/%d/%Y").date()
     except ValueError:
-        # Never quote the value: a shifted column can put a name or DOB
-        # here, and exception messages travel into logs and tracebacks.
-        raise RecordValidationError("vaccination_date is unparseable") from None
+        raise RecordValidationError("vaccination_date", "is unparseable") from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +56,7 @@ class VaccinationRecord:
         for field_name in ("id_1", "id_2", "vaccine_group"):
             value = getattr(self, field_name)
             if not value or not value.strip():
-                raise RecordValidationError(f"{field_name} is empty")
+                raise RecordValidationError(field_name, "is empty")
 
     @classmethod
     def create(

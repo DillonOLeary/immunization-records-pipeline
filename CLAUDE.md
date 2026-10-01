@@ -33,6 +33,7 @@ uv sync                                 # install everything (incl. mock, dev de
 uv run pytest                           # full test suite
 uv run ruff check src tests mock        # lint
 uv run ruff format --check src tests mock  # format gate
+uv run basedpyright                     # type check (src/, standard mode)
 uv run mn-immunization status --bucket <data-bucket>  # ledger status
 uv run mock-server                      # local fake AISR
 ```

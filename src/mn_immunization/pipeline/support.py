@@ -7,6 +7,9 @@ import logging
 import uuid
 from datetime import datetime
 
+from mn_immunization.ledger.events import LedgerEvent
+from mn_immunization.ledger.port import RunLedger
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +17,7 @@ def new_run_id(kind: str) -> str:
     return f"{kind}_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:8]}"
 
 
-def append_event(ledger, event) -> None:
+def append_event(ledger: RunLedger, event: LedgerEvent) -> None:
     """Best-effort ledger append: a ledger write failure must not sink a
     delivery."""
     try:
@@ -25,7 +28,7 @@ def append_event(ledger, event) -> None:
         )
 
 
-def claim_or_proceed(ledger, key: str) -> bool:
+def claim_or_proceed(ledger: RunLedger, key: str) -> bool:
     """Claim a key; exactly one run can win it. If the claim check itself
     fails (storage outage), proceed: performing an action twice is the old,
     survivable failure mode; performing it zero times is not."""

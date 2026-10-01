@@ -1,10 +1,11 @@
 name: CI
 
 on:
+  # Every pull request, whatever its base: stacked PRs get checks before
+  # their parent merges, not only once they are retargeted to main.
   pull_request:
-    branches: [main]
   push:
-    branches: [main, rewrite-2026]
+    branches: [main]
 
 jobs:
   test:
@@ -32,6 +33,18 @@ jobs:
         run: uv run ruff check src tests mock infra/scripts
       - name: Ruff format
         run: uv run ruff format --check src tests mock infra/scripts
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: basedpyright
+        run: uv run basedpyright
 
   audit:
     runs-on: ubuntu-latest

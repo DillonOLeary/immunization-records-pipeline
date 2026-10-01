@@ -68,5 +68,7 @@ def parse_ic_csv(text: str) -> RecordSet:
         try:
             records.append(VaccinationRecord.create(row[0], row[1], row[2], row[3]))
         except RecordValidationError as error:
-            raise IcFormatError(f"line {line_number}: {error}") from error
+            raise IcFormatError(
+                f"line {line_number}: {error.field} {error.problem}"
+            ) from error
     return RecordSet.from_iterable(records)

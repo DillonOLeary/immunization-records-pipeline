@@ -117,14 +117,12 @@ def create_school_info_list(
 ) -> list[SchoolQueryInformation]:
     """Create SchoolQueryInformation objects from configuration"""
     school_info_list = []
-
-    if include_query_files:
-        bucket = get_storage_client().bucket(bucket_name)
+    bucket = get_storage_client().bucket(bucket_name) if include_query_files else None
 
     for school in config["schools"]:
         query_file_path = ""
 
-        if include_query_files:
+        if bucket is not None:
             query_file = temp_dir / f"{school['name']}_query.csv"
             bucket.blob(school["bulk_query_file"]).download_to_filename(str(query_file))
             query_file_path = str(query_file)

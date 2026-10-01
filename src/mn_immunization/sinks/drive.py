@@ -35,16 +35,14 @@ def upload_to_google_drive(
     refresh_token: str,
     client_id: str,
     client_secret: str,
-    folder_id: str = None,
+    folder_id: str,
 ) -> str:
-    """Upload a file to Google Drive; returns the Drive file id."""
+    """Upload a file into the Drive folder; returns the Drive file id."""
     from googleapiclient.http import MediaFileUpload
 
     service = _drive_service(refresh_token, client_id, client_secret)
 
-    file_metadata = {"name": filename}
-    if folder_id:
-        file_metadata["parents"] = [folder_id]
+    file_metadata = {"name": filename, "parents": [folder_id]}
 
     media = MediaFileUpload(file_path, resumable=True)
     file = (
