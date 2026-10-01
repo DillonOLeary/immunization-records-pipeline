@@ -43,6 +43,12 @@ variable "schedule" {
   default     = "9 2 28 * *"
 }
 
+variable "canary_schedule" {
+  description = "Cron for the read-only canary; the day before the run cycle"
+  type        = string
+  default     = "9 2 27 * *"
+}
+
 variable "time_zone" {
   description = "Scheduler time zone"
   type        = string

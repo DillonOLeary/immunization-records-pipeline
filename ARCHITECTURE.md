@@ -244,10 +244,13 @@ MIIC has said the website may change. The blast radius is confined to
   fallback: a missing key fails the run loudly rather than uploading under the
   wrong district's identity.
 - Contract tests run the real adapter against the mock AISR server in CI.
-- The canary cycle (login plus a read-only records listing) is a manual
-  readiness probe; the same staged-results check runs inside the unified
-  cycle's polling loop, so MIIC breakage surfaces as a loud RunFailed on
-  run day rather than a silent stall.
+- The canary cycle (login plus a read-only records listing) runs on its
+  own schedule the day before the run cycle (`canary_schedule`), through
+  the same scheduler launch path, so both MIIC breakage and a broken launch
+  alert a day early; it also runs by hand as a readiness probe. The same
+  staged-results check runs inside the unified cycle's polling loop, so
+  MIIC breakage on run day surfaces as a loud RunFailed rather than a
+  silent stall.
 - All AISR HTTP calls have explicit timeouts.
 
 ## Security model
@@ -482,6 +485,16 @@ Live status of the build order. Updated as work lands.
 
 Notes:
 
+- 2026-10-01: scheduled canary restored (`pipeline-canary`, default
+  `9 2 27 * *`, district-overridable as `canary_schedule`). The alerts.tf
+  comment claimed a canary on the 27th, but that scheduler was deleted in
+  the unified-cycle cleanup, so nothing launched the job between runs and
+  the 2026-10-01 IAM fix had no way to be exercised before the Oct 28 run.
+  The canary uses the identical launch path (scheduler SA, args override,
+  runWithOverrides), so a forced `gcloud scheduler jobs run
+  pipeline-canary` proves the fix today with no MIIC email, and every
+  month it proves the launch a day early. The scheduler-launch alert now
+  watches both scheduler jobs.
 - 2026-10-01: INCIDENT FOLLOW-UP — the 2026-07-28 fix was wrong. The
   2026-09-28 scheduled launch got the same 403 with project-level
   `run.invoker` in place. Real cause: the scheduler body carries

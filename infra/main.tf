@@ -41,6 +41,7 @@ module "district" {
   image                    = each.value.image
   google_drive_folder_id   = try(each.value.google_drive_folder_id, "")
   schedule                 = try(each.value.schedule, "9 2 28 * *")
+  canary_schedule          = try(each.value.canary_schedule, "9 2 27 * *")
   time_zone                = try(each.value.time_zone, "America/Chicago")
   alert_email              = try(each.value.alert_email, "")
   deployer_service_account = try(each.value.deployer_service_account, "")

@@ -124,6 +124,7 @@ the district warned to expect the MIIC email.
 
 | Task | Cadence | Who / how |
 |---|---|---|
+| Canary (login + read-only listing; also proves the scheduler can launch the job) | per district `canary_schedule`, default the day before the run | automatic (Cloud Scheduler); alerts on failure |
 | Run cycle (query → poll → deliver) | per district `schedule` | automatic (Cloud Scheduler) |
 | Import the delivered diff into Infinite Campus, then delete the file from Drive | per delivery | school health staff — the deletion is the acknowledgment (`ImportConfirmed`); files lingering past 7 days are flagged |
 | Refresh roster CSVs as enrollment changes | before each run cycle | manual export + upload today; automation planned for fall 2026 |

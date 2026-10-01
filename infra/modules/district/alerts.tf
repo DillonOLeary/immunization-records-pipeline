@@ -6,9 +6,11 @@
 # alert by construction.
 #
 # Known limitation, on purpose: a metric-absence dead-man's switch cannot
-# span a monthly cadence (absence windows max out around a day). The canary
-# on the 27th covers the AISR-breakage case with a day of slack; a true
-# absence alert becomes practical if cadence moves to weekly or daily.
+# span a monthly cadence (absence windows max out around a day). The
+# scheduled canary (scheduler.tf, the day before the run) covers both the
+# AISR-breakage case and the launch path with a day of slack: if it fails,
+# or cannot launch, these same two alerts fire. A true absence alert
+# becomes practical if cadence moves to weekly or daily.
 
 resource "google_monitoring_notification_channel" "email" {
   count = var.alert_email != "" ? 1 : 0
@@ -64,7 +66,7 @@ resource "google_monitoring_alert_policy" "scheduler_launch_failed" {
     display_name = "Cloud Scheduler attempt failed"
 
     condition_matched_log {
-      filter = "resource.type = \"cloud_scheduler_job\" AND resource.labels.job_id = \"${google_cloud_scheduler_job.run.name}\" AND severity >= ERROR"
+      filter = "resource.type = \"cloud_scheduler_job\" AND (resource.labels.job_id = \"${google_cloud_scheduler_job.run.name}\" OR resource.labels.job_id = \"${google_cloud_scheduler_job.canary.name}\") AND severity >= ERROR"
     }
   }
 
