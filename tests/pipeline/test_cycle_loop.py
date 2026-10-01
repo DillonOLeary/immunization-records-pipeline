@@ -9,10 +9,12 @@ exactly one terminal event per run.
 import pytest
 
 import mn_immunization.pipeline.execute as execute
+from mn_immunization.gcp.storage import GcsObjectStore
 from mn_immunization.ledger.memory import InMemoryRunLedger, InMemorySnapshotStore
 from mn_immunization.pipeline.cycles import RunContext
 from mn_immunization.pipeline.policy import DiffResult, Submission
-from mn_immunization.sources.aisr.actions import DistrictInfo, SchoolQueryInformation
+from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
+from tests.fakes import FakeBucket, FakeDrive
 
 SCHOOLS = 8
 INTERVAL = 14400
@@ -34,17 +36,22 @@ class FakeClock:
 
 @pytest.fixture
 def env(monkeypatch):
-    monkeypatch.setenv("GOOGLE_DRIVE_FOLDER_ID", "folder-1")
     monkeypatch.setenv("POLL_INTERVAL_SECONDS", str(INTERVAL))
     monkeypatch.setenv("POLL_DEADLINE_SECONDS", str(DEADLINE))
     monkeypatch.setenv("DIFF_SANITY_FRACTION", "0.2")
+
+
+def no_source(auth_url, api_url):
+    raise AssertionError("executors are stubbed; no AISR session expected")
 
 
 def make_ctx(tmp_path, schools: int = SCHOOLS) -> RunContext:
     return RunContext(
         ledger=InMemoryRunLedger(),
         snapshots=InMemorySnapshotStore(),
-        bucket_name="test-bucket",
+        objects=GcsObjectStore(FakeBucket()),
+        drive=FakeDrive(),
+        open_source=no_source,
         temp=tmp_path,
         auth_url="https://auth.test",
         api_url="https://api.test",
@@ -87,13 +94,13 @@ def stub_executors(
     staged_iter = iter(staged)
     last = {"outcome": 0}
 
-    def fake_submit(ctx, username, password):
+    def fake_submit(ctx):
         calls.append("submit")
         if submission is not None:
             return submission
         return Submission(submitted=frozenset(s.school_id for s in ctx.schools))
 
-    def fake_probe(ctx, username, password, school_ids):
+    def fake_probe(ctx, school_ids):
         calls.append("probe")
         try:
             last["outcome"] = next(staged_iter)
@@ -103,7 +110,7 @@ def stub_executors(
             raise last["outcome"]
         return last["outcome"]
 
-    def fake_deliver(ctx, d, folder_id):
+    def fake_deliver(ctx, d):
         calls.append("deliver")
         if isinstance(deliver_outcome, Exception):
             raise deliver_outcome
@@ -112,7 +119,7 @@ def stub_executors(
     monkeypatch.setattr(execute, "_submit_queries", fake_submit)
     monkeypatch.setattr(execute, "_probe_staged", fake_probe)
     monkeypatch.setattr(
-        execute, "_compute_diff", lambda ctx, u, p: (calls.append("compute"), diff)[1]
+        execute, "_compute_diff", lambda ctx: (calls.append("compute"), diff)[1]
     )
     monkeypatch.setattr(execute, "_deliver_diff", fake_deliver)
     monkeypatch.setattr(
@@ -123,7 +130,7 @@ def stub_executors(
 
 def run(ctx, fake_clock):
     return execute.run_to_completion(
-        ctx, "user", "pass", sleep=fake_clock.sleep, clock=fake_clock.clock
+        ctx, sleep=fake_clock.sleep, clock=fake_clock.clock
     )
 
 
@@ -280,9 +287,9 @@ def test_staging_waits_only_for_submitted_schools(env, monkeypatch, tmp_path):
     )
     real_probe = execute._probe_staged
 
-    def recording_probe(ctx, username, password, school_ids):
+    def recording_probe(ctx, school_ids):
         probed.append(school_ids)
-        return real_probe(ctx, username, password, school_ids)
+        return real_probe(ctx, school_ids)
 
     monkeypatch.setattr(execute, "_probe_staged", recording_probe)
     fake = FakeClock()
@@ -372,8 +379,8 @@ def test_empty_diff_completes_without_delivering(env, monkeypatch, tmp_path):
 def test_missing_drive_folder_fails_before_any_step(env, monkeypatch, tmp_path):
     # Checked before SubmitQueries: a misconfigured delivery target must
     # not cost the period's one roster submission (and its nurse email).
-    monkeypatch.delenv("GOOGLE_DRIVE_FOLDER_ID")
     ctx = make_ctx(tmp_path)
+    ctx.drive = None
     calls = stub_executors(monkeypatch, staged=[SCHOOLS], diff=make_diff(tmp_path))
 
     result = run(ctx, FakeClock())
@@ -398,23 +405,13 @@ def test_brake_fraction_parsing(monkeypatch):
 # --- the real _deliver_diff, with only the Drive upload stubbed ---
 
 
-def stub_drive_upload(monkeypatch):
-    uploads = []
-
-    def fake_upload(file_path, filename, folder_id=None):
-        uploads.append(filename)
-        return "drive-id-1"
-
-    monkeypatch.setattr(execute, "upload_to_drive_with_secrets", fake_upload)
-    return uploads
-
-
 def test_deliver_wins_claim_uploads_and_records(monkeypatch, tmp_path):
     ctx = make_ctx(tmp_path)
     diff = make_diff(tmp_path)
-    uploads = stub_drive_upload(monkeypatch)
+    diff.diff_path.write_text("1,2,MMR,01/01/2020\n", encoding="utf-8")
 
-    outcome = execute._deliver_diff(ctx, diff, "folder-1")
+    outcome = execute._deliver_diff(ctx, diff)
+    uploads = ctx.drive.uploads
 
     assert outcome == "delivered"
     assert uploads == [diff.diff_path.name]
@@ -428,9 +425,10 @@ def test_deliver_claim_lost_without_evidence_delivers_anyway(monkeypatch, tmp_pa
     ctx = make_ctx(tmp_path)
     diff = make_diff(tmp_path)
     ctx.ledger.claims[f"{diff.diff_path.name[:10]}_diff"] = {"run_id": "earlier"}
-    uploads = stub_drive_upload(monkeypatch)
+    diff.diff_path.write_text("1,2,MMR,01/01/2020\n", encoding="utf-8")
 
-    outcome = execute._deliver_diff(ctx, diff, "folder-1")
+    outcome = execute._deliver_diff(ctx, diff)
+    uploads = ctx.drive.uploads
 
     assert outcome == "delivered"
     assert uploads == [diff.diff_path.name]
@@ -455,9 +453,10 @@ def test_deliver_claim_lost_with_delivered_event_skips(monkeypatch, tmp_path):
             },
         }
     )
-    uploads = stub_drive_upload(monkeypatch)
+    diff.diff_path.write_text("1,2,MMR,01/01/2020\n", encoding="utf-8")
 
-    outcome = execute._deliver_diff(ctx, diff, "folder-1")
+    outcome = execute._deliver_diff(ctx, diff)
+    uploads = ctx.drive.uploads
 
     assert outcome == "already_delivered"
     assert uploads == []

@@ -58,26 +58,14 @@ CLOCK_AND_ENV = {
 LOG_METHODS = {"debug", "info", "warning", "error", "critical", "exception", "log"}
 
 ALLOWED: set[str] = {
-    # The pipeline reaches adapter implementations directly; the ports and
-    # composition-root refactor (plan PR8, PR9) moves construction to
-    # runtime/composition.py and these go.
+    # pipeline_run still constructs the adapters (everything else in the
+    # pipeline sees only ports); the composition root (PR9) moves
+    # construction to runtime/composition.py and these go.
+    "mn_immunization.pipeline.cycles imports mn_immunization.sinks.drive",
     "mn_immunization.pipeline.cycles imports mn_immunization.gcp.secrets",
     "mn_immunization.pipeline.cycles imports mn_immunization.gcp.storage",
     "mn_immunization.pipeline.cycles imports mn_immunization.ledger.gcs_ledger",
-    "mn_immunization.pipeline.cycles imports mn_immunization.sources.aisr.actions",
     "mn_immunization.pipeline.cycles imports mn_immunization.sources.aisr.client",
-    "mn_immunization.pipeline.execute imports mn_immunization.gcp.secrets",
-    "mn_immunization.pipeline.execute imports mn_immunization.ledger.gcs_ledger",
-    "mn_immunization.pipeline.execute imports mn_immunization.sinks.drive",
-    "mn_immunization.pipeline.execute imports mn_immunization.sources.aisr.actions",
-    "mn_immunization.pipeline.execute imports mn_immunization.sources.aisr.client",
-    "mn_immunization.pipeline.execute imports mn_immunization.sources.aisr.parsing",
-    "mn_immunization.pipeline.incremental imports google.api_core.exceptions",
-    "mn_immunization.pipeline.incremental imports mn_immunization.gcp.storage",
-    "mn_immunization.pipeline.incremental imports mn_immunization.ledger.gcs_ledger",
-    # The source port borrows value types from the implementation module;
-    # they move into the port (PR8).
-    "mn_immunization.sources.aisr.port imports mn_immunization.sources.aisr.actions",
     # Environment read outside runtime: Settings parsed once (PR9).
     "mn_immunization.gcp.secrets uses os.environ",
     "mn_immunization.pipeline.cycles uses os.environ",
@@ -90,7 +78,6 @@ ALLOWED: set[str] = {
     "mn_immunization.pipeline.execute uses datetime.now",
     "mn_immunization.pipeline.execute uses time.monotonic",
     "mn_immunization.pipeline.execute uses time.sleep",
-    "mn_immunization.pipeline.files uses datetime.now",
     "mn_immunization.pipeline.incremental uses datetime.now",
     "mn_immunization.pipeline.support uses datetime.now",
 }

@@ -101,17 +101,21 @@ class FakeStorageClient:
 
 
 class FakeDrive:
-    """The Drive import queue: what was uploaded, and what is still there
-    (staff delete a file once imported)."""
+    """A DriveSink: the import queue, with what was uploaded and what is
+    still there (staff delete a file once imported). `list_error` makes
+    listing fail."""
 
-    def __init__(self):
+    def __init__(self, list_error: Exception | None = None):
         self.files: dict[str, str] = {}
         self.uploads: list[str] = []
+        self.list_error = list_error
 
-    def upload(self, file_path, filename, folder_id, **_credentials) -> str:
-        self.files[filename] = Path(file_path).read_text(encoding="utf-8")
-        self.uploads.append(filename)
+    def upload(self, path: Path, name: str) -> str:
+        self.files[name] = Path(path).read_text(encoding="utf-8")
+        self.uploads.append(name)
         return f"drive-file-{len(self.uploads)}"
 
-    def list_names(self, folder_id, **_credentials) -> set[str]:
+    def list_filenames(self) -> set[str]:
+        if self.list_error is not None:
+            raise self.list_error
         return set(self.files)

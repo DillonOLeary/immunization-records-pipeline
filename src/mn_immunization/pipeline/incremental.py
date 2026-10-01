@@ -1,11 +1,11 @@
 """Incremental diff processing, split into compute and commit on purpose.
 
 `compute_diff` only reads durable state and writes to temp (plus an
-archive copy of the diff in GCS, for forensics on blocked runs);
-`commit_master` is the one function that advances durable state, and the
-runner calls it only after Drive delivery succeeded. That ordering is
-the fix for the old shape's flaw, where the master absorbed records
-before the sanity brake fired and before delivery was known to work.
+archive copy of the diff, for forensics on blocked runs); `commit_master`
+is the one function that advances durable state, and the runner calls it
+only after Drive delivery succeeded. That ordering is the fix for the old
+shape's flaw, where the master absorbed records before the sanity brake
+fired and before delivery was known to work.
 
 The master is the union of everything ever seen: absence is never
 deletion, so a school whose download fails keeps its records and does
@@ -18,28 +18,18 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from google.api_core.exceptions import NotFound
-
-from mn_immunization.domain.ic_format import (
-    IcFormatError,
-    parse_ic_csv,
-    render_csv,
-)
+from mn_immunization.domain.hashing import sha256_hex
+from mn_immunization.domain.ic_format import parse_ic_csv, render_csv
 from mn_immunization.domain.records import RecordSet
-from mn_immunization.gcp.storage import (
-    download_from_storage,
-    prefix_has_objects,
-    upload_file_to_storage,
-)
+from mn_immunization.gcp.port import ObjectNotFoundError, ObjectStore
 from mn_immunization.ledger import events
-from mn_immunization.ledger.gcs_ledger import SNAPSHOT_PREFIX, sha256_hex
 from mn_immunization.ledger.port import RunLedger, SnapshotStore
 from mn_immunization.pipeline.support import append_event
 
 logger = logging.getLogger(__name__)
 
-# Master file name in GCS output folder
 ALL_KNOWN_VACCINATIONS_FILE = "all_known_vaccinations.csv"
+MASTER_PATH = f"output/{ALL_KNOWN_VACCINATIONS_FILE}"
 
 
 class MasterMissingError(Exception):
@@ -49,89 +39,61 @@ class MasterMissingError(Exception):
     set, so it fails the run instead."""
 
 
-def combine_ic_files(paths: list[Path]) -> RecordSet:
-    """Combine IC-format CSV files into one deduplicated RecordSet.
-
-    Files that cannot be parsed are logged and skipped: one bad school
-    file must not sink the rest.
-    """
-    combined = RecordSet()
-    for file_path in paths:
-        try:
-            records = parse_ic_csv(Path(file_path).read_text(encoding="utf-8"))
-        except (IcFormatError, OSError) as error:
-            logger.error(
-                "Failed to read %s: %s", Path(file_path).name, type(error).__name__
-            )
-            continue
-        combined = combined.union(records)
-        logger.info("Added %d records from %s", len(records), Path(file_path).name)
-
-    logger.info(
-        "Combined dataset contains %d unique vaccination records", len(combined)
-    )
-    return combined
-
-
-def load_known_records(bucket_name: str, temp_dir: Path) -> RecordSet:
-    """Load the known-vaccinations master file from GCS. Fails closed.
+def load_known_records(objects: ObjectStore, snapshots: SnapshotStore) -> RecordSet:
+    """Load the known-vaccinations master. Fails closed.
 
     Only a master that has never existed is an empty known set: that is a
     genuine first run, and the sanity brake rightly exempts it. Anything
     else must fail the run, because an empty known set disables the brake
     and makes every current record "new":
 
-    - absent or empty while snapshots exist -> MasterMissingError (it existed
-      once; something deleted or truncated it);
+    - absent or empty while snapshots exist -> MasterMissingError (it
+      existed once; something deleted or truncated it);
     - a transient read error -> propagates (RunFailed, rerun later);
     - a malformed row -> IcFormatError propagates (one bad line must not
       turn 170k known records into zero).
     """
-    master_file_path = temp_dir / ALL_KNOWN_VACCINATIONS_FILE
-    blob_name = f"output/{ALL_KNOWN_VACCINATIONS_FILE}"
     try:
-        download_from_storage(bucket_name, blob_name, str(master_file_path))
-    except NotFound:
-        if prefix_has_objects(bucket_name, SNAPSHOT_PREFIX):
+        text = objects.read_text(MASTER_PATH)
+    except ObjectNotFoundError:
+        if snapshots.any_stored():
             raise MasterMissingError("master absent but snapshots exist") from None
         logger.info("No master file yet: first run, known set is empty")
         return RecordSet()
 
-    known = parse_ic_csv(master_file_path.read_text(encoding="utf-8"))
-    if not known and prefix_has_objects(bucket_name, SNAPSHOT_PREFIX):
+    known = parse_ic_csv(text)
+    if not known and snapshots.any_stored():
         raise MasterMissingError("master empty but snapshots exist")
     logger.info("Loaded %d known vaccination records", len(known))
     return known
 
 
 def compute_diff(
-    output_files: list[Path],
+    current: RecordSet,
     output_folder: Path,
-    bucket_name: str,
-    temp_dir: Path,
+    objects: ObjectStore,
+    snapshots: SnapshotStore,
     ledger: RunLedger,
 ) -> tuple[Path, Path, int, int]:
     """Diff current records against the known set; write both files to temp.
 
     Returns (diff_path, master_path, new_count, known_count). Nothing
     durable moves here: the master upload and snapshot wait for
-    `commit_master`, after delivery. The diff archive copy in GCS is
-    best-effort — useful for inspecting a brake-blocked diff without
-    putting record content in logs, but never load-bearing.
+    `commit_master`, after delivery. The diff archive copy is best-effort
+    — useful for inspecting a brake-blocked diff without putting record
+    content in logs, but never load-bearing.
     """
-    current_records = combine_ic_files(output_files)
-    known_records = load_known_records(bucket_name, temp_dir)
+    known_records = load_known_records(objects, snapshots)
 
-    new_records = current_records.diff(known_records)
-    master_records = known_records.union(current_records)
+    new_records = current.diff(known_records)
+    master_records = known_records.union(current)
     logger.info(
         "Found %d new vaccination records out of %d total",
         len(new_records),
-        len(current_records),
+        len(current),
     )
 
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    diff_filename = f"{date_str}_new_vaccinations.csv"
+    diff_filename = f"{datetime.now():%Y-%m-%d}_new_vaccinations.csv"
     diff_path = output_folder / diff_filename
     diff_text = render_csv(new_records)
     diff_path.write_text(diff_text, encoding="utf-8")
@@ -143,39 +105,35 @@ def compute_diff(
         ledger,
         events.diff_computed(
             new_count=len(new_records),
-            total_count=len(current_records),
+            total_count=len(current),
             known_hash=sha256_hex(render_csv(known_records)),
             diff_hash=sha256_hex(diff_text),
         ),
     )
 
     try:
-        upload_file_to_storage(
-            bucket_name, f"output/changes/{diff_filename}", str(diff_path)
-        )
+        objects.write_text(f"output/changes/{diff_filename}", diff_text, "text/csv")
     except Exception as error:
-        logger.error("Archive upload of diff to GCS failed: %s", type(error).__name__)
+        logger.error("Archive upload of diff failed: %s", type(error).__name__)
 
     return diff_path, master_path, len(new_records), len(known_records)
 
 
 def commit_master(
-    bucket_name: str,
+    objects: ObjectStore,
     master_path: Path,
     ledger: RunLedger,
     snapshots: SnapshotStore,
     record_count: int,
 ) -> None:
-    """Advance durable state: upload the union master and snapshot it.
+    """Advance durable state: write the union master and snapshot it.
 
     Failures propagate on purpose. A delivered-but-uncommitted run must
     fail loudly so a rerun redoes the commit — which is safe, because
     the master is a union and committing it twice changes nothing.
     """
     master_text = master_path.read_text(encoding="utf-8")
-    upload_file_to_storage(
-        bucket_name, f"output/{ALL_KNOWN_VACCINATIONS_FILE}", str(master_path)
-    )
+    objects.write_text(MASTER_PATH, master_text, "text/csv")
     logger.info("Updated master file with %d total records", record_count)
 
     snapshot_path = ""

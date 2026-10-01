@@ -104,9 +104,9 @@ class GcsSnapshotStore:
             pass  # content-addressed: identical content is already there
         return digest, path
 
-
-def sha256_hex(content: str) -> str:
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+    def any_stored(self) -> bool:
+        blobs = self.bucket.list_blobs(prefix=SNAPSHOT_PREFIX, max_results=1)
+        return any(True for _ in blobs)
 
 
 def recent_months(now: datetime, count: int = 2) -> tuple[tuple[int, int], ...]:

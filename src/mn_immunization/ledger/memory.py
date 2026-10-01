@@ -77,3 +77,6 @@ class InMemorySnapshotStore:
         path = f"snapshots/{digest}.csv"
         self.snapshots[path] = content
         return digest, path
+
+    def any_stored(self) -> bool:
+        return bool(self.snapshots)

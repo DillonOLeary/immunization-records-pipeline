@@ -32,3 +32,9 @@ class SnapshotStore(Protocol):
     def put(self, content: str) -> tuple[str, str]:
         """Store content-addressed; returns (sha256_hex, storage_path)."""
         ...
+
+    def any_stored(self) -> bool:
+        """Has any snapshot ever been stored? Every master commit stores
+        one, so True means a master was committed before: an absent or
+        empty master is then damage, not a first run."""
+        ...

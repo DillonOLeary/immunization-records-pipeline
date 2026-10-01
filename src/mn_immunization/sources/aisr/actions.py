@@ -11,23 +11,20 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 
 import requests
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from mn_immunization.sources.aisr.port import (
+    AISRActionFailedError,
+    DistrictInfo,
+    SchoolQueryInformation,
+    StagedResults,
+)
+
 logger = logging.getLogger(__name__)
 
 TRANSIENT_STATUSES = frozenset({502, 503, 504})
-
-
-class AISRActionFailedError(Exception):
-    """An AISR call failed. `status_code` is the HTTP status when there
-    was a response, None otherwise. The message never includes a body."""
-
-    def __init__(self, message: str, status_code: int | None = None):
-        super().__init__(message)
-        self.status_code = status_code
 
 
 def _is_transient(error: BaseException) -> bool:
@@ -52,21 +49,6 @@ _transient_retry = retry(
 
 
 @dataclass
-class DistrictInfo:
-    """District-scoped values for the AISR roster upload.
-
-    Both were once hardcoded to ISD 197; they are configuration now so a
-    second district needs no code change. `iddis` is the district's MDE
-    number; `s3_upload_host` is the MDH ingest bucket host (the same for
-    every district today, but environment-shaped, so it lives in config
-    rather than in code).
-    """
-
-    iddis: str
-    s3_upload_host: str
-
-
-@dataclass
 class S3UploadHeaders:
     """
     Dataclass to hold the headers required for S3 upload.
@@ -78,31 +60,6 @@ class S3UploadHeaders:
     iddis: str
     host: str
     content_type: str = "text/csv"
-
-
-@dataclass
-class SchoolQueryInformation:
-    """
-    Class to hold the information needed to query a school.
-    """
-
-    school_name: str
-    classification: str
-    school_id: str
-    email_contact: str
-    query_file_path: str
-
-
-@dataclass(frozen=True)
-class StagedResults:
-    """What AISR lists for one school. `available` is the staging signal
-    the pipeline acts on; `entries` and `newest_upload_at` are recorded
-    only to learn whether AISR keeps old results between runs (if it
-    does, "any result listed" is not "staged for this period")."""
-
-    available: bool
-    entries: int
-    newest_upload_at: datetime | None
 
 
 @_transient_retry
@@ -248,11 +205,8 @@ def get_latest_vaccination_records_url(
 
 
 @_transient_retry
-def download_vaccination_records(
-    session: requests.Session, file_url: str, output_path: Path
-) -> str:
-    """Download a vaccination records file to output_path; returns its
-    text."""
+def download_vaccination_records(session: requests.Session, file_url: str) -> str:
+    """Download a vaccination records file; returns its text."""
     res = session.get(file_url, timeout=300)
 
     if res.status_code != 200:
@@ -260,11 +214,7 @@ def download_vaccination_records(
             f"HTTP {res.status_code} downloading results file",
             status_code=res.status_code,
         )
-
-    content = res.content.decode("utf-8")
-    with open(output_path, "w", encoding="utf-8") as file:
-        file.write(content)
-    return content
+    return res.content.decode("utf-8")
 
 
 def get_and_download_vaccination_records(
@@ -272,10 +222,9 @@ def get_and_download_vaccination_records(
     access_token: str,
     base_url: str,
     school_id: str,
-    output_path: Path,
 ) -> str:
-    """Download the latest results file for a school to output_path;
-    returns its text. Raises AISRActionFailedError if none is listed."""
+    """Download the latest results file for a school; returns its text.
+    Raises AISRActionFailedError if none is listed."""
     url = get_latest_vaccination_records_url(
         session=session,
         base_url=base_url,
@@ -286,9 +235,7 @@ def get_and_download_vaccination_records(
         raise AISRActionFailedError(
             f"No vaccination records available for school ID {school_id}"
         )
-    return download_vaccination_records(
-        session=session, file_url=url, output_path=output_path
-    )
+    return download_vaccination_records(session=session, file_url=url)
 
 
 def bulk_query_aisr(

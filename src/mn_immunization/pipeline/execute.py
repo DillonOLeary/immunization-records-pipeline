@@ -17,14 +17,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from mn_immunization.domain.ic_format import IcFormatError, render_csv
-from mn_immunization.gcp.secrets import get_secret
+from mn_immunization.domain.hashing import sha256_hex
+from mn_immunization.domain.records import RecordSet
 from mn_immunization.ledger import events
-from mn_immunization.ledger.gcs_ledger import sha256_hex
-from mn_immunization.pipeline.files import (
-    generate_vaccination_record_filename,
-    transformed_filename,
-)
 from mn_immunization.pipeline.incremental import commit_master, compute_diff
 from mn_immunization.pipeline.policy import (
     AwaitStaging,
@@ -39,10 +34,10 @@ from mn_immunization.pipeline.policy import (
     decide,
 )
 from mn_immunization.pipeline.support import append_event, claim_or_proceed
-from mn_immunization.sinks.drive import list_drive_filenames, upload_to_google_drive
-from mn_immunization.sources.aisr.actions import SchoolQueryInformation
-from mn_immunization.sources.aisr.client import AisrClient, aisr_session
-from mn_immunization.sources.aisr.parsing import AisrParseError, parse_aisr_csv
+from mn_immunization.sources.aisr.port import (
+    ImmunizationSource,
+    SchoolQueryInformation,
+)
 
 if TYPE_CHECKING:
     from mn_immunization.pipeline.cycles import RunContext
@@ -65,7 +60,7 @@ class StagingProbe:
 
 
 def probe_staging(
-    client: AisrClient, schools: list[SchoolQueryInformation]
+    source: ImmunizationSource, schools: list[SchoolQueryInformation]
 ) -> StagingProbe:
     """Read-only listing of every school's results.
 
@@ -80,7 +75,7 @@ def probe_staging(
     staged = failed = 0
     for school in schools:
         try:
-            results = client.staged_results(school.school_id)
+            results = source.staged_results(school.school_id)
         except Exception as error:
             failed += 1
             logger.warning(
@@ -100,28 +95,6 @@ def probe_staging(
         if results.available:
             staged += 1
     return StagingProbe(staged=staged, failed=failed)
-
-
-def upload_to_drive_with_secrets(file_path: str, filename: str, folder_id: str) -> str:
-    """Upload file to Google Drive using secrets from Secret Manager"""
-    return upload_to_google_drive(
-        file_path=file_path,
-        filename=filename,
-        refresh_token=get_secret("drive-refresh-token"),
-        client_id=get_secret("drive-client-id"),
-        client_secret=get_secret("drive-client-secret"),
-        folder_id=folder_id,
-    )
-
-
-def list_drive_filenames_with_secrets(folder_id: str) -> set[str]:
-    """List the pipeline's own files in the Drive folder, via Secret Manager."""
-    return list_drive_filenames(
-        refresh_token=get_secret("drive-refresh-token"),
-        client_id=get_secret("drive-client-id"),
-        client_secret=get_secret("drive-client-secret"),
-        folder_id=folder_id,
-    )
 
 
 def _days_since_prefix_date(filename: str, now: datetime) -> int | None:
@@ -147,8 +120,7 @@ def record_import_confirmations(ctx: RunContext) -> None:
     Entirely best-effort: any failure is logged and swallowed, because a
     confirmation check must never sink a delivery run.
     """
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-    if not folder_id:
+    if ctx.drive is None:
         return
 
     try:
@@ -168,7 +140,7 @@ def record_import_confirmations(ctx: RunContext) -> None:
         outstanding = delivered - confirmed
         if not outstanding:
             return
-        present = list_drive_filenames_with_secrets(folder_id)
+        present = ctx.drive.list_filenames()
     except Exception as error:
         logger.warning("import-confirmation check skipped (%s)", type(error).__name__)
         return
@@ -207,7 +179,7 @@ def submitted_this_period(runs: list[dict], period: str) -> set[str]:
     }
 
 
-def _submit_queries(ctx: RunContext, username: str, password: str) -> Submission:
+def _submit_queries(ctx: RunContext) -> Submission:
     """Submit each school's roster at most once per period. Fails closed.
 
     Every submission makes MIIC email every nurse in the district, so a
@@ -249,7 +221,7 @@ def _submit_queries(ctx: RunContext, username: str, password: str) -> Submission
     stuck: set[str] = set()
     failed: set[str] = set()
     logger.info("Submitting %d roster(s) for period %s", len(pending), period)
-    with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
+    with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
         for school in pending:
             key = f"{prefix}_{school.school_id}"
             try:
@@ -271,7 +243,7 @@ def _submit_queries(ctx: RunContext, username: str, password: str) -> Submission
                 )
                 continue
             try:
-                client.submit_roster_query(school, ctx.district)
+                source.submit_roster_query(school, ctx.district)
             except Exception as error:
                 failed.add(school.school_id)
                 logger.error(
@@ -300,105 +272,69 @@ def _submit_queries(ctx: RunContext, username: str, password: str) -> Submission
     )
 
 
-def _probe_staged(
-    ctx: RunContext, username: str, password: str, school_ids: frozenset[str]
-) -> int:
+def _probe_staged(ctx: RunContext, school_ids: frozenset[str]) -> int:
     """Staged count among the schools submitted this period; the others
     are not waited for."""
     schools = [school for school in ctx.schools if school.school_id in school_ids]
-    with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
-        probe = probe_staging(client, schools)
+    with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
+        probe = probe_staging(source, schools)
     logger.info("%d/%d schools have results staged", probe.staged, len(schools))
     return probe.staged
 
 
-def _compute_diff(ctx: RunContext, username: str, password: str) -> DiffResult:
-    """Fetch staged results, transform, and diff. Reads only: nothing this
-    executor does needs unwinding if the brake fires next."""
-    input_folder = ctx.temp / "input"
-    output_folder = ctx.temp / "output"
-    input_folder.mkdir(exist_ok=True)
-    output_folder.mkdir(exist_ok=True)
-
-    fetch_failures = 0
-    with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
+def _compute_diff(ctx: RunContext) -> DiffResult:
+    """Fetch every school's latest results and diff them against the known
+    set. Reads only: nothing this executor does needs unwinding if the
+    brake fires next."""
+    current = RecordSet()
+    fetched = fetch_failures = 0
+    with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
         for school in ctx.schools:
-            output_path = input_folder / (
-                generate_vaccination_record_filename(school.school_name)
-            )
             try:
-                content = client.download_latest_records(school.school_id, output_path)
-                append_event(
-                    ctx.ledger,
-                    events.records_fetched(
-                        school_id=school.school_id,
-                        content_hash=sha256_hex(content),
-                        byte_size=len(content.encode("utf-8")),
-                    ),
-                )
+                result = source.fetch_latest_records(school.school_id)
             except Exception as error:
-                # One school's failure (after retries) is counted, never
-                # fatal to the others; all failing is AllDownloadsFailed.
+                # Not listed, not downloadable, or not parseable: one
+                # school's loss (after retries) is counted, never fatal to
+                # the others. All of them failing is AllDownloadsFailed,
+                # which is where a MIIC format change lands.
                 fetch_failures += 1
                 logger.error(
-                    "Download failed for %s: %s (HTTP %s)",
+                    "Fetch failed for %s: %s (HTTP %s)",
                     school.school_name,
                     type(error).__name__,
                     getattr(error, "status_code", None),
                 )
+                continue
+            fetched += 1
+            append_event(
+                ctx.ledger,
+                events.records_fetched(
+                    school_id=school.school_id,
+                    content_hash=result.content_hash,
+                    byte_size=result.byte_size,
+                ),
+            )
+            current = current.union(result.records)
+            logger.info(
+                "Fetched %d records for %s", len(result.records), school.school_name
+            )
 
-    output_files, transform_failures = transform_downloads(
-        sorted(input_folder.glob("*.csv")), output_folder
-    )
     diff_path, master_path, new_count, known_count = compute_diff(
-        output_files=output_files,
-        output_folder=output_folder,
-        bucket_name=ctx.bucket_name,
-        temp_dir=ctx.temp,
+        current=current,
+        output_folder=ctx.temp,
+        objects=ctx.objects,
+        snapshots=ctx.snapshots,
         ledger=ctx.ledger,
     )
     logger.info("Created incremental diff file: %s", diff_path.name)
     return DiffResult(
         new_count=new_count,
         known_count=known_count,
-        files_transformed=len(output_files),
-        # A file that downloaded but cannot be parsed is as lost as one that
-        # never downloaded: if MIIC changes its format, every school lands
-        # here, and that must read as AllDownloadsFailed, not as an empty
-        # "success".
-        fetch_failures=fetch_failures + transform_failures,
+        files_transformed=fetched,
+        fetch_failures=fetch_failures,
         diff_path=diff_path,
         master_path=master_path,
     )
-
-
-def transform_downloads(
-    input_files: list[Path], output_folder: Path
-) -> tuple[list[Path], int]:
-    """Turn raw AISR downloads into IC-format files.
-
-    Returns (the IC files written, how many inputs failed). A failure is
-    logged by file name and error class only: parse errors describe a
-    line and a field, never its value, but the class is all an operator
-    needs and the rule is simplest stated absolutely.
-    """
-    written: list[Path] = []
-    failures = 0
-    for input_file in input_files:
-        try:
-            records = parse_aisr_csv(input_file.read_text(encoding="utf-8"))
-            output_file = output_folder / transformed_filename(input_file.name)
-            output_file.write_text(render_csv(records), encoding="utf-8")
-        except (AisrParseError, IcFormatError, OSError) as error:
-            failures += 1
-            logger.error(
-                "Transform failed for file %s: %s",
-                input_file.name,
-                type(error).__name__,
-            )
-            continue
-        written.append(output_file)
-    return written, failures
 
 
 def _delivered_elsewhere(ctx: RunContext, diff_filename: str) -> bool:
@@ -425,10 +361,12 @@ def _delivered_elsewhere(ctx: RunContext, diff_filename: str) -> bool:
     )
 
 
-def _deliver_diff(ctx: RunContext, diff: DiffResult, folder_id: str) -> str:
+def _deliver_diff(ctx: RunContext, diff: DiffResult) -> str:
     """Drive delivery, gated by the date claim. Returns "delivered" or
     "already_delivered"; an upload failure propagates so the run fails
     loudly with the master untouched."""
+    if ctx.drive is None:
+        raise RuntimeError("no Drive folder configured")
     filename = diff.diff_path.name
     # The filename starts with the %Y-%m-%d the diff was computed on; the
     # claim shares that date so a run crossing midnight stays consistent.
@@ -443,9 +381,7 @@ def _deliver_diff(ctx: RunContext, diff: DiffResult, folder_id: str) -> str:
             "must not suppress delivery)",
             date_str,
         )
-    drive_file_id = upload_to_drive_with_secrets(
-        file_path=str(diff.diff_path), filename=filename, folder_id=folder_id
-    )
+    drive_file_id = ctx.drive.upload(diff.diff_path, filename)
     append_event(ctx.ledger, events.delivered(filename, "drive", str(drive_file_id)))
     logger.info("Uploaded incremental diff file to Google Drive: %s", filename)
     return "delivered"
@@ -453,7 +389,7 @@ def _deliver_diff(ctx: RunContext, diff: DiffResult, folder_id: str) -> str:
 
 def _commit_master(ctx: RunContext, diff: DiffResult) -> None:
     commit_master(
-        bucket_name=ctx.bucket_name,
+        objects=ctx.objects,
         master_path=diff.master_path,
         ledger=ctx.ledger,
         snapshots=ctx.snapshots,
@@ -521,8 +457,6 @@ def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
 
 def run_to_completion(
     ctx: RunContext,
-    username: str,
-    password: str,
     sleep=time.sleep,
     clock=time.monotonic,
 ) -> dict:
@@ -532,8 +466,7 @@ def run_to_completion(
     after it runs, which is what makes "delivery failed" leave the master
     untouched instead of silently absorbing undelivered records.
     """
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-    if not folder_id:
+    if ctx.drive is None:
         # Checked before anything happens: a misconfigured delivery target
         # must not cost the period's one roster submission.
         append_event(
@@ -557,7 +490,7 @@ def run_to_completion(
         name = STEP_NAMES[type(step)]
         try:
             if isinstance(step, SubmitQueries):
-                state = state.with_submission(_submit_queries(ctx, username, password))
+                state = state.with_submission(_submit_queries(ctx))
             elif isinstance(step, AwaitStaging):
                 if probed:
                     remaining = deadline - (clock() - start)
@@ -569,9 +502,7 @@ def run_to_completion(
                 # decide only waits once a submission exists
                 submission = state.submission or Submission()
                 try:
-                    staged = _probe_staged(
-                        ctx, username, password, submission.submitted
-                    )
+                    staged = _probe_staged(ctx, submission.submitted)
                 except Exception as error:
                     # One AISR blip (a failed login, a maintenance page)
                     # must not end a 20-hour wait. Keep the last count,
@@ -584,9 +515,9 @@ def run_to_completion(
                 else:
                     state = state.with_staged(staged)
             elif isinstance(step, ComputeDiff):
-                state = state.with_diff(_compute_diff(ctx, username, password))
+                state = state.with_diff(_compute_diff(ctx))
             elif isinstance(step, DeliverDiff):
-                outcome = _deliver_diff(ctx, step.diff, folder_id)
+                outcome = _deliver_diff(ctx, step.diff)
                 state = (
                     state.with_delivered_elsewhere()
                     if outcome == "already_delivered"

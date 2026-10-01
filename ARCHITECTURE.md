@@ -42,18 +42,21 @@ src/mn_immunization/
   domain/                       pure logic, no I/O, no pandas
     records.py                  VaccinationRecord, RecordSet (dedupe, union, diff)
     ic_format.py                render/parse Infinite Campus CSV
+    hashing.py                  sha256 of text, for ledger events
   sources/
     aisr/                       the hard-won MIIC protocol knowledge
       authenticate.py           Keycloak login dance (no hardcoded IDs)
       actions.py                bulk query upload, results download (retries)
       parsing.py                AISR results file -> RecordSet
-      client.py                 session-scoped AisrClient (login/logout)
-      port.py                   ImmunizationSource protocol
+      client.py                 AisrClient, aisr_session, aisr_opener
+      port.py                   ImmunizationSource, SourceOpener, value types
   sinks/
-    drive.py                    Google Drive upload (the import queue)
+    drive.py                    GoogleDriveSink (the import queue)
+    port.py                     DriveSink protocol
   gcp/
-    storage.py                  Cloud Storage helpers
+    storage.py                  storage client, GcsObjectStore
     secrets.py                  Secret Manager access
+    port.py                     ObjectStore protocol
   ledger/
     events.py                   event types (dataclasses, JSON-serialized)
     gcs_ledger.py               append-only ledger on GCS objects
@@ -63,9 +66,8 @@ src/mn_immunization/
     policy.py                   the decider: CycleState, Steps, decide() (pure)
     execute.py                  executors + the runner loop
     cycles.py                   use-case entrypoints and shared scaffolding
-    incremental.py              combine, known set, compute_diff, commit_master
-    support.py                  run ids, safe appends, claims, brake
-    files.py                    file naming conventions
+    incremental.py              known set (fail-closed), compute_diff, commit_master
+    support.py                  run ids, best-effort appends, the diff claim
   runtime/                      entrypoints only
     job.py                      Cloud Run Job entrypoint (run|canary|rebaseline)
     cli.py                      mn-immunization status (read-only ledger window)
@@ -427,7 +429,7 @@ naming the step, and nothing after it runs:
 |---------------|----------------------------------------------------|------------------|
 | SubmitQueries | per-school claims + roster uploads (`_submit_queries`) | QuerySubmitted ×N |
 | AwaitStaging  | `probe_staging` over submitted schools, then sleep one interval | —   |
-| ComputeDiff   | fetch + transform + combine + `RecordSet.diff`     | RecordsFetched ×N, DiffComputed |
+| ComputeDiff   | fetch (parsed by the source) + union + `RecordSet.diff` | RecordsFetched ×N, DiffComputed |
 | DeliverDiff   | date claim + Drive upload                          | Delivered        |
 | CommitMaster  | union → master upload + snapshot                   | MasterCommitted  |
 | Finish        | terminal event, return status                      | RunCompleted / RunSkipped / RunFailed |

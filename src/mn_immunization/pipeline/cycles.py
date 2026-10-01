@@ -28,8 +28,9 @@ from datetime import datetime
 from pathlib import Path
 
 from mn_immunization.domain.ic_format import chunk, render_csv
+from mn_immunization.gcp.port import ObjectStore
 from mn_immunization.gcp.secrets import get_secret
-from mn_immunization.gcp.storage import get_storage_client
+from mn_immunization.gcp.storage import GcsObjectStore, get_storage_client
 from mn_immunization.ledger import events
 from mn_immunization.ledger.gcs_ledger import GcsRunLedger, GcsSnapshotStore
 from mn_immunization.ledger.port import RunLedger, SnapshotStore
@@ -37,23 +38,31 @@ from mn_immunization.pipeline.execute import (
     probe_staging,
     record_import_confirmations,
     run_to_completion,
-    upload_to_drive_with_secrets,
 )
 from mn_immunization.pipeline.incremental import load_known_records
 from mn_immunization.pipeline.support import append_event, new_run_id
-from mn_immunization.sources.aisr.actions import DistrictInfo, SchoolQueryInformation
-from mn_immunization.sources.aisr.client import aisr_session
+from mn_immunization.sinks.drive import GoogleDriveSink
+from mn_immunization.sinks.port import DriveSink
+from mn_immunization.sources.aisr.client import aisr_opener
+from mn_immunization.sources.aisr.port import (
+    DistrictInfo,
+    SchoolQueryInformation,
+    SourceOpener,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class RunContext:
-    # Typed to the ports, not the GCS classes: tests pass the in-memory
-    # implementations, and the ledger is the declared seam.
+    """Everything a cycle touches, as ports: the pipeline never sees an
+    adapter class, a bucket, or a credential. Tests pass fakes."""
+
     ledger: RunLedger
     snapshots: SnapshotStore
-    bucket_name: str
+    objects: ObjectStore
+    drive: DriveSink | None  # None: no delivery folder configured
+    open_source: SourceOpener
     temp: Path
     auth_url: str
     api_url: str
@@ -65,20 +74,24 @@ class RunContext:
 def pipeline_run(
     kind: str, bucket_name: str, trigger: str, include_query_files: bool = False
 ):
-    """Common cycle scaffolding: ledger, config, schools, temp dir, and the
-    guarantee that an escaping exception is recorded as RunFailed."""
+    """Common cycle scaffolding: adapters, ledger, config, schools, temp
+    dir, and the guarantee that an escaping exception is recorded as
+    RunFailed."""
     bucket = get_storage_client().bucket(bucket_name)
     ledger = GcsRunLedger(bucket, new_run_id(kind))
     snapshots = GcsSnapshotStore(bucket)
+    objects = GcsObjectStore(bucket)
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+    drive = GoogleDriveSink(folder_id, get_secret) if folder_id else None
     append_event(ledger, events.run_started(kind=kind, trigger=trigger))
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            config = load_config_from_storage(bucket_name, temp_path)
+            config = json.loads(objects.read_text("config/config.json"))
             auth_url, api_url = get_aisr_urls_from_config(config)
             district = get_district_from_config(config)
             schools = create_school_info_list(
-                config, bucket_name, temp_path, include_query_files
+                config, objects, temp_path, include_query_files
             )
             logger.info(
                 "Loaded configuration for %d schools: %s",
@@ -88,7 +101,9 @@ def pipeline_run(
             yield RunContext(
                 ledger=ledger,
                 snapshots=snapshots,
-                bucket_name=bucket_name,
+                objects=objects,
+                drive=drive,
+                open_source=aisr_opener(get_secret),
                 temp=temp_path,
                 auth_url=auth_url,
                 api_url=api_url,
@@ -103,28 +118,24 @@ def pipeline_run(
         raise
 
 
-def load_config_from_storage(bucket_name: str, temp_dir: Path) -> dict:
-    """Load configuration from storage"""
-    bucket = get_storage_client().bucket(bucket_name)
-    config_file = temp_dir / "config.json"
-    bucket.blob("config/config.json").download_to_filename(str(config_file))
-    with open(config_file) as f:
-        return json.load(f)
-
-
 def create_school_info_list(
-    config: dict, bucket_name: str, temp_dir: Path, include_query_files: bool = True
+    config: dict,
+    objects: ObjectStore,
+    temp_dir: Path,
+    include_query_files: bool = True,
 ) -> list[SchoolQueryInformation]:
-    """Create SchoolQueryInformation objects from configuration"""
+    """Create SchoolQueryInformation objects from configuration, staging
+    each school's roster in temp when the cycle will submit it."""
     school_info_list = []
-    bucket = get_storage_client().bucket(bucket_name) if include_query_files else None
 
     for school in config["schools"]:
         query_file_path = ""
 
-        if bucket is not None:
+        if include_query_files:
             query_file = temp_dir / f"{school['name']}_query.csv"
-            bucket.blob(school["bulk_query_file"]).download_to_filename(str(query_file))
+            query_file.write_text(
+                objects.read_text(school["bulk_query_file"]), encoding="utf-8"
+            )
             query_file_path = str(query_file)
 
         school_info_list.append(
@@ -138,11 +149,6 @@ def create_school_info_list(
         )
 
     return school_info_list
-
-
-def get_aisr_credentials() -> tuple[str, str]:
-    """Get AISR username and password from secrets"""
-    return get_secret("aisr-username"), get_secret("aisr-password")
 
 
 def get_aisr_urls_from_config(config: dict) -> tuple[str, str]:
@@ -173,8 +179,7 @@ def run_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
     """
     with pipeline_run("run", bucket_name, trigger, include_query_files=True) as ctx:
         record_import_confirmations(ctx)
-        username, password = get_aisr_credentials()
-        return run_to_completion(ctx, username, password)
+        return run_to_completion(ctx)
 
 
 def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
@@ -188,15 +193,14 @@ def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
     (REBASELINE_CHUNK_RECORDS, default 10000).
     """
     with pipeline_run("rebaseline", bucket_name, trigger) as ctx:
-        drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-        if not drive_folder_id:
+        if ctx.drive is None:
             append_event(
                 ctx.ledger,
                 events.run_failed(step="rebaseline", error="NoDriveFolder"),
             )
             return {"status": "failed", "reason": "GOOGLE_DRIVE_FOLDER_ID not set"}
 
-        known = load_known_records(ctx.bucket_name, ctx.temp)
+        known = load_known_records(ctx.objects, ctx.snapshots)
         if not known:
             append_event(
                 ctx.ledger,
@@ -212,9 +216,7 @@ def run_rebaseline_cycle(bucket_name: str, trigger: str = "manual") -> dict:
             filename = f"{date_str}_rebaseline_{index:02d}-of-{len(pieces):02d}.csv"
             piece_path = ctx.temp / filename
             piece_path.write_text(render_csv(piece), encoding="utf-8")
-            drive_file_id = upload_to_drive_with_secrets(
-                str(piece_path), filename, drive_folder_id
-            )
+            drive_file_id = ctx.drive.upload(piece_path, filename)
             append_event(
                 ctx.ledger,
                 events.delivered(filename, "drive", str(drive_file_id)),
@@ -238,9 +240,8 @@ def run_canary_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
     before the run. Moves no PHI and sends no email: the master is read
     in memory, and only counts are logged or recorded."""
     with pipeline_run("canary", bucket_name, trigger) as ctx:
-        username, password = get_aisr_credentials()
-        with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
-            probe = probe_staging(client, ctx.schools)
+        with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
+            probe = probe_staging(source, ctx.schools)
         available = probe.staged
         if probe.failed:
             # The run cycle tolerates a failed listing (it retries for
@@ -258,7 +259,7 @@ def run_canary_cycle(bucket_name: str, trigger: str = "scheduled") -> dict:
                 "status": "failed",
                 "reason": f"results listing failed for {probe.failed} school(s)",
             }
-        known = load_known_records(ctx.bucket_name, ctx.temp)
+        known = load_known_records(ctx.objects, ctx.snapshots)
 
         append_event(
             ctx.ledger,

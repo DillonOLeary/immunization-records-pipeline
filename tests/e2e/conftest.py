@@ -29,9 +29,7 @@ from datetime import datetime
 import pytest
 from minnesota_immunization_mock.sample_data import CANARY_PHI
 
-import mn_immunization.gcp.storage as storage
 import mn_immunization.pipeline.cycles as cycles
-import mn_immunization.pipeline.execute as execute
 import mn_immunization.runtime.job as job
 from mn_immunization.ledger.gcs_ledger import read_recent_runs, recent_months
 from tests.conftest import MockAisr
@@ -121,12 +119,9 @@ def world(monkeypatch, mock_aisr, caplog):
     drive = FakeDrive()
     client = FakeStorageClient(bucket)
 
-    monkeypatch.setattr(storage, "get_storage_client", lambda: client)
     monkeypatch.setattr(cycles, "get_storage_client", lambda: client)
     monkeypatch.setattr(cycles, "get_secret", SECRETS.__getitem__)
-    monkeypatch.setattr(execute, "get_secret", SECRETS.__getitem__)
-    monkeypatch.setattr(execute, "upload_to_google_drive", drive.upload)
-    monkeypatch.setattr(execute, "list_drive_filenames", drive.list_names)
+    monkeypatch.setattr(cycles, "GoogleDriveSink", lambda folder_id, secret: drive)
 
     monkeypatch.setenv("DATA_BUCKET", BUCKET)
     monkeypatch.setenv("GOOGLE_DRIVE_FOLDER_ID", "e2e-folder")

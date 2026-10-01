@@ -6,6 +6,29 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: the pipeline reaches every adapter through a port (the
+  composition-root refactor, part 1). New ports: `gcp/port.ObjectStore`
+  (read/write named text objects; GcsObjectStore implements it),
+  `sinks/port.DriveSink` (one folder: upload, list; GoogleDriveSink
+  reads its OAuth secrets itself), and a real
+  `sources/aisr/port.ImmunizationSource` (the old one was unused and out
+  of sync) whose `fetch_latest_records` returns *parsed* records, so
+  AISR's file format never leaves `sources/aisr/`. `SourceOpener`
+  (auth_url, api_url) -> session: the AISR credentials are read inside
+  the adapter, once per run, and the pipeline no longer holds them at
+  all (`run_to_completion` and every executor lost their username and
+  password parameters). `SnapshotStore.any_stored()` answers "was a
+  master ever committed" instead of the pipeline listing a bucket
+  prefix. Gone: the temp-file round trip (download to disk, parse,
+  render IC, write, re-read, re-parse), `pipeline/files.py`,
+  `transform_downloads`, `combine_ic_files`, the bucket-name storage
+  helpers, and the always-true response dataclasses; diff order is now
+  config order, deterministic. `pipeline_run` is, for now, the one place
+  adapters are built; the next change moves that to
+  runtime/composition.py. The architecture ratchet shrank from 27
+  entries to 16. All 12 end-to-end scenarios passed unchanged against
+  the refactored code (their harness patched three construction seams
+  instead of six call sites); a 13th covers a MIIC format change.
 - 2026-10-01: end-to-end characterization tests, and the PHI log scan
   this document had claimed since July. `tests/e2e/` runs the real job
   entrypoint, cycles, decider, executors, AISR adapter (against the fake

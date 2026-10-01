@@ -1,8 +1,11 @@
-"""
-Google Cloud Storage utilities for file operations
-"""
+"""Google Cloud Storage: the client, and the ObjectStore over one bucket."""
 
+from __future__ import annotations
+
+from google.api_core.exceptions import NotFound
 from google.cloud import storage
+
+from mn_immunization.gcp.port import ObjectNotFoundError
 
 
 def get_storage_client() -> storage.Client:
@@ -10,41 +13,20 @@ def get_storage_client() -> storage.Client:
     return storage.Client()
 
 
-def upload_file_to_storage(bucket_name: str, blob_name: str, file_path: str) -> None:
-    """
-    Upload file to Google Cloud Storage
+class GcsObjectStore:
+    """ObjectStore over one bucket (a google.cloud.storage Bucket, or
+    anything with a compatible .blob(name) interface)."""
 
-    Args:
-        bucket_name: Name of the GCS bucket
-        blob_name: Name of the blob (file path) in the bucket
-        file_path: Local path to the file to upload
-    """
-    client = get_storage_client()
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(blob_name)
-    blob.upload_from_filename(file_path)
+    def __init__(self, bucket) -> None:
+        self.bucket = bucket
 
+    def read_text(self, path: str) -> str:
+        try:
+            return self.bucket.blob(path).download_as_text()
+        except NotFound:
+            raise ObjectNotFoundError(path) from None
 
-def download_from_storage(
-    bucket_name: str, blob_name: str, destination_path: str
-) -> None:
-    """
-    Download file from Google Cloud Storage
-
-    Args:
-        bucket_name: Name of the GCS bucket
-        blob_name: Name of the blob (file path) in the bucket
-        destination_path: Local path where file should be saved
-    """
-    client = get_storage_client()
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(blob_name)
-    blob.download_to_filename(destination_path)
-
-
-def prefix_has_objects(bucket_name: str, prefix: str) -> bool:
-    """True if at least one object exists under prefix (a one-object
-    listing, so it costs the same for one snapshot or thousands)."""
-    client = get_storage_client()
-    blobs = client.list_blobs(bucket_name, prefix=prefix, max_results=1)
-    return any(True for _ in blobs)
+    def write_text(
+        self, path: str, text: str, content_type: str = "text/plain"
+    ) -> None:
+        self.bucket.blob(path).upload_from_string(text, content_type=content_type)

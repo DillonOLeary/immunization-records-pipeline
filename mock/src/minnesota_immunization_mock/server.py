@@ -8,10 +8,10 @@ must be POSTed back verbatim, the token exchange checks the redirect URI,
 and uploads must carry the S3 metadata headers.
 
 Faults are injectable per school (`MockFaults`, mutable on `app.state`)
-so tests can make signing, uploading, or listing fail, or make a school
-list no results. Every successful upload is recorded on
-`app.state.received_uploads` (school ids, in order), which is how tests
-prove a roster was or was not submitted.
+so tests can make signing, uploading, or listing fail, make a school list
+no results, or serve a results file in a format the parser rejects. Every
+successful upload is recorded on `app.state.received_uploads` (school ids,
+in order), which is how tests prove a roster was or was not submitted.
 """
 
 from __future__ import annotations
@@ -46,12 +46,14 @@ class MockFaults:
     upload_status: dict[str, int] = field(default_factory=dict)
     listing_status: dict[str, int] = field(default_factory=dict)
     no_results: set[str] = field(default_factory=set)
+    malformed_results: set[str] = field(default_factory=set)
 
     def clear(self) -> None:
         self.puturl_status.clear()
         self.upload_status.clear()
         self.listing_status.clear()
         self.no_results.clear()
+        self.malformed_results.clear()
 
 
 def _require_bearer(request: Request) -> None:
@@ -207,8 +209,11 @@ def create_mock_app(
 
     @app.get("/test-s3-get-location/{school_id}")
     async def get_file(school_id: str):
-        return Response(
-            content=get_sample_vaccination_data(school_id), media_type="text/csv"
-        )
+        if school_id in app.state.faults.malformed_results:
+            # What a MIIC format change looks like from here.
+            content = "student|shot|when\n1|2|3\n"
+        else:
+            content = get_sample_vaccination_data(school_id)
+        return Response(content=content, media_type="text/csv")
 
     return app

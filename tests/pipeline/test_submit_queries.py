@@ -14,12 +14,14 @@ import json
 import pytest
 
 import mn_immunization.pipeline.execute as execute
+from mn_immunization.gcp.storage import GcsObjectStore
 from mn_immunization.ledger.gcs_ledger import GcsRunLedger
 from mn_immunization.ledger.memory import InMemorySnapshotStore
 from mn_immunization.pipeline.cycles import RunContext
-from mn_immunization.sources.aisr.actions import DistrictInfo, SchoolQueryInformation
 from mn_immunization.sources.aisr.authenticate import AuthenticationError
-from tests.fakes import FakeBucket
+from mn_immunization.sources.aisr.client import aisr_session
+from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
+from tests.fakes import FakeBucket, FakeDrive
 
 SCHOOL_IDS = ["2542", "2543", "2544"]
 
@@ -34,7 +36,14 @@ def period():
     return execute.query_period()
 
 
-def make_ctx(bucket, tmp_path, mock_aisr, run_id, ledger_cls=GcsRunLedger):
+def make_ctx(
+    bucket,
+    tmp_path,
+    mock_aisr,
+    run_id,
+    ledger_cls=GcsRunLedger,
+    password="test_password",
+):
     schools = []
     for school_id in SCHOOL_IDS:
         roster = tmp_path / f"{school_id}_query.csv"
@@ -51,7 +60,9 @@ def make_ctx(bucket, tmp_path, mock_aisr, run_id, ledger_cls=GcsRunLedger):
     return RunContext(
         ledger=ledger_cls(bucket, run_id),
         snapshots=InMemorySnapshotStore(),
-        bucket_name="test-bucket",
+        objects=GcsObjectStore(bucket),
+        drive=FakeDrive(),
+        open_source=lambda auth, api: aisr_session(auth, api, "test_user", password),
         temp=tmp_path,
         auth_url=mock_aisr.auth_url,
         api_url=mock_aisr.base_url,
@@ -60,8 +71,8 @@ def make_ctx(bucket, tmp_path, mock_aisr, run_id, ledger_cls=GcsRunLedger):
     )
 
 
-def submit(ctx, password="test_password"):
-    return execute._submit_queries(ctx, "test_user", password)
+def submit(ctx):
+    return execute._submit_queries(ctx)
 
 
 def claims(bucket) -> dict[str, dict]:
@@ -157,10 +168,10 @@ def test_a_failed_upload_is_named_and_its_claim_stays_held(
 
 
 def test_a_failed_login_leaves_no_claims(bucket, tmp_path, mock_aisr):
-    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1")
+    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1", password="wrong")
 
     with pytest.raises(AuthenticationError):
-        submit(ctx, password="wrong")
+        submit(ctx)
 
     assert claims(bucket) == {}
     assert mock_aisr.received_uploads == []

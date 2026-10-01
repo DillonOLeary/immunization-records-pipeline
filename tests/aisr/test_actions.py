@@ -8,16 +8,18 @@ import pytest
 import requests
 
 from mn_immunization.sources.aisr.actions import (
-    AISRActionFailedError,
-    DistrictInfo,
     S3UploadHeaders,
-    SchoolQueryInformation,
     _get_put_url,
     _put_file_to_s3,
     bulk_query_aisr,
     download_vaccination_records,
     get_and_download_vaccination_records,
     get_latest_vaccination_records_url,
+)
+from mn_immunization.sources.aisr.port import (
+    AISRActionFailedError,
+    DistrictInfo,
+    SchoolQueryInformation,
 )
 
 UPLOAD_FILE_NAME = "test_file.csv"
@@ -87,9 +89,7 @@ def test_get_latest_vaccination_records_url(fastapi_server):
     assert url == f"{fastapi_server}/test-s3-get-location/1234"
 
 
-def test_download_vaccination_records(fastapi_server, tmp_path):
-    test_output_path = tmp_path / "downloaded_vaccinations.csv"
-
+def test_download_vaccination_records(fastapi_server):
     with requests.Session() as local_session:
         url = get_latest_vaccination_records_url(
             session=local_session,
@@ -97,38 +97,18 @@ def test_download_vaccination_records(fastapi_server, tmp_path):
             access_token="mocked-access-token",
             school_id="1234",
         )
-
-        content = download_vaccination_records(
-            session=local_session,
-            file_url=url,
-            output_path=test_output_path,
-        )
+        content = download_vaccination_records(session=local_session, file_url=url)
 
     assert content.startswith("id_1|id_2|"), "Downloaded text should be returned"
-    assert test_output_path.exists(), "Output file should exist"
-
-    with open(test_output_path, encoding="utf-8") as file:
-        content = file.read()
-
-    assert "|MMR|" in content or "|DTaP|" in content, "Expected AISR rows"
 
 
-def test_get_and_download_vaccination_records(fastapi_server, tmp_path):
-    test_output_path = tmp_path / "downloaded_vaccinations_combined.csv"
-
+def test_get_and_download_vaccination_records(fastapi_server):
     with requests.Session() as local_session:
         content = get_and_download_vaccination_records(
             session=local_session,
             access_token="mocked-access-token",
             base_url=fastapi_server,
             school_id="1234",
-            output_path=test_output_path,
         )
 
     assert content.startswith("id_1|id_2|"), "Downloaded text should be returned"
-    assert test_output_path.exists(), "Output file should exist"
-
-    with open(test_output_path, encoding="utf-8") as file:
-        content = file.read()
-
-    assert "|MMR|" in content or "|DTaP|" in content, "Expected AISR rows"

@@ -134,6 +134,19 @@ def test_a_missing_master_with_history_fails_instead_of_flooding(world, capsys):
     assert MASTER not in world.bucket.objects
 
 
+def test_a_miic_format_change_fails_the_run_instead_of_succeeding_empty(world, capsys):
+    world.aisr.faults.malformed_results.update({"2542", "2543"})
+
+    code, _ = world.run("run", capsys)
+
+    assert code == 1
+    assert world.latest_run_events()[-1]["data"] == {
+        "step": "fetch",
+        "error": "AllDownloadsFailed",
+    }
+    assert world.drive.uploads == []
+
+
 def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(world, capsys):
     period = execute.query_period()
     world.bucket.write(
