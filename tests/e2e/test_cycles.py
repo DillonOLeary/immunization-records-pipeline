@@ -211,7 +211,7 @@ def test_the_brake_blocks_a_flood_and_leaves_the_master_alone(world, capsys):
 # --- the canary and the rebaseline ---
 
 
-def test_canary_logs_in_lists_and_reads_the_master(world, capsys):
+def test_canary_logs_in_lists_and_reads_the_master(world, capsys, caplog):
     seed_master(world, ic_text("2542"))
 
     code, result = world.run("canary", capsys)
@@ -225,6 +225,9 @@ def test_canary_logs_in_lists_and_reads_the_master(world, capsys):
     }
     assert world.latest_event_types() == ["RunStarted", "RunCompleted"]
     assert world.aisr.received_uploads == []
+    assert f"District zone America/Chicago: roster period {district_period()}" in (
+        caplog.text
+    )
 
 
 def test_canary_fails_when_any_listing_fails(world, capsys):

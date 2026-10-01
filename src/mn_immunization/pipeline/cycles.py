@@ -30,6 +30,7 @@ from mn_immunization.ledger import events
 from mn_immunization.pipeline.context import RunContext
 from mn_immunization.pipeline.execute import (
     probe_staging,
+    query_period,
     record_import_confirmations,
     run_to_completion,
 )
@@ -207,6 +208,11 @@ def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
     before the run. Moves no PHI and sends no email: the master is read
     in memory, and only counts are logged or recorded."""
     with pipeline_run("canary", services, trigger) as ctx:
+        logger.info(
+            "District zone %s: roster period %s",
+            ctx.settings.time_zone.key,
+            query_period(ctx),
+        )
         with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
             probe = probe_staging(source, ctx.schools, ctx.clock.now())
         available = probe.staged
