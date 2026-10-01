@@ -5,39 +5,14 @@ import json
 from datetime import datetime
 
 import pytest
-from google.api_core.exceptions import PreconditionFailed
 
 from mn_immunization.ledger import events
-from mn_immunization.ledger.gcs_ledger import GcsRunLedger, GcsSnapshotStore
-
-
-class FakeBlob:
-    def __init__(self, store: dict, name: str):
-        self.store = store
-        self.name = name
-
-    def upload_from_string(self, data, content_type=None, if_generation_match=None):
-        if if_generation_match == 0 and self.name in self.store:
-            raise PreconditionFailed(f"object {self.name} already exists")
-        self.store[self.name] = data
-
-    def download_as_text(self) -> str:
-        return self.store[self.name]
-
-
-class FakeBucket:
-    def __init__(self):
-        self.objects: dict[str, str] = {}
-
-    def blob(self, name: str) -> FakeBlob:
-        return FakeBlob(self.objects, name)
-
-    def list_blobs(self, prefix: str = ""):
-        return [
-            FakeBlob(self.objects, name)
-            for name in sorted(self.objects)
-            if name.startswith(prefix)
-        ]
+from mn_immunization.ledger.gcs_ledger import (
+    GcsRunLedger,
+    GcsSnapshotStore,
+    recent_months,
+)
+from tests.fakes import FakeBucket
 
 
 def fixed_now():
@@ -108,3 +83,44 @@ def test_read_recent_runs_groups_and_orders(bucket):
     assert [e["type"] for e in runs[1]["events"]] == ["RunStarted", "RunCompleted"]
     # query_b has no terminal event — exactly what status must surface
     assert runs[0]["events"][-1]["type"] == "RunStarted"
+
+
+def test_recent_months_crosses_the_year_boundary():
+    assert recent_months(datetime(2026, 1, 15), 2) == ((2026, 1), (2025, 12))
+    assert recent_months(datetime(2026, 10, 1), 3) == (
+        (2026, 10),
+        (2026, 9),
+        (2026, 8),
+    )
+
+
+def test_recent_runs_reads_this_and_last_month_including_other_runs(bucket):
+    september = GcsRunLedger(
+        bucket, run_id="run_sep", now=lambda: datetime(2026, 9, 27, 7, 0, 0)
+    )
+    september.append(events.run_started("run", "manual"))
+    august = GcsRunLedger(
+        bucket, run_id="run_aug", now=lambda: datetime(2026, 8, 28, 7, 0, 0)
+    )
+    august.append(events.run_started("run", "scheduled"))
+    october = GcsRunLedger(
+        bucket, run_id="run_oct", now=lambda: datetime(2026, 10, 1, 9, 0, 0)
+    )
+    october.append(events.run_started("canary", "manual"))
+
+    runs = october.recent_runs()
+
+    # This month and last month: August is out of the window.
+    assert [r["run_id"] for r in runs] == ["run_oct", "run_sep"]
+
+
+def test_held_claims_returns_payloads_under_a_prefix(bucket):
+    ledger = GcsRunLedger(bucket, run_id="run-a", now=fixed_now)
+    ledger.claim("2026-07_query_2542")
+    ledger.claim("2026-07_query_2543")
+    ledger.claim("2026-07-22_diff")
+
+    held = ledger.held_claims("2026-07_query")
+
+    assert sorted(held) == ["2026-07_query_2542", "2026-07_query_2543"]
+    assert held["2026-07_query_2542"]["run_id"] == "run-a"

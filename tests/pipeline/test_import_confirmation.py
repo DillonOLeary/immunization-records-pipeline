@@ -6,32 +6,12 @@ lists the folder, and records ImportConfirmed for the ones now gone.
 Everything is best-effort: a listing failure must never sink the run.
 """
 
-import json
-
 import pytest
 
 import mn_immunization.pipeline.execute as execute
 from mn_immunization.ledger.memory import InMemoryRunLedger, InMemorySnapshotStore
 from mn_immunization.pipeline.cycles import RunContext
 from mn_immunization.sources.aisr.actions import DistrictInfo
-
-
-class FakeBlob:
-    def __init__(self, payload: dict):
-        self._payload = payload
-
-    def download_as_text(self) -> str:
-        return json.dumps(self._payload)
-
-
-class FakeBucket:
-    """Serves ledger event payloads to read_recent_runs."""
-
-    def __init__(self, payloads: list[dict]):
-        self._payloads = payloads
-
-    def list_blobs(self, prefix: str = ""):
-        return [FakeBlob(p) for p in self._payloads]
 
 
 def delivered_event(file_name: str, run_id: str, seq: int = 1) -> dict:
@@ -55,8 +35,7 @@ def confirmed_event(file_name: str, run_id: str, seq: int = 2) -> dict:
 
 
 def make_ctx(ledger_payloads: list[dict], tmp_path) -> RunContext:
-    ledger = InMemoryRunLedger()
-    ledger.bucket = FakeBucket(ledger_payloads)
+    ledger = InMemoryRunLedger(history=ledger_payloads)
     return RunContext(
         ledger=ledger,
         snapshots=InMemorySnapshotStore(),

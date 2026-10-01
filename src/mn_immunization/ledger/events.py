@@ -22,10 +22,13 @@ def run_started(kind: str, trigger: str) -> LedgerEvent:
     return LedgerEvent("RunStarted", {"kind": kind, "trigger": trigger})
 
 
-def query_submitted(school_id: str, query_file_hash: str) -> LedgerEvent:
+def query_submitted(school_id: str, query_file_hash: str, period: str) -> LedgerEvent:
+    """One school's roster went to MIIC for `period`. Ledger folders are
+    by UTC month, so the period is recorded explicitly; a rerun matches
+    on it to know which schools must never be submitted again."""
     return LedgerEvent(
         "QuerySubmitted",
-        {"school_id": school_id, "query_file_hash": query_file_hash},
+        {"school_id": school_id, "query_file_hash": query_file_hash, "period": period},
     )
 
 
@@ -91,9 +94,10 @@ def run_completed(**summary: int | str) -> LedgerEvent:
     return LedgerEvent("RunCompleted", dict(summary))
 
 
-def run_failed(step: str, error: str) -> LedgerEvent:
-    """error is an error class or short category, never message content."""
-    return LedgerEvent("RunFailed", {"step": step, "error": error})
+def run_failed(step: str, error: str, **detail: object) -> LedgerEvent:
+    """error is an error class or short category, never message content.
+    detail carries ids and counts only (e.g. stuck_schools)."""
+    return LedgerEvent("RunFailed", {"step": step, "error": error, **detail})
 
 
 TERMINAL_TYPES = frozenset({"RunCompleted", "RunSkipped", "RunFailed"})

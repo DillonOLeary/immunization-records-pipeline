@@ -6,6 +6,29 @@ lives here. Add an entry whenever a decision lands or an incident happens.
 
 ## Log
 
+- 2026-10-01: per-school query claims that fail closed (Dillon's call:
+  never resubmit a roster that may have gone out; skip it and fail
+  loudly). The period-wide `<period>_query` claim was taken before any
+  submission and never released, so a failed login or one school's
+  signing error held it for the whole month: every rerun skipped
+  submission, and the schools that failed could not be retried at all.
+  Now each school is claimed (`<period>_query_<school_id>`) just before
+  its upload and after login; QuerySubmitted records the period; a rerun
+  skips schools already recorded and treats a claim-without-event as
+  *stuck*. The decider's `query_submitted: bool` became a `Submission`
+  (submitted / stuck / failed): only submitted schools are waited for,
+  nothing submitted fails at once, and any stuck or failed school turns
+  the run's success into RunFailed(submit_queries,
+  QuerySubmissionIncomplete) naming them, after the other schools'
+  records are delivered and committed. Query claims no longer go through
+  `claim_or_proceed`: a claim check that errors means "don't submit".
+  The ledger port grew a read side (`recent_runs`, `held_claims`),
+  replacing both `getattr(ctx.ledger, "bucket")` reaches and the
+  copies of the previous-month arithmetic; `status` lists stuck claims
+  with the release command, and ONBOARDING has the procedure. Legacy
+  period-wide claims are honored as "all submitted". `suspicious_diff`
+  moved into `policy.py`, next to the only code that calls it. One
+  shared `tests/fakes.FakeBucket` replaces three copies.
 - 2026-10-01: the district module removes the project-wide Editor role
   Google grants by default to the default compute and App Engine service
   accounts (`google_project_iam_member_remove`, a no-op where absent).

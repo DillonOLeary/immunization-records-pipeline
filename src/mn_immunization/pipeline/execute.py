@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from mn_immunization.domain.ic_format import IcFormatError, render_csv
 from mn_immunization.gcp.secrets import get_secret
 from mn_immunization.ledger import events
-from mn_immunization.ledger.gcs_ledger import read_recent_runs, sha256_hex
+from mn_immunization.ledger.gcs_ledger import sha256_hex
 from mn_immunization.pipeline.files import (
     generate_vaccination_record_filename,
     transformed_filename,
@@ -34,6 +34,7 @@ from mn_immunization.pipeline.policy import (
     DeliverDiff,
     DiffResult,
     Finish,
+    Submission,
     SubmitQueries,
     decide,
 )
@@ -147,14 +148,12 @@ def record_import_confirmations(ctx: RunContext) -> None:
     confirmation check must never sink a delivery run.
     """
     folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-    bucket = getattr(ctx.ledger, "bucket", None)
-    if not folder_id or bucket is None:
+    if not folder_id:
         return
 
     try:
         now = datetime.now()
-        previous = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
-        runs = read_recent_runs(bucket, ((now.year, now.month), previous), limit=50)
+        runs = ctx.ledger.recent_runs(limit=50)
 
         delivered: set[str] = set()
         confirmed: set[str] = set()
@@ -191,56 +190,125 @@ def record_import_confirmations(ctx: RunContext) -> None:
                 )
 
 
-def submit_roster_queries(ctx: RunContext, username: str, password: str) -> int:
-    """Submit every school's roster query. Returns the failure count."""
-    failures = 0
+def query_period() -> str:
+    """The roster-submission period key (QUERY_PERIOD_FORMAT, monthly by
+    default): one submission per school per period."""
+    return datetime.now().strftime(os.environ.get("QUERY_PERIOD_FORMAT", "%Y-%m"))
+
+
+def submitted_this_period(runs: list[dict], period: str) -> set[str]:
+    """School ids with a QuerySubmitted event for `period`. Events written
+    before per-school claims carry no period and are ignored."""
+    return {
+        event["data"]["school_id"]
+        for run in runs
+        for event in run["events"]
+        if event["type"] == "QuerySubmitted" and event["data"].get("period") == period
+    }
+
+
+def _submit_queries(ctx: RunContext, username: str, password: str) -> Submission:
+    """Submit each school's roster at most once per period. Fails closed.
+
+    Every submission makes MIIC email every nurse in the district, so a
+    roster that may already have gone out is never sent again:
+
+    - a school with a QuerySubmitted event this period is done;
+    - otherwise its per-school claim `<period>_query_<school_id>` is taken
+      just before its upload; a lost claim with no event means an earlier
+      run may have uploaded and then failed to record it, so the school is
+      `stuck`: skipped, and the run will fail loudly for a human to check;
+    - a claim that cannot even be checked is `failed`, with nothing sent
+      (this is the one claim that fails closed: here, acting twice is the
+      failure that matters);
+    - an upload that raises is `failed`.
+
+    Ledger reads happen before anything is claimed, and login before any
+    claim too, so a read error or a failed login leaves no claims behind.
+    """
+    period = query_period()
+    prefix = f"{period}_query"
+    runs = ctx.ledger.recent_runs()
+    held = ctx.ledger.held_claims(prefix)
+    all_ids = {school.school_id for school in ctx.schools}
+
+    if prefix in held:
+        # The period-wide claim from before per-school claims: the whole
+        # period's rosters went out under it.
+        logger.info("Period %s was submitted under the legacy claim", period)
+        return Submission(submitted=frozenset(all_ids))
+
+    submitted = submitted_this_period(runs, period) & all_ids
+    pending = [school for school in ctx.schools if school.school_id not in submitted]
+    if not pending:
+        logger.info(
+            "All rosters already submitted for period %s; nothing to send", period
+        )
+        return Submission(submitted=frozenset(submitted))
+
+    stuck: set[str] = set()
+    failed: set[str] = set()
+    logger.info("Submitting %d roster(s) for period %s", len(pending), period)
     with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
-        for school in ctx.schools:
+        for school in pending:
+            key = f"{prefix}_{school.school_id}"
+            try:
+                won = ctx.ledger.claim(key)
+            except Exception as error:
+                failed.add(school.school_id)
+                logger.error(
+                    "Claim check failed for %s (%s); not submitting",
+                    school.school_name,
+                    type(error).__name__,
+                )
+                continue
+            if not won:
+                stuck.add(school.school_id)
+                logger.error(
+                    "Roster for %s is claimed but not recorded as submitted "
+                    "this period; skipping it (see ONBOARDING: stuck claims)",
+                    school.school_name,
+                )
+                continue
             try:
                 client.submit_roster_query(school, ctx.district)
-                query_bytes = Path(school.query_file_path).read_bytes()
-                append_event(
-                    ctx.ledger,
-                    events.query_submitted(
-                        school_id=school.school_id,
-                        query_file_hash=sha256_hex(
-                            query_bytes.decode("utf-8", errors="replace")
-                        ),
-                    ),
-                )
             except Exception as error:
-                # Any failure is this school's alone; the others still go.
-                failures += 1
+                failed.add(school.school_id)
                 logger.error(
                     "Bulk query failed for %s: %s (HTTP %s)",
                     school.school_name,
                     type(error).__name__,
                     getattr(error, "status_code", None),
                 )
-    return failures
+                continue
+            submitted.add(school.school_id)
+            query_text = Path(school.query_file_path).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            append_event(
+                ctx.ledger,
+                events.query_submitted(
+                    school_id=school.school_id,
+                    query_file_hash=sha256_hex(query_text),
+                    period=period,
+                ),
+            )
+    return Submission(
+        submitted=frozenset(submitted),
+        stuck=frozenset(stuck),
+        failed=frozenset(failed),
+    )
 
 
-def _submit_queries(ctx: RunContext, username: str, password: str) -> None:
-    """Period claim, then roster submission. A rerun that loses the claim
-    submits nothing: MIIC emails every nurse on each submission."""
-    period = datetime.now().strftime(os.environ.get("QUERY_PERIOD_FORMAT", "%Y-%m"))
-    if claim_or_proceed(ctx.ledger, f"{period}_query"):
-        logger.info("Submitting roster queries for period %s", period)
-        failures = submit_roster_queries(ctx, username, password)
-        if failures:
-            logger.error("%d school(s) failed roster submission", failures)
-    else:
-        logger.info(
-            "Roster queries already submitted for period %s; "
-            "skipping submission (rerun-safe, no duplicate email)",
-            period,
-        )
-
-
-def _probe_staged(ctx: RunContext, username: str, password: str) -> int:
+def _probe_staged(
+    ctx: RunContext, username: str, password: str, school_ids: frozenset[str]
+) -> int:
+    """Staged count among the schools submitted this period; the others
+    are not waited for."""
+    schools = [school for school in ctx.schools if school.school_id in school_ids]
     with aisr_session(ctx.auth_url, ctx.api_url, username, password) as client:
-        probe = probe_staging(client, ctx.schools)
-    logger.info("%d/%d schools have results staged", probe.staged, len(ctx.schools))
+        probe = probe_staging(client, schools)
+    logger.info("%d/%d schools have results staged", probe.staged, len(schools))
     return probe.staged
 
 
@@ -340,13 +408,8 @@ def _delivered_elsewhere(ctx: RunContext, diff_filename: str) -> bool:
     delivering". Errs toward False: zero deliveries is the unacceptable
     failure mode, a duplicate delivery is the old survivable one.
     """
-    bucket = getattr(ctx.ledger, "bucket", None)
-    if bucket is None:
-        return False
-    now = datetime.now()
-    previous = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
     try:
-        runs = read_recent_runs(bucket, ((now.year, now.month), previous), limit=20)
+        runs = ctx.ledger.recent_runs(limit=20)
     except Exception as error:
         logger.warning(
             "could not read recent runs (%s); assuming not delivered",
@@ -407,6 +470,7 @@ def _brake_fraction() -> float | None:
 def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
     """The one place terminal events are written."""
     diff = state.diff
+    submission = state.submission or Submission()
     if step.status == "success":
         files = diff.files_transformed if diff else 0
         new = diff.new_count if diff else 0
@@ -414,6 +478,7 @@ def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
             ctx.ledger,
             events.run_completed(
                 schools=len(ctx.schools),
+                queries_submitted=len(submission.submitted),
                 files_transformed=files,
                 new_records=new,
                 fetch_failures=diff.fetch_failures if diff else 0,
@@ -430,8 +495,28 @@ def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
         return {"status": "skipped", "reason": step.reason}
     if step.status == "blocked":
         logger.error("BLOCKED: %s", step.reason)
-    append_event(ctx.ledger, events.run_failed(step=step.step, error=step.error))
-    return {"status": step.status, "reason": step.reason}
+
+    # School ids (not PHI) so the operator knows exactly which rosters
+    # need a human: stuck ones need a claim checked and cleared.
+    detail = {}
+    if submission.incomplete:
+        detail = {
+            "stuck_schools": sorted(submission.stuck),
+            "failed_schools": sorted(submission.failed),
+        }
+        names = {school.school_id: school.school_name for school in ctx.schools}
+        for label, ids in (("stuck", submission.stuck), ("failed", submission.failed)):
+            for school_id in sorted(ids):
+                logger.error(
+                    "Roster %s this period: %s (%s)",
+                    label,
+                    names.get(school_id, school_id),
+                    school_id,
+                )
+    append_event(
+        ctx.ledger, events.run_failed(step=step.step, error=step.error, **detail)
+    )
+    return {"status": step.status, "reason": step.reason, **detail}
 
 
 def run_to_completion(
@@ -465,15 +550,14 @@ def run_to_completion(
     probed = False
 
     while True:
-        step = decide(state, len(ctx.schools), brake)
+        step = decide(state, brake)
         if isinstance(step, Finish):
             return _finish(ctx, step, state)
 
         name = STEP_NAMES[type(step)]
         try:
             if isinstance(step, SubmitQueries):
-                _submit_queries(ctx, username, password)
-                state = state.with_query_submitted()
+                state = state.with_submission(_submit_queries(ctx, username, password))
             elif isinstance(step, AwaitStaging):
                 if probed:
                     remaining = deadline - (clock() - start)
@@ -482,8 +566,12 @@ def run_to_completion(
                         continue
                     sleep(min(interval, remaining))
                 probed = True
+                # decide only waits once a submission exists
+                submission = state.submission or Submission()
                 try:
-                    staged = _probe_staged(ctx, username, password)
+                    staged = _probe_staged(
+                        ctx, username, password, submission.submitted
+                    )
                 except Exception as error:
                     # One AISR blip (a failed login, a maintenance page)
                     # must not end a 20-hour wait. Keep the last count,

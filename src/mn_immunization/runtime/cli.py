@@ -9,12 +9,19 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from mn_immunization.gcp.storage import get_storage_client
 from mn_immunization.ledger.events import TERMINAL_TYPES
-from mn_immunization.ledger.gcs_ledger import read_recent_runs
+from mn_immunization.ledger.gcs_ledger import (
+    CLAIMS_PREFIX,
+    read_claims,
+    read_recent_runs,
+    recent_months,
+)
+from mn_immunization.pipeline.execute import submitted_this_period
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -35,19 +42,35 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def handle_status_command(args: argparse.Namespace) -> None:
-    """Print recent runs and their terminal outcomes from the ledger."""
-    now = datetime.now()
-    previous = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
-    months = ((now.year, now.month), previous)
+def stuck_claims(bucket, now: datetime) -> list[tuple[str, dict]]:
+    """Per-school query claims for this period and the last that have no
+    QuerySubmitted event: (claim key, claimant payload). Each is a roster
+    that may or may not have reached MIIC; runs skip it until a human
+    decides. A run still submitting can show one here for a moment."""
+    period_format = os.environ.get("QUERY_PERIOD_FORMAT", "%Y-%m")
+    last_month = now.replace(day=1) - timedelta(days=1)
+    periods = {now.strftime(period_format), last_month.strftime(period_format)}
+    runs = read_recent_runs(bucket, recent_months(now, 2), limit=None)
 
+    stuck = []
+    for period in sorted(periods):
+        prefix = f"{period}_query_"
+        submitted = submitted_this_period(runs, period)
+        for key, payload in sorted(read_claims(bucket, prefix).items()):
+            if key[len(prefix) :] not in submitted:
+                stuck.append((key, payload))
+    return stuck
+
+
+def handle_status_command(args: argparse.Namespace) -> None:
+    """Print recent runs and their terminal outcomes from the ledger, then
+    any stuck roster claims."""
+    now = datetime.now()
     bucket = get_storage_client().bucket(args.bucket)
-    runs = read_recent_runs(bucket, months, limit=args.limit)
+    runs = read_recent_runs(bucket, recent_months(now, 2), limit=args.limit)
 
     if not runs:
         print("No runs found in the ledger for the last two months.")
-        return
-
     for run in runs:
         first, last = run["events"][0], run["events"][-1]
         if last["type"] in TERMINAL_TYPES:
@@ -58,6 +81,19 @@ def handle_status_command(args: argparse.Namespace) -> None:
             detail = f"last event: {last['type']}"
         print(f"{first['at']}  {run['run_id']}")
         print(f"    {outcome}  {detail}")
+
+    stuck = stuck_claims(bucket, now)
+    if not stuck:
+        return
+    print()
+    print("STUCK ROSTER CLAIMS (claimed, never recorded as submitted; runs skip")
+    print("these schools until a human decides, see ONBOARDING: stuck claims):")
+    for key, payload in stuck:
+        holder = payload.get("run_id", "?")
+        at = payload.get("at", "?")
+        print(f"  {key}  claimed by {holder} at {at}")
+        print("    if MIIC did NOT receive this roster (no nurse email), release it:")
+        print(f"    gcloud storage rm gs://{args.bucket}/{CLAIMS_PREFIX}{key}")
 
 
 COMMANDS = {"status": handle_status_command}

@@ -1,0 +1,215 @@
+"""Per-school roster submission: never twice, and fail closed.
+
+Every roster upload makes MIIC email every nurse in the district, so the
+property under test is that a roster which may already have gone out is
+never sent again, and every school that did not go out is named. These
+run the real `_submit_queries` against the in-process fake AISR (which
+records every upload it receives) and the real GCS ledger over one
+shared fake bucket, so reruns see each other's claims and events exactly
+as production runs do.
+"""
+
+import json
+
+import pytest
+
+import mn_immunization.pipeline.execute as execute
+from mn_immunization.ledger.gcs_ledger import GcsRunLedger
+from mn_immunization.ledger.memory import InMemorySnapshotStore
+from mn_immunization.pipeline.cycles import RunContext
+from mn_immunization.sources.aisr.actions import DistrictInfo, SchoolQueryInformation
+from mn_immunization.sources.aisr.authenticate import AuthenticationError
+from tests.fakes import FakeBucket
+
+SCHOOL_IDS = ["2542", "2543", "2544"]
+
+
+@pytest.fixture
+def bucket():
+    return FakeBucket()
+
+
+@pytest.fixture
+def period():
+    return execute.query_period()
+
+
+def make_ctx(bucket, tmp_path, mock_aisr, run_id, ledger_cls=GcsRunLedger):
+    schools = []
+    for school_id in SCHOOL_IDS:
+        roster = tmp_path / f"{school_id}_query.csv"
+        roster.write_text("roster rows\n", encoding="utf-8")
+        schools.append(
+            SchoolQueryInformation(
+                school_name=f"School {school_id}",
+                classification="N",
+                school_id=school_id,
+                email_contact="nurse@example.test",
+                query_file_path=str(roster),
+            )
+        )
+    return RunContext(
+        ledger=ledger_cls(bucket, run_id),
+        snapshots=InMemorySnapshotStore(),
+        bucket_name="test-bucket",
+        temp=tmp_path,
+        auth_url=mock_aisr.auth_url,
+        api_url=mock_aisr.base_url,
+        district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
+        schools=schools,
+    )
+
+
+def submit(ctx, password="test_password"):
+    return execute._submit_queries(ctx, "test_user", password)
+
+
+def claims(bucket) -> dict[str, dict]:
+    prefix = "ledger/claims/"
+    return {
+        name[len(prefix) :]: json.loads(text)
+        for name, text in bucket.objects.items()
+        if name.startswith(prefix)
+    }
+
+
+def query_submitted_events(bucket) -> list[dict]:
+    return [
+        json.loads(text)
+        for name, text in bucket.objects.items()
+        if name.startswith("ledger/2") and name.endswith("_QuerySubmitted.json")
+    ]
+
+
+def assert_every_upload_was_claimed_by(bucket, uploads, run_id, period):
+    """The invariant: no roster reaches MIIC without a claim this run won."""
+    held = claims(bucket)
+    for school_id in uploads:
+        assert held[f"{period}_query_{school_id}"]["run_id"] == run_id
+
+
+def test_a_fresh_period_submits_every_school_once(bucket, tmp_path, mock_aisr, period):
+    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1")
+
+    result = submit(ctx)
+
+    assert result.submitted == frozenset(SCHOOL_IDS)
+    assert not result.incomplete
+    assert mock_aisr.received_uploads == SCHOOL_IDS
+    assert_every_upload_was_claimed_by(
+        bucket, mock_aisr.received_uploads, "run-1", period
+    )
+    recorded = query_submitted_events(bucket)
+    assert sorted(e["data"]["school_id"] for e in recorded) == SCHOOL_IDS
+    assert {e["data"]["period"] for e in recorded} == {period}
+
+
+def test_a_rerun_in_the_same_period_sends_nothing(bucket, tmp_path, mock_aisr):
+    submit(make_ctx(bucket, tmp_path, mock_aisr, "run-1"))
+    mock_aisr.received_uploads.clear()
+
+    result = submit(make_ctx(bucket, tmp_path, mock_aisr, "run-2"))
+
+    assert result.submitted == frozenset(SCHOOL_IDS)
+    assert not result.incomplete
+    assert mock_aisr.received_uploads == []
+
+
+def test_a_claim_without_an_event_is_stuck_and_never_resent(
+    bucket, tmp_path, mock_aisr, period
+):
+    # An earlier run claimed 2543 and crashed before recording the event:
+    # it may or may not have uploaded. Skip it and say so.
+    bucket.write(
+        f"ledger/claims/{period}_query_2543",
+        json.dumps({"run_id": "crashed-run", "at": "2026-10-28T07:10:00"}),
+    )
+    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1")
+
+    result = submit(ctx)
+
+    assert result.stuck == frozenset({"2543"})
+    assert result.submitted == frozenset({"2542", "2544"})
+    assert mock_aisr.received_uploads == ["2542", "2544"]
+    assert_every_upload_was_claimed_by(
+        bucket, mock_aisr.received_uploads, "run-1", period
+    )
+
+
+def test_a_failed_upload_is_named_and_its_claim_stays_held(
+    bucket, tmp_path, mock_aisr, period
+):
+    mock_aisr.faults.puturl_status["2543"] = 500
+
+    first = submit(make_ctx(bucket, tmp_path, mock_aisr, "run-1"))
+
+    assert first.failed == frozenset({"2543"})
+    assert mock_aisr.received_uploads == ["2542", "2544"]
+
+    # Fail closed: the rerun does not resend 2543 on its own; it reports
+    # it stuck for a human, even though the fault has cleared.
+    mock_aisr.faults.clear()
+    mock_aisr.received_uploads.clear()
+    second = submit(make_ctx(bucket, tmp_path, mock_aisr, "run-2"))
+
+    assert second.stuck == frozenset({"2543"})
+    assert mock_aisr.received_uploads == []
+
+
+def test_a_failed_login_leaves_no_claims(bucket, tmp_path, mock_aisr):
+    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1")
+
+    with pytest.raises(AuthenticationError):
+        submit(ctx, password="wrong")
+
+    assert claims(bucket) == {}
+    assert mock_aisr.received_uploads == []
+
+
+def test_the_legacy_period_claim_counts_as_all_submitted(
+    bucket, tmp_path, mock_aisr, period
+):
+    # Before per-school claims, one claim covered the whole period.
+    bucket.write(
+        f"ledger/claims/{period}_query",
+        json.dumps({"run_id": "old-run", "at": "2026-10-01T07:09:00"}),
+    )
+
+    result = submit(make_ctx(bucket, tmp_path, mock_aisr, "run-1"))
+
+    assert result.submitted == frozenset(SCHOOL_IDS)
+    assert mock_aisr.received_uploads == []
+
+
+def test_an_uncheckable_claim_fails_closed(bucket, tmp_path, mock_aisr, period):
+    class FlakyClaims(GcsRunLedger):
+        def claim(self, key):
+            if key.endswith("_2544"):
+                raise ConnectionError("storage blip")
+            return super().claim(key)
+
+    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1", ledger_cls=FlakyClaims)
+
+    result = submit(ctx)
+
+    assert result.failed == frozenset({"2544"})
+    assert mock_aisr.received_uploads == ["2542", "2543"]
+    assert_every_upload_was_claimed_by(
+        bucket, mock_aisr.received_uploads, "run-1", period
+    )
+
+
+def test_a_ledger_read_failure_raises_before_anything_is_claimed(
+    bucket, tmp_path, mock_aisr
+):
+    class UnreadableLedger(GcsRunLedger):
+        def recent_runs(self, months=2, limit=None):
+            raise ConnectionError("storage down")
+
+    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1", ledger_cls=UnreadableLedger)
+
+    with pytest.raises(ConnectionError):
+        submit(ctx)
+
+    assert claims(bucket) == {}
+    assert mock_aisr.received_uploads == []

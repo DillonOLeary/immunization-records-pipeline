@@ -18,6 +18,15 @@ class RunLedger(Protocol):
         """Atomically claim a key. True exactly once per key, across runs."""
         ...
 
+    def recent_runs(self, months: int = 2, limit: int | None = None) -> list[dict]:
+        """Recent runs (this run included), newest first: dicts of run_id
+        and events, each event the stored envelope (type, data, at, ...)."""
+        ...
+
+    def held_claims(self, prefix: str) -> dict[str, dict]:
+        """Claims whose key starts with prefix: key -> claimant payload."""
+        ...
+
 
 class SnapshotStore(Protocol):
     def put(self, content: str) -> tuple[str, str]:

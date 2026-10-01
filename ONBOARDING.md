@@ -133,6 +133,38 @@ the district warned to expect the MIIC email.
 | Rotate AISR password / Drive token when needed | on demand | new secret version (step 4 / step 5) |
 | Infra changes | on demand | human `terraform apply`; a `rebaseline` run recovers Drive sync trouble |
 
+## Stuck roster claims
+
+Each school's roster is submitted at most once per period: the run claims
+`ledger/claims/<period>_query_<school_id>` just before uploading, and records
+a QuerySubmitted event after. A claim with no event means a run claimed
+the school and then failed before recording a submission. Maybe the upload
+never happened (signing failed, the run crashed first), or maybe it did and
+only the record was lost. Runs cannot tell, so they **skip that school**
+rather than risk a second MIIC email to every nurse. The run still delivers
+the other schools, then ends RunFailed with `stuck_schools` (or
+`failed_schools`), and the alert fires.
+
+`uv run mn-immunization status --bucket <data-bucket>` lists stuck claims
+under STUCK ROSTER CLAIMS, with the claiming run and the exact release
+command. For each one:
+
+1. **Did MIIC receive that school's roster this period?** The school's nurse
+   (or the district's MIIC contact) got the MIIC email if it did; AISR's web
+   app also lists the upload.
+2. **If it did not:** release the claim with the printed command
+   (`gcloud storage rm gs://<data-bucket>/ledger/claims/<period>_query_<id>`),
+   then rerun: `gcloud run jobs execute pipeline-job --args=run,--trigger,manual`.
+   The rerun submits only that school; schools already recorded are not
+   touched, and the diff claim keeps delivery to one per date.
+3. **If it did:** leave the claim. The results will stage and be picked up;
+   `status` keeps listing the claim for the rest of the period, and further
+   runs that period will end failed for that school. That's harmless, and
+   expected.
+
+Never delete a claim "just to make the run pass" without step 1: deleting
+the claim of a roster that did go out sends every nurse a second email.
+
 ## Configuration reference
 
 | Layer | Lives in | Set by |

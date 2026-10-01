@@ -113,17 +113,29 @@ Layout (GCS objects are immutable; one object per event):
 
 ```
 gs://<bucket>/ledger/<YYYY>/<MM>/<run_id>/<seq>_<event>.json
-gs://<bucket>/ledger/claims/<period>_query           one roster submission per period
-gs://<bucket>/ledger/claims/<YYYY-MM-DD>_diff        one delivery per date
-gs://<bucket>/snapshots/<sha256>.csv                 known-set snapshots
+gs://<bucket>/ledger/claims/<period>_query_<school_id>  one roster submission per school per period
+gs://<bucket>/ledger/claims/<YYYY-MM-DD>_diff           one delivery per date
+gs://<bucket>/snapshots/<sha256>.csv                    known-set snapshots
 ```
 
-The query claim is what makes reruns safe to fire freely: MIIC emails every
-nurse on each roster submission, so a rerun that loses the period claim
-skips submission and goes straight to polling and delivery. The period
-format is configuration (monthly today, QUERY_PERIOD_FORMAT).
+Query claims are what make reruns safe to fire freely: MIIC emails every
+nurse on each roster submission, so a roster is sent at most once per
+school per period, and they fail closed. A school with a QuerySubmitted
+event for the period (the event records the period) is done. Otherwise
+the run takes the school's claim immediately before its upload, after
+login, so a failed login holds nothing. A claim lost without an event
+means an earlier run may have uploaded and crashed before recording it:
+the school is *stuck*, never resubmitted automatically, and the run
+delivers the other schools and then ends RunFailed naming it
+(`stuck_schools`). `mn-immunization status` lists stuck claims with the
+command to release one; ONBOARDING has the procedure. A claim that cannot
+be checked at all is a failure, not a pass (unlike the diff claim below,
+where acting twice is the survivable side). The period format is
+configuration (monthly today, QUERY_PERIOD_FORMAT). Claims named
+`<period>_query` (one per period, before per-school claims) are honored
+as "all submitted" for their period.
 
-Claims are keyed by run date, not by month. The cadence is configuration
+Diff claims are keyed by run date, not by month. The cadence is configuration
 (monthly today, possibly weekly or daily in fall 2026), and the diff-against-
 snapshot model does not care how often it runs: each run diffs against the
 latest known snapshot and delivers only what is new.
@@ -133,15 +145,15 @@ Event catalog:
 | Event            | Data                                          |
 |------------------|-----------------------------------------------|
 | RunStarted       | kind (run/canary/rebaseline), trigger (scheduled/manual) |
-| QuerySubmitted   | school_id, query_file_hash                    |
+| QuerySubmitted   | school_id, query_file_hash, period            |
 | RecordsFetched   | school_id, content_hash, byte_size            |
 | DiffComputed     | new_count, total_count, known_hash, diff_hash |
 | Delivered        | file_name, target (drive), remote_id          |
 | MasterCommitted  | master_hash, record_count, snapshot_path      |
 | ImportConfirmed  | file_name, how (folder move)                  |
 | RunSkipped       | reason (e.g. diff already delivered)          |
-| RunCompleted     | counts summary                                |
-| RunFailed        | step, error class (never record content)      |
+| RunCompleted     | counts summary (incl. queries_submitted)      |
+| RunFailed        | step, error class (never record content); stuck_schools / failed_schools ids when a roster did not go out |
 
 Design points:
 
@@ -348,7 +360,7 @@ see "Rejected" below for why no framework). Three pieces, all in
 `pipeline/`:
 
 **State** (`policy.py`) — a frozen dataclass; the named `with_*`
-transitions are the fold. Only three facts need durable memory (query
+transitions are the fold. Only three facts need durable memory (rosters
 submitted, diff delivered, master committed); fetching, transforming,
 and diffing are read-only and cheap, so a resumed run just recomputes
 them:
@@ -356,9 +368,10 @@ them:
 ```python
 @dataclass(frozen=True)
 class CycleState:
-    query_submitted: bool = False   # period claim, or QuerySubmitted this run
+    submission: Submission | None = None  # per school: submitted / stuck / failed
     staged: int = 0                 # live AISR probe, not from the ledger
     staging_deadline_passed: bool = False
+    probe_error: str = ""           # last failed probe's class, if any
     diff: DiffResult | None = None  # recomputed each execution
     delivered: bool = False
     delivered_elsewhere: bool = False  # date claim lost, Delivered event found
@@ -371,23 +384,29 @@ instead of this document's prose (abridged here; the real one carries
 reasons on every Finish):
 
 ```python
-def decide(state, school_count, brake_fraction):
-    if not state.query_submitted:     return SubmitQueries()
-    if state.staged < school_count and not state.staging_deadline_passed:
+def decide(state, brake_fraction):
+    sub = state.submission
+    if sub is None:                   return SubmitQueries()
+    if not sub.submitted:             return Finish("failed", "submit_queries",
+                                                    "NoQueriesSubmitted")
+    if state.staged < len(sub.submitted) and not state.staging_deadline_passed:
         return AwaitStaging()
     if state.staged == 0:             return Finish("failed", "awaiting_results",
-                                                    "NoResultsStaged")
+                                                    state.probe_error or "NoResultsStaged")
     diff = state.diff
     if diff is None:                  return ComputeDiff()
     if diff.files_transformed == 0 and diff.fetch_failures > 0:
         return Finish("failed", "fetch", "AllDownloadsFailed")
-    if diff.new_count == 0:           return Finish("success")
+    if diff.new_count == 0:           return settle(sub, Finish("success"))
     if suspicious_diff(diff.new_count, diff.known_count, brake_fraction):
         return Finish("blocked", "diff_sanity", "SuspiciousDiffVolume")
     if not state.delivered:           return DeliverDiff(diff)
     if not state.master_committed:    return CommitMaster(diff)
-    if state.delivered_elsewhere:     return Finish("skipped")
-    return Finish("success")
+    if state.delivered_elsewhere:     return settle(sub, Finish("skipped"))
+    return settle(sub, Finish("success"))
+
+# settle: any stuck or failed school turns success/skip into
+# Finish("failed", "submit_queries", "QuerySubmissionIncomplete")
 ```
 
 **Runner** (`execute.py`) — a generic loop: decide, execute the one
@@ -397,8 +416,8 @@ naming the step, and nothing after it runs:
 
 | Step          | Executor wraps                                     | Events           |
 |---------------|----------------------------------------------------|------------------|
-| SubmitQueries | period claim + `submit_roster_queries`             | QuerySubmitted ×N |
-| AwaitStaging  | `staged_school_count`, then sleep one interval     | —                |
+| SubmitQueries | per-school claims + roster uploads (`_submit_queries`) | QuerySubmitted ×N |
+| AwaitStaging  | `probe_staging` over submitted schools, then sleep one interval | —   |
 | ComputeDiff   | fetch + transform + combine + `RecordSet.diff`     | RecordsFetched ×N, DiffComputed |
 | DeliverDiff   | date claim + Drive upload                          | Delivered        |
 | CommitMaster  | union → master upload + snapshot                   | MasterCommitted  |
@@ -410,6 +429,11 @@ Guarantees this shape makes structural rather than disciplinary:
   the loop ends only on `Finish` (or on a step failure, which writes
   its RunFailed in one place in the loop).
 - The brake precedes all persistence. Nothing it blocks has happened yet.
+- A roster that may already have gone out is never sent again, and a
+  school that did not go out is never quiet: a stuck or failed school
+  lets the others deliver and commit, then turns the run's success into
+  RunFailed(submit_queries) naming it. Only submitted schools are waited
+  for; if none was, the run fails at once instead of waiting 20 hours.
 - `CommitMaster` is unreachable until `delivered` is true. A failed
   Drive upload fails the run loudly with the master untouched, and the
   next run re-diffs and re-delivers the same records. The silent

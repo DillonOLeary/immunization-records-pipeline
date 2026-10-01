@@ -6,7 +6,13 @@ AllDownloadsFailed, not as an empty "success" that delivers nothing.
 """
 
 from mn_immunization.pipeline.execute import transform_downloads
-from mn_immunization.pipeline.policy import CycleState, DiffResult, Finish, decide
+from mn_immunization.pipeline.policy import (
+    CycleState,
+    DiffResult,
+    Finish,
+    Submission,
+    decide,
+)
 
 HEADER = "id_1|id_2|vaccine_group_name|vaccination_date"
 
@@ -54,9 +60,10 @@ def test_every_file_unparseable_is_a_failed_run_not_a_success(tmp_path):
         diff_path=tmp_path / "diff.csv",
         master_path=tmp_path / "master.csv",
     )
-    state = CycleState().with_query_submitted().with_staged(3).with_diff(diff)
+    submission = Submission(submitted=frozenset({"1", "2", "3"}))
+    state = CycleState().with_submission(submission).with_staged(3).with_diff(diff)
 
-    step = decide(state, 3, 0.2)
+    step = decide(state, 0.2)
 
     assert isinstance(step, Finish)
     assert (step.status, step.error) == ("failed", "AllDownloadsFailed")

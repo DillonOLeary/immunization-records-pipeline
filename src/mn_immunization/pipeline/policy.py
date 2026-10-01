@@ -12,9 +12,14 @@ the ordering guarantees checkable as a decision table:
 - `Finish` is the only step that ends a run, so the terminal-event
   guarantee is the loop's shape, not a discipline.
 
-Only three facts need durable memory across executions (query submitted,
-diff delivered, master committed); fetching, transforming, and diffing
-are read-only and cheap, so a resumed run recomputes them.
+- a school whose roster may already have gone to MIIC is never
+  resubmitted (every submission emails every nurse); if any school is
+  stuck that way or failed to submit, the run still delivers what it has
+  and then ends failed, so the alert fires.
+
+Only three facts need durable memory across executions (rosters
+submitted, diff delivered, master committed); fetching, transforming,
+and diffing are read-only and cheap, so a resumed run recomputes them.
 """
 
 from __future__ import annotations
@@ -22,7 +27,40 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from mn_immunization.pipeline.support import suspicious_diff
+
+def suspicious_diff(new_count: int, known_count: int, fraction: float = 0.2) -> bool:
+    """A diff far larger than history is a symptom, not a delivery.
+
+    A wiped or mismatched master would diff the entire student body as
+    "new" and flood the nurses with duplicates. When the known set is
+    non-empty and the diff exceeds max(50, fraction*known), block Drive
+    delivery and fail the run loudly instead. A genuine first run (empty
+    known set) is never blocked; `load_known_records` makes sure an empty
+    known set really is a first run.
+    """
+    if known_count == 0:
+        return False
+    return new_count > max(50, int(fraction * known_count))
+
+
+@dataclass(frozen=True)
+class Submission:
+    """Where each school's roster stands for this period (school ids).
+
+    `submitted`: a QuerySubmitted event exists for it this period, from
+    this run or an earlier one. `stuck`: its claim is held but no event
+    exists, so it may or may not have gone out; it is never resubmitted
+    automatically (a human checks and clears the claim). `failed`: this
+    run's attempt raised, or its claim could not be taken.
+    """
+
+    submitted: frozenset[str] = frozenset()
+    stuck: frozenset[str] = frozenset()
+    failed: frozenset[str] = frozenset()
+
+    @property
+    def incomplete(self) -> bool:
+        return bool(self.stuck or self.failed)
 
 
 @dataclass(frozen=True)
@@ -40,7 +78,7 @@ class DiffResult:
 
 @dataclass(frozen=True)
 class CycleState:
-    query_submitted: bool = False
+    submission: Submission | None = None
     staged: int = 0
     staging_deadline_passed: bool = False
     probe_error: str = ""  # class of the last failed staging probe, if any
@@ -49,9 +87,8 @@ class CycleState:
     delivered_elsewhere: bool = False
     master_committed: bool = False
 
-    def with_query_submitted(self) -> CycleState:
-        """Rosters submitted this run, or the period claim already held."""
-        return replace(self, query_submitted=True)
+    def with_submission(self, submission: Submission) -> CycleState:
+        return replace(self, submission=submission)
 
     def with_staged(self, count: int) -> CycleState:
         """A probe succeeded: its count replaces the last one, and any
@@ -121,13 +158,47 @@ class Finish:
 Step = SubmitQueries | AwaitStaging | ComputeDiff | DeliverDiff | CommitMaster | Finish
 
 
-def decide(state: CycleState, school_count: int, brake_fraction: float | None) -> Step:
+def _settle(submission: Submission, finish: Finish) -> Finish:
+    """A run that would otherwise end well still fails if any school is
+    stuck or failed to submit: its records reached no one this period,
+    and only a failed run makes the alert fire."""
+    if not submission.incomplete:
+        return finish
+    return Finish(
+        status="failed",
+        step="submit_queries",
+        error="QuerySubmissionIncomplete",
+        reason=(
+            f"{len(submission.stuck)} school(s) stuck on a held claim, "
+            f"{len(submission.failed)} failed to submit"
+        ),
+    )
+
+
+def decide(state: CycleState, brake_fraction: float | None) -> Step:
     """Name the single next step. brake_fraction None disables the brake
     (DIFF_SANITY_FRACTION=off)."""
-    if not state.query_submitted:
+    submission = state.submission
+    if submission is None:
         return SubmitQueries()
 
-    if state.staged < school_count and not state.staging_deadline_passed:
+    if not submission.submitted:
+        # Nothing went out (now or earlier this period), so nothing will
+        # stage: fail now rather than wait 20 hours to learn it.
+        return Finish(
+            status="failed",
+            step="submit_queries",
+            error="NoQueriesSubmitted",
+            reason=(
+                f"no roster submitted this period: {len(submission.stuck)} "
+                f"stuck, {len(submission.failed)} failed"
+            ),
+        )
+
+    # Only the submitted schools can stage; stuck and failed ones are not
+    # waited for.
+    expected = len(submission.submitted)
+    if state.staged < expected and not state.staging_deadline_passed:
         return AwaitStaging()
 
     if state.staged == 0:
@@ -160,7 +231,7 @@ def decide(state: CycleState, school_count: int, brake_fraction: float | None) -
         )
 
     if diff.new_count == 0:
-        return Finish(status="success")
+        return _settle(submission, Finish(status="success"))
 
     if brake_fraction is not None and suspicious_diff(
         diff.new_count, diff.known_count, brake_fraction
@@ -186,9 +257,12 @@ def decide(state: CycleState, school_count: int, brake_fraction: float | None) -
         return CommitMaster(diff)
 
     if state.delivered_elsewhere:
-        return Finish(
-            status="skipped",
-            reason="diff already delivered today by another run",
+        return _settle(
+            submission,
+            Finish(
+                status="skipped",
+                reason="diff already delivered today by another run",
+            ),
         )
 
-    return Finish(status="success")
+    return _settle(submission, Finish(status="success"))

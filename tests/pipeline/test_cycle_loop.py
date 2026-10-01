@@ -6,14 +6,12 @@ deadline, failing loudly mid-step with the master untouched, and writing
 exactly one terminal event per run.
 """
 
-import json
-
 import pytest
 
 import mn_immunization.pipeline.execute as execute
 from mn_immunization.ledger.memory import InMemoryRunLedger, InMemorySnapshotStore
 from mn_immunization.pipeline.cycles import RunContext
-from mn_immunization.pipeline.policy import DiffResult
+from mn_immunization.pipeline.policy import DiffResult, Submission
 from mn_immunization.sources.aisr.actions import DistrictInfo, SchoolQueryInformation
 
 SCHOOLS = 8
@@ -75,7 +73,9 @@ def make_diff(tmp_path, new=648, known=170_361, files=8, failures=0) -> DiffResu
     )
 
 
-def stub_executors(monkeypatch, staged, diff, deliver_outcome="delivered"):
+def stub_executors(
+    monkeypatch, staged, diff, deliver_outcome="delivered", submission=None
+):
     """Replace the I/O executors; the loop under test stays real.
 
     `staged` is the sequence of probe results (the last repeats); an
@@ -87,7 +87,13 @@ def stub_executors(monkeypatch, staged, diff, deliver_outcome="delivered"):
     staged_iter = iter(staged)
     last = {"outcome": 0}
 
-    def fake_probe(ctx, username, password):
+    def fake_submit(ctx, username, password):
+        calls.append("submit")
+        if submission is not None:
+            return submission
+        return Submission(submitted=frozenset(s.school_id for s in ctx.schools))
+
+    def fake_probe(ctx, username, password, school_ids):
         calls.append("probe")
         try:
             last["outcome"] = next(staged_iter)
@@ -103,9 +109,7 @@ def stub_executors(monkeypatch, staged, diff, deliver_outcome="delivered"):
             raise deliver_outcome
         return deliver_outcome
 
-    monkeypatch.setattr(
-        execute, "_submit_queries", lambda ctx, u, p: calls.append("submit")
-    )
+    monkeypatch.setattr(execute, "_submit_queries", fake_submit)
     monkeypatch.setattr(execute, "_probe_staged", fake_probe)
     monkeypatch.setattr(
         execute, "_compute_diff", lambda ctx, u, p: (calls.append("compute"), diff)[1]
@@ -220,6 +224,76 @@ def test_partial_staging_past_deadline_proceeds(env, monkeypatch, tmp_path):
     assert calls[-3:] == ["compute", "deliver", "commit"]
 
 
+def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(
+    env, monkeypatch, tmp_path
+):
+    ctx = make_ctx(tmp_path)
+    ids = frozenset(s.school_id for s in ctx.schools)
+    stuck = Submission(submitted=ids - {"1000"}, stuck=frozenset({"1000"}))
+    calls = stub_executors(
+        monkeypatch, staged=[SCHOOLS - 1], diff=make_diff(tmp_path), submission=stuck
+    )
+
+    result = run(ctx, FakeClock())
+
+    assert calls == ["submit", "probe", "compute", "deliver", "commit"]
+    assert result["status"] == "failed"
+    assert result["stuck_schools"] == ["1000"]
+    assert ctx.ledger.event_types() == ["RunFailed"]
+    assert ctx.ledger.events[0]["data"] == {
+        "step": "submit_queries",
+        "error": "QuerySubmissionIncomplete",
+        "stuck_schools": ["1000"],
+        "failed_schools": [],
+    }
+
+
+def test_nothing_submitted_fails_without_waiting(env, monkeypatch, tmp_path):
+    ctx = make_ctx(tmp_path)
+    ids = frozenset(s.school_id for s in ctx.schools)
+    calls = stub_executors(
+        monkeypatch,
+        staged=[0],
+        diff=make_diff(tmp_path),
+        submission=Submission(failed=ids),
+    )
+    fake = FakeClock()
+
+    result = run(ctx, fake)
+
+    assert calls == ["submit"]
+    assert fake.sleeps == []
+    assert result["status"] == "failed"
+    assert ctx.ledger.events[0]["data"]["error"] == "NoQueriesSubmitted"
+
+
+def test_staging_waits_only_for_submitted_schools(env, monkeypatch, tmp_path):
+    ctx = make_ctx(tmp_path)
+    ids = frozenset(s.school_id for s in ctx.schools)
+    one_failed = Submission(submitted=ids - {"1003"}, failed=frozenset({"1003"}))
+    probed = []
+    calls = stub_executors(
+        monkeypatch,
+        staged=[SCHOOLS - 1],
+        diff=make_diff(tmp_path),
+        submission=one_failed,
+    )
+    real_probe = execute._probe_staged
+
+    def recording_probe(ctx, username, password, school_ids):
+        probed.append(school_ids)
+        return real_probe(ctx, username, password, school_ids)
+
+    monkeypatch.setattr(execute, "_probe_staged", recording_probe)
+    fake = FakeClock()
+
+    run(ctx, fake)
+
+    assert probed == [ids - {"1003"}]
+    assert fake.sleeps == []  # 7 of 7 expected schools staged at once
+    assert "compute" in calls
+
+
 def test_brake_blocks_before_delivery_and_commit(env, monkeypatch, tmp_path):
     ctx = make_ctx(tmp_path)
     calls = stub_executors(
@@ -324,22 +398,6 @@ def test_brake_fraction_parsing(monkeypatch):
 # --- the real _deliver_diff, with only the Drive upload stubbed ---
 
 
-class FakeBlob:
-    def __init__(self, payload: dict):
-        self._payload = payload
-
-    def download_as_text(self) -> str:
-        return json.dumps(self._payload)
-
-
-class FakeBucket:
-    def __init__(self, payloads: list[dict]):
-        self._payloads = payloads
-
-    def list_blobs(self, prefix: str = ""):
-        return [FakeBlob(p) for p in self._payloads]
-
-
 def stub_drive_upload(monkeypatch):
     uploads = []
 
@@ -369,7 +427,7 @@ def test_deliver_claim_lost_without_evidence_delivers_anyway(monkeypatch, tmp_pa
     # is the unacceptable failure mode; deliver.
     ctx = make_ctx(tmp_path)
     diff = make_diff(tmp_path)
-    ctx.ledger.claims.add(f"{diff.diff_path.name[:10]}_diff")
+    ctx.ledger.claims[f"{diff.diff_path.name[:10]}_diff"] = {"run_id": "earlier"}
     uploads = stub_drive_upload(monkeypatch)
 
     outcome = execute._deliver_diff(ctx, diff, "folder-1")
@@ -383,21 +441,19 @@ def test_deliver_claim_lost_with_delivered_event_skips(monkeypatch, tmp_path):
     # skip it. This is the July 1 double-run incident staying dead.
     ctx = make_ctx(tmp_path)
     diff = make_diff(tmp_path)
-    ctx.ledger.claims.add(f"{diff.diff_path.name[:10]}_diff")
-    ctx.ledger.bucket = FakeBucket(
-        [
-            {
-                "run_id": "earlier-run",
-                "seq": 9,
-                "type": "Delivered",
-                "at": "2026-07-23T02:15:00",
-                "data": {
-                    "file_name": diff.diff_path.name,
-                    "target": "drive",
-                    "remote_id": "drive-id-0",
-                },
-            }
-        ]
+    ctx.ledger.claims[f"{diff.diff_path.name[:10]}_diff"] = {"run_id": "earlier"}
+    ctx.ledger.history.append(
+        {
+            "run_id": "earlier-run",
+            "seq": 9,
+            "type": "Delivered",
+            "at": "2026-07-23T02:15:00",
+            "data": {
+                "file_name": diff.diff_path.name,
+                "target": "drive",
+                "remote_id": "drive-id-0",
+            },
+        }
     )
     uploads = stub_drive_upload(monkeypatch)
 

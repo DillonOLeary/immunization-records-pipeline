@@ -18,12 +18,15 @@ from google.api_core.exceptions import PreconditionFailed
 
 from mn_immunization.ledger.events import LedgerEvent
 
+CLAIMS_PREFIX = "ledger/claims/"
+
 
 class GcsRunLedger:
-    """Append-only event writer for a single run.
+    """Append-only event writer for a single run, plus the read side every
+    run needs: recent runs' events, and the claims held under a prefix.
 
     The bucket argument is a google.cloud.storage Bucket (or anything with
-    a compatible .blob(name).upload_from_string interface).
+    a compatible .blob(name) / .list_blobs(prefix) interface).
     """
 
     def __init__(
@@ -55,7 +58,7 @@ class GcsRunLedger:
         )
 
     def claim(self, key: str) -> bool:
-        blob = self.bucket.blob(f"ledger/claims/{key}")
+        blob = self.bucket.blob(f"{CLAIMS_PREFIX}{key}")
         payload = json.dumps(
             {"run_id": self.run_id, "at": self._now().isoformat(timespec="seconds")}
         )
@@ -66,6 +69,18 @@ class GcsRunLedger:
         except PreconditionFailed:
             return False
         return True
+
+    def recent_runs(self, months: int = 2, limit: int | None = None) -> list[dict]:
+        """Runs with events in the last `months` calendar months (this one
+        included), newest first, each with its events in order."""
+        return read_recent_runs(
+            self.bucket, recent_months(self._now(), months), limit=limit
+        )
+
+    def held_claims(self, prefix: str) -> dict[str, dict]:
+        """Every claim whose key starts with prefix: key -> its payload
+        (the claimant's run_id and when it claimed)."""
+        return read_claims(self.bucket, prefix)
 
 
 SNAPSHOT_PREFIX = "snapshots/"
@@ -94,13 +109,38 @@ def sha256_hex(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
+def recent_months(now: datetime, count: int = 2) -> tuple[tuple[int, int], ...]:
+    """(year, month) for this month and the count-1 before it, newest first."""
+    months = []
+    year, month = now.year, now.month
+    for _ in range(count):
+        months.append((year, month))
+        year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+    return tuple(months)
+
+
+def read_claims(bucket, prefix: str) -> dict[str, dict]:
+    """Claims whose key starts with prefix: key -> payload ({} if the
+    payload is unreadable; the claim is held regardless)."""
+    claims: dict[str, dict] = {}
+    for blob in bucket.list_blobs(prefix=f"{CLAIMS_PREFIX}{prefix}"):
+        key = blob.name[len(CLAIMS_PREFIX) :]
+        try:
+            claims[key] = json.loads(blob.download_as_text())
+        except ValueError:
+            claims[key] = {}
+    return claims
+
+
 def read_recent_runs(
-    bucket, months: tuple[tuple[int, int], ...], limit: int = 10
+    bucket, months: tuple[tuple[int, int], ...], limit: int | None = 10
 ) -> list[dict]:
     """Read runs from the given (year, month) prefixes, newest first.
 
-    Returns one dict per run: run_id plus its events in sequence order.
-    Used by the status command; the write path never reads.
+    Returns one dict per run: run_id plus its events in sequence order
+    (all of them when limit is None). Used by the status command, and by
+    runs deciding whether a delivery or a roster submission already
+    happened.
     """
     events_by_run: dict[str, list[dict]] = {}
     for year, month in months:
@@ -117,4 +157,4 @@ def read_recent_runs(
         run_events.sort(key=lambda e: e["seq"])
         runs.append({"run_id": run_id, "events": run_events})
     runs.sort(key=lambda r: r["events"][0]["at"], reverse=True)
-    return runs[:limit]
+    return runs if limit is None else runs[:limit]

@@ -1,5 +1,5 @@
 """Small shared pieces of the pipeline layer: run ids, best-effort ledger
-writes, fail-open claims, and the diff sanity policy."""
+writes, and fail-open claims."""
 
 from __future__ import annotations
 
@@ -38,17 +38,3 @@ def claim_or_proceed(ledger, key: str) -> bool:
             type(error).__name__,
         )
         return True
-
-
-def suspicious_diff(new_count: int, known_count: int, fraction: float = 0.2) -> bool:
-    """A diff far larger than history is a symptom, not a delivery.
-
-    A wiped or mismatched master would diff the entire student body as
-    "new" and flood the nurses with duplicates. When the known set is
-    non-empty and the diff exceeds max(50, fraction*known), block Drive
-    delivery and fail the run loudly instead. A genuine first run (empty
-    known set) is never blocked.
-    """
-    if known_count == 0:
-        return False
-    return new_count > max(50, int(fraction * known_count))
