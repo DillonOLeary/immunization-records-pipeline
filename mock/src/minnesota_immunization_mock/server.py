@@ -16,6 +16,7 @@ in order), which is how tests prove a roster was or was not submitted.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
@@ -26,7 +27,10 @@ from .sample_data import get_sample_vaccination_data
 
 REALM = "/mock-auth-server/auth/realms/idepc-aisr-realm"
 REDIRECT_URI = "https://aisr.web.health.state.mn.us/home"
-UPLOAD_EPOCH_MS = 1_759_300_000_000  # a fixed uploadDateTime, 2025-10-01
+PREVIOUS_UPLOAD_MS = 1_759_300_000_000
+"""uploadDateTime for a school with no upload yet: 2025-10-01. Like real
+AISR, the fake keeps listing a school's previous results until a new
+roster upload replaces them."""
 
 REQUIRED_UPLOAD_HEADERS = {
     "x-amz-meta-classification",
@@ -47,6 +51,9 @@ class MockFaults:
     listing_status: dict[str, int] = field(default_factory=dict)
     no_results: set[str] = field(default_factory=set)
     malformed_results: set[str] = field(default_factory=set)
+    # Keep listing the previous results even after a new upload, as real
+    # AISR did on 2026-10-01 in the minutes after a submission.
+    stale_listing: set[str] = field(default_factory=set)
 
     def clear(self) -> None:
         self.puturl_status.clear()
@@ -54,6 +61,7 @@ class MockFaults:
         self.listing_status.clear()
         self.no_results.clear()
         self.malformed_results.clear()
+        self.stale_listing.clear()
 
 
 def _require_bearer(request: Request) -> None:
@@ -76,6 +84,7 @@ def create_mock_app(
     app = FastAPI(title="Mock AISR Server")
     app.state.faults = faults or MockFaults()
     app.state.received_uploads = []
+    app.state.uploaded_at = {}  # school id -> epoch ms of its latest upload
 
     @app.get("/health")
     async def health_check():
@@ -177,6 +186,7 @@ def create_mock_app(
         if status:
             return Response(status_code=status)
         app.state.received_uploads.append(school_id)
+        app.state.uploaded_at[school_id] = int(time.time() * 1000)
         return Response(status_code=200)
 
     @app.get("/school/query/{school_id}")
@@ -192,7 +202,11 @@ def create_mock_app(
             {
                 "id": 16386,
                 "schoolId": school_id,
-                "uploadDateTime": UPLOAD_EPOCH_MS,
+                "uploadDateTime": (
+                    PREVIOUS_UPLOAD_MS
+                    if school_id in app.state.faults.stale_listing
+                    else app.state.uploaded_at.get(school_id, PREVIOUS_UPLOAD_MS)
+                ),
                 "fileName": f"school_{school_id}.csv",
                 "s3FileUrl": url,
                 "fullVaccineFileUrl": url,

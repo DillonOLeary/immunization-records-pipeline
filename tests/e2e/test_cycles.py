@@ -170,6 +170,54 @@ def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(world, capsys):
     }
 
 
+def test_last_periods_results_still_listed_are_not_mistaken_for_this_periods(
+    world, capsys
+):
+    # 2026-10-01 in production: right after the uploads, AISR still listed
+    # September's results, the probe counted them as staged, and the run
+    # fetched stale files. Results older than this period's submission
+    # must not count; the run waits (here: until its zero deadline) and
+    # fails loudly instead of quietly processing last period's data.
+    world.aisr.faults.stale_listing.update({"2542", "2543"})
+
+    code, _ = world.run("run", capsys)
+
+    assert code == 1
+    assert world.latest_run_events()[-1]["data"]["error"] == "NoResultsStaged"
+    assert "RecordsFetched" not in world.latest_event_types()
+    assert world.drive.uploads == []
+
+    # Once the fresh results are listed, a rerun sends nothing to MIIC and
+    # processes them.
+    world.aisr.faults.clear()
+    world.aisr.received_uploads.clear()
+    code, result = world.run("run", capsys)
+
+    assert code == 0
+    assert result["status"] == "success"
+    assert world.aisr.received_uploads == []
+    assert len(world.drive.uploads) == 1
+
+
+def test_a_second_run_the_same_day_with_new_records_delivers_them(world, capsys):
+    # 2026-10-01: a same-day second diff used to look "already delivered"
+    # (date claim, same file name) and its records would have been
+    # committed without reaching staff. Now it gets its own file.
+    world.set_schools(["2542"])
+    world.run("run", capsys)
+    world.set_schools(["2542", "2543"])
+
+    code, result = world.run("run", capsys)
+
+    assert code == 0
+    assert result["new_records"] == len(expected_ic_rows("2543"))
+    first, second = world.drive.uploads
+    assert second == first.replace(".csv", "_2.csv")
+    assert world.drive.files[first] == ic_text("2542")
+    assert world.drive.files[second] == ic_text("2543")
+    assert world.bucket.objects[MASTER] == ic_text("2542", "2543")
+
+
 def test_a_signing_failure_fails_loudly_then_the_rerun_recovers_alone(world, capsys):
     # Signing failed for 2543: nothing reached MIIC, so its claim is
     # released. The run still delivers, then fails naming 2543; the next

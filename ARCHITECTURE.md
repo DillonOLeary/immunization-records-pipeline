@@ -67,8 +67,10 @@ SubmitQueries -> AwaitStaging -> ComputeDiff -> [brake] -> DeliverDiff -> Commit
   anything is delivered or committed.
 - Delivery precedes the master commit, so a failed upload leaves the
   master untouched and the records in the next diff.
-- Only schools submitted this period are waited for; staging probes
-  tolerate failures until the deadline (20h).
+- Only schools submitted this period are waited for, and only results
+  uploaded since a school's submission count as staged: AISR keeps the
+  previous results listed for days. Probes tolerate failures until the
+  deadline (20h).
 - A school that is stuck or failed to submit lets the others deliver, then
   turns the run's success into RunFailed naming it.
 
@@ -79,7 +81,7 @@ Append-only JSON objects in the district's bucket; no database.
 ```
 ledger/<YYYY>/<MM>/<run_id>/<seq>_<event>.json   one object per event (UTC)
 ledger/claims/<period>_query_<school_id>          one roster per school per period
-ledger/claims/<YYYY-MM-DD>_diff                   one delivery per date
+ledger/claims/<YYYY-MM-DD>_diff_<hash>            one delivery per diff content
 snapshots/<sha256>.csv                            every committed master
 output/all_known_vaccinations.csv                 the master (union of all records)
 ```
@@ -89,8 +91,9 @@ output/all_known_vaccinations.csv                 the master (union of all recor
   *stuck* and never resubmitted; a human checks with MIIC and releases it
   (ONBOARDING). A submission that failed before its upload began releases
   its own claim.
-- The diff claim fails open: a lost claim is checked against Delivered
-  events, so a crashed claimant cannot suppress a delivery.
+- The diff claim is keyed by content and fails open: a rerun with the
+  same diff skips the upload; a new diff the same day gets its own file
+  (`_2.csv`); a crashed claimant cannot suppress a delivery.
 - The master only grows (absence is never deletion) and loads fail-closed:
   only a master that never existed is empty; absent-with-snapshots,
   unreadable, or malformed fails the run.
@@ -114,8 +117,9 @@ because IC imports are idempotent.
 - Errors carry a status, never a response body.
 - The canary (scheduled the day before each run) fails on any listing
   error; the run's staging probe tolerates them.
-- Open question before any weekly cadence: whether AISR keeps old results
-  (probes log entry counts and upload ages to answer it).
+- AISR lists one results entry per school and keeps the previous one for
+  days after a run (seen 2026-10-01), so freshness is judged by upload
+  time against the school's submission.
 
 ## Operations and security
 

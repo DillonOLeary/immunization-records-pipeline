@@ -10,6 +10,7 @@ exactly one terminal event per run. The stubs are injected as an
 from dataclasses import replace
 
 import mn_immunization.pipeline.execute as execute
+from mn_immunization.domain.hashing import sha256_hex
 from mn_immunization.pipeline.execute import Executors
 from mn_immunization.pipeline.policy import DiffResult, Submission
 from mn_immunization.pipeline.settings import Settings
@@ -355,44 +356,22 @@ def test_missing_drive_folder_fails_before_any_step(tmp_path):
     }
 
 
-# --- the real _deliver_diff, with only the Drive upload stubbed ---
+# --- the real _deliver_diff: at most once per diff *content* ---
+
+DIFF_TEXT = "1,2,MMR,01/01/2020\n"
 
 
-def test_deliver_wins_claim_uploads_and_records(monkeypatch, tmp_path):
-    ctx = make_ctx(tmp_path)
+def write_diff(tmp_path, text=DIFF_TEXT):
     diff = make_diff(tmp_path)
-    diff.diff_path.write_text("1,2,MMR,01/01/2020\n", encoding="utf-8")
-
-    outcome = execute._deliver_diff(ctx, diff)
-    uploads = ctx.drive.uploads
-
-    assert outcome == "delivered"
-    assert uploads == [diff.diff_path.name]
-    assert ctx.ledger.event_types() == ["Delivered"]
-    assert f"{diff.diff_path.name[:10]}_diff" in ctx.ledger.claims
+    diff.diff_path.write_text(text, encoding="utf-8")
+    return diff
 
 
-def test_deliver_claim_lost_without_evidence_delivers_anyway(monkeypatch, tmp_path):
-    # The claimant crashed between claiming and uploading. Zero deliveries
-    # is the unacceptable failure mode; deliver.
-    ctx = make_ctx(tmp_path)
-    diff = make_diff(tmp_path)
-    ctx.ledger.claims[f"{diff.diff_path.name[:10]}_diff"] = {"run_id": "earlier"}
-    diff.diff_path.write_text("1,2,MMR,01/01/2020\n", encoding="utf-8")
-
-    outcome = execute._deliver_diff(ctx, diff)
-    uploads = ctx.drive.uploads
-
-    assert outcome == "delivered"
-    assert uploads == [diff.diff_path.name]
+def claim_key(diff, text=DIFF_TEXT):
+    return f"{diff.diff_path.name[:10]}_diff_{sha256_hex(text)[:16]}"
 
 
-def test_deliver_claim_lost_with_delivered_event_skips(monkeypatch, tmp_path):
-    # Another run claimed AND recorded a Drive delivery: genuine duplicate,
-    # skip it. This is the July 1 double-run incident staying dead.
-    ctx = make_ctx(tmp_path)
-    diff = make_diff(tmp_path)
-    ctx.ledger.claims[f"{diff.diff_path.name[:10]}_diff"] = {"run_id": "earlier"}
+def prior_delivery(ctx, file_name, text):
     ctx.ledger.history.append(
         {
             "run_id": "earlier-run",
@@ -400,16 +379,74 @@ def test_deliver_claim_lost_with_delivered_event_skips(monkeypatch, tmp_path):
             "type": "Delivered",
             "at": "2026-07-23T02:15:00",
             "data": {
-                "file_name": diff.diff_path.name,
+                "file_name": file_name,
                 "target": "drive",
                 "remote_id": "drive-id-0",
+                "content_hash": sha256_hex(text),
             },
         }
     )
-    diff.diff_path.write_text("1,2,MMR,01/01/2020\n", encoding="utf-8")
 
-    outcome = execute._deliver_diff(ctx, diff)
-    uploads = ctx.drive.uploads
 
-    assert outcome == "already_delivered"
-    assert uploads == []
+def test_deliver_wins_the_content_claim_uploads_and_records(tmp_path):
+    ctx = make_ctx(tmp_path)
+    diff = write_diff(tmp_path)
+
+    assert execute._deliver_diff(ctx, diff) == "delivered"
+
+    assert ctx.drive.uploads == [diff.diff_path.name]
+    assert claim_key(diff) in ctx.ledger.claims
+    (event,) = ctx.ledger.events
+    assert event["data"]["content_hash"] == sha256_hex(DIFF_TEXT)
+
+
+def test_claim_lost_without_evidence_delivers_anyway(tmp_path):
+    # The claimant crashed between claiming and uploading. Zero deliveries
+    # is the unacceptable failure mode; deliver.
+    ctx = make_ctx(tmp_path)
+    diff = write_diff(tmp_path)
+    ctx.ledger.claims[claim_key(diff)] = {"run_id": "earlier"}
+
+    assert execute._deliver_diff(ctx, diff) == "delivered"
+    assert ctx.drive.uploads == [diff.diff_path.name]
+
+
+def test_the_same_content_already_delivered_is_skipped(tmp_path):
+    # Another run claimed AND delivered this exact diff (a crash before its
+    # commit, then this rerun): skip the upload. The July 1 double-run
+    # incident stays dead.
+    ctx = make_ctx(tmp_path)
+    diff = write_diff(tmp_path)
+    ctx.ledger.claims[claim_key(diff)] = {"run_id": "earlier"}
+    prior_delivery(ctx, diff.diff_path.name, DIFF_TEXT)
+
+    assert execute._deliver_diff(ctx, diff) == "already_delivered"
+    assert ctx.drive.uploads == []
+
+
+def test_a_different_diff_the_same_day_is_delivered_under_its_own_name(tmp_path):
+    # Found 2026-10-01: a second run the same day with *new* records saw
+    # the date claim taken and a Delivered event with the same file name,
+    # called it "already delivered", and would have committed its records
+    # to the master without staff ever receiving them.
+    ctx = make_ctx(tmp_path)
+    diff = write_diff(tmp_path, text="9,9,DTaP,02/02/2021\n")
+    prior_delivery(ctx, diff.diff_path.name, DIFF_TEXT)  # earlier, other content
+
+    assert execute._deliver_diff(ctx, diff) == "delivered"
+
+    stem = diff.diff_path.name.removesuffix(".csv")
+    assert ctx.drive.uploads == [f"{stem}_2.csv"]
+    assert ctx.drive.files[f"{stem}_2.csv"] == "9,9,DTaP,02/02/2021\n"
+
+
+def test_a_delivery_recorded_before_hashes_never_suppresses_a_diff(tmp_path):
+    # Delivered events written before content hashes carry none, so they
+    # can only make a new diff take a fresh name, never skip it.
+    ctx = make_ctx(tmp_path)
+    diff = write_diff(tmp_path)
+    prior_delivery(ctx, diff.diff_path.name, DIFF_TEXT)
+    ctx.ledger.history[-1]["data"].pop("content_hash")
+
+    assert execute._deliver_diff(ctx, diff) == "delivered"
+    assert ctx.drive.uploads == [diff.diff_path.name.replace(".csv", "_2.csv")]

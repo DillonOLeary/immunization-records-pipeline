@@ -60,10 +60,19 @@ def diff_computed(
     )
 
 
-def delivered(file_name: str, target: str, remote_id: str | None = None) -> LedgerEvent:
+def delivered(
+    file_name: str, target: str, remote_id: str | None = None, content_hash: str = ""
+) -> LedgerEvent:
+    """content_hash is the delivered file's sha256: what makes "this diff
+    was already delivered" a statement about content, not about a name."""
     return LedgerEvent(
         "Delivered",
-        {"file_name": file_name, "target": target, "remote_id": remote_id or ""},
+        {
+            "file_name": file_name,
+            "target": target,
+            "remote_id": remote_id or "",
+            "content_hash": content_hash,
+        },
     )
 
 

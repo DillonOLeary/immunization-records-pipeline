@@ -74,6 +74,7 @@ def mock_aisr(_mock_aisr_server: MockAisr) -> MockAisr:
     """The fake AISR with no faults and an empty upload log."""
     _mock_aisr_server.faults.clear()
     _mock_aisr_server.received_uploads.clear()
+    _mock_aisr_server.app.state.uploaded_at.clear()
     return _mock_aisr_server
 
 

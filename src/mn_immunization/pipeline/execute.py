@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from mn_immunization.domain.hashing import sha256_hex
@@ -56,17 +56,30 @@ class StagingProbe:
     failed: int  # schools whose listing call failed
 
 
+# Allowance for clock skew between our ledger stamps and MDH's upload time.
+# Stale results are days old, so ten minutes cannot mistake one for fresh.
+FRESHNESS_SKEW = timedelta(minutes=10)
+
+
 def probe_staging(
-    source: ImmunizationSource, schools: list[SchoolQueryInformation], now: datetime
+    source: ImmunizationSource,
+    schools: list[SchoolQueryInformation],
+    now: datetime,
+    submitted_at: dict[str, datetime] | None = None,
 ) -> StagingProbe:
     """Read-only listing of every school's results.
 
+    AISR keeps a school's previous results listed for days after a run
+    (seen in production 2026-10-01: a rerun's first probe found every
+    school "staged" with three-day-old files). So when `submitted_at`
+    gives a school's submission time this period, its results count as
+    staged only if they were uploaded no earlier than that (less
+    FRESHNESS_SKEW); older ones are last period's and the probe keeps
+    waiting. Without a submission time (the canary), anything listed
+    counts.
+
     A school whose listing fails is counted in `failed` and logged by
-    error class; it never aborts the others. Each school's listing shape
-    is logged too (entry count, age of the newest upload; no PHI) to learn
-    whether AISR keeps old results between runs. If it does, "any result
-    listed" is not "staged for this period", which matters before any move
-    to a weekly cadence.
+    error class; it never aborts the others.
     """
     now_utc = now.astimezone(UTC)
     staged = failed = 0
@@ -82,14 +95,18 @@ def probe_staging(
             )
             continue
         newest = results.newest_upload_at
+        since = (submitted_at or {}).get(school.school_id)
+        fresh = since is None or (
+            newest is not None and newest >= since - FRESHNESS_SKEW
+        )
         logger.info(
             "Results listing for %s: %d entries, newest upload %s, staged=%s",
             school.school_name,
             results.entries,
             f"{(now_utc - newest).days}d ago" if newest else "undated",
-            results.available,
+            results.available and fresh,
         )
-        if results.available:
+        if results.available and fresh:
             staged += 1
     return StagingProbe(staged=staged, failed=failed)
 
@@ -293,12 +310,30 @@ def _release_unsent(ctx: RunContext, key: str, school_name: str) -> None:
     )
 
 
+def submission_times(runs: list[dict], period: str) -> dict[str, datetime]:
+    """When each school's roster went out for `period` (UTC), from its
+    QuerySubmitted event."""
+    times: dict[str, datetime] = {}
+    for run in runs:
+        for event in run["events"]:
+            if (
+                event["type"] == "QuerySubmitted"
+                and event["data"].get("period") == period
+            ):
+                at = datetime.fromisoformat(event["at"]).replace(tzinfo=UTC)
+                school_id = event["data"]["school_id"]
+                times[school_id] = max(at, times.get(school_id, at))
+    return times
+
+
 def _probe_staged(ctx: RunContext, school_ids: frozenset[str]) -> int:
-    """Staged count among the schools submitted this period; the others
-    are not waited for."""
+    """Staged count among the schools submitted this period, counting only
+    results uploaded since each school's submission; the others are not
+    waited for."""
     schools = [school for school in ctx.schools if school.school_id in school_ids]
+    since = submission_times(ctx.ledger.recent_runs(), query_period(ctx))
     with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
-        probe = probe_staging(source, schools, ctx.clock.now())
+        probe = probe_staging(source, schools, ctx.clock.now(), since)
     logger.info("%d/%d schools have results staged", probe.staged, len(schools))
     return probe.staged
 
@@ -359,53 +394,75 @@ def _compute_diff(ctx: RunContext) -> DiffResult:
     )
 
 
-def _delivered_elsewhere(ctx: RunContext, diff_filename: str) -> bool:
-    """Did any recent run record a Drive delivery of this diff file?
-
-    Distinguishes "another run delivered" from "a claimant crashed before
-    delivering". Errs toward False: zero deliveries is the unacceptable
-    failure mode, a duplicate delivery is the old survivable one.
-    """
+def _drive_deliveries(ctx: RunContext) -> dict[str, str]:
+    """Recent Drive deliveries: file name -> content hash ("" for ones
+    recorded before hashes were). Empty if the ledger cannot be read,
+    which errs toward delivering: zero deliveries is the unacceptable
+    failure, a duplicate the survivable one."""
     try:
-        runs = ctx.ledger.recent_runs(limit=20)
+        runs = ctx.ledger.recent_runs(limit=50)
     except Exception as error:
         logger.warning(
             "could not read recent runs (%s); assuming not delivered",
             type(error).__name__,
         )
-        return False
-    return any(
-        event["type"] == "Delivered"
-        and event["data"].get("target") == "drive"
-        and event["data"].get("file_name") == diff_filename
+        return {}
+    return {
+        event["data"]["file_name"]: event["data"].get("content_hash", "")
         for run in runs
         for event in run["events"]
-    )
+        if event["type"] == "Delivered" and event["data"].get("target") == "drive"
+    }
+
+
+def _unused_name(name: str, deliveries: dict[str, str]) -> str:
+    """`name`, or `<stem>_2.csv`, `_3`, ... when a different diff already
+    went out under it (a second run the same day with new records): every
+    delivery gets its own file, and none masks another."""
+    stem, suffix = name.rsplit(".", 1)
+    candidate, n = name, 2
+    while candidate in deliveries:
+        candidate, n = f"{stem}_{n}.{suffix}", n + 1
+    return candidate
 
 
 def _deliver_diff(ctx: RunContext, diff: DiffResult) -> str:
-    """Drive delivery, gated by the date claim. Returns "delivered" or
-    "already_delivered"; an upload failure propagates so the run fails
-    loudly with the master untouched."""
+    """Drive delivery, at most once per diff *content*. Returns "delivered"
+    or "already_delivered"; an upload failure propagates so the run fails
+    loudly with the master untouched.
+
+    The claim is the date plus the diff's hash: two runs with the same
+    diff (a crash between delivery and commit, then a rerun) race for one
+    claim and deliver once; two runs the same day with different diffs
+    (new records arrived in between) both deliver. Keying on the date
+    alone made the second one look "already delivered", and its records
+    would have been committed to the master without ever reaching staff.
+    """
     if ctx.drive is None:
         raise RuntimeError("no Drive folder configured")
-    filename = diff.diff_path.name
+    digest = sha256_hex(diff.diff_path.read_text(encoding="utf-8"))
     # The filename starts with the %Y-%m-%d the diff was computed on; the
     # claim shares that date so a run crossing midnight stays consistent.
-    date_str = filename[:10]
-    if not claim_or_proceed(ctx.ledger, f"{date_str}_diff"):
-        if _delivered_elsewhere(ctx, filename):
-            logger.info("Skipping delivery: diff already delivered for %s", date_str)
+    date_str = diff.diff_path.name[:10]
+    won = claim_or_proceed(ctx.ledger, f"{date_str}_diff_{digest[:16]}")
+    deliveries = _drive_deliveries(ctx)
+    if not won:
+        if digest in deliveries.values():
+            logger.info("Skipping delivery: this diff was already delivered")
             return "already_delivered"
         logger.warning(
-            "date claim %s_diff already taken but no Delivered event found; "
-            "delivering anyway (a claimant that crashed before uploading "
-            "must not suppress delivery)",
+            "diff claim for %s already taken but no delivery of this content "
+            "found; delivering anyway (a claimant that crashed before "
+            "uploading must not suppress delivery)",
             date_str,
         )
-    drive_file_id = ctx.drive.upload(diff.diff_path, filename)
-    append_event(ctx.ledger, events.delivered(filename, "drive", str(drive_file_id)))
-    logger.info("Uploaded incremental diff file to Google Drive: %s", filename)
+    name = _unused_name(diff.diff_path.name, deliveries)
+    drive_file_id = ctx.drive.upload(diff.diff_path, name)
+    append_event(
+        ctx.ledger,
+        events.delivered(name, "drive", str(drive_file_id), content_hash=digest),
+    )
+    logger.info("Uploaded incremental diff file to Google Drive: %s", name)
     return "delivered"
 
 
