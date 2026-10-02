@@ -55,6 +55,8 @@ class MockFaults:
     # Keep listing the previous results even after a new upload, as real
     # AISR did on 2026-10-01 in the minutes after a submission.
     stale_listing: set[str] = field(default_factory=set)
+    # Refuse every login, as AISR does once the account's password expired.
+    login_refused: bool = False
 
     def clear(self) -> None:
         self.puturl_status.clear()
@@ -63,6 +65,7 @@ class MockFaults:
         self.no_results.clear()
         self.malformed_results.clear()
         self.stale_listing.clear()
+        self.login_refused = False
 
 
 def _require_bearer(request: Request) -> None:
@@ -117,7 +120,8 @@ def create_mock_app(
 
     @app.post(f"{REALM}/login-actions/authenticate")
     async def authenticate(username: str = Form(...), password: str = Form(...)):
-        if credentials is not None and (username, password) != credentials:
+        refused = app.state.faults.login_refused
+        if refused or (credentials is not None and (username, password) != credentials):
             return JSONResponse(
                 content={"message": "Invalid credentials"}, status_code=401
             )

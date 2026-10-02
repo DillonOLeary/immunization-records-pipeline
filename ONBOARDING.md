@@ -31,7 +31,8 @@ Already done if any district is live.
    Terraform; CI only validates.
 
 `schedule` is the run cadence (cron, in `time_zone`); `canary_schedule`
-defaults to the day before, `tick_schedule` to every 3 hours. Choose the cadence with the district: every
+defaults to every Monday plus the day before, `tick_schedule` to every
+3 hours. Choose the cadence with the district: every
 run emails its nurses.
 
 ## 4. Secrets [terminal]

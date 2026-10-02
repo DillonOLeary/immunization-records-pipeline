@@ -23,6 +23,7 @@ from mn_immunization.adapters.miic.actions import (
     staged_results,
 )
 from mn_immunization.adapters.miic.client import aisr_session
+from mn_immunization.workflow.ports import RegistryError, RegistryLoginError
 
 DISTRICT = DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host")
 
@@ -210,6 +211,27 @@ def test_every_keycloak_call_has_a_timeout_and_login_encodes_both_fields():
     login_post = session.calls[1]
     # A dict body: requests form-encodes it, so "+" and "&" survive.
     assert login_post[2]["data"] == {"username": "user+name&x", "password": "p@ss"}
+
+
+@pytest.mark.parametrize(
+    ("status", "page", "refused"),
+    [
+        (401, "", True),  # wrong credentials
+        (200, "<form>Update password</form>", True),  # expired password
+        (503, "", False),  # Keycloak down: wait it out
+    ],
+)
+def test_a_refused_login_is_told_apart_from_an_unavailable_one(status, page, refused):
+    session = ScriptedSession(
+        FakeResponse(200, LOGIN_PAGE, url="https://auth/page"),
+        FakeResponse(status, page),
+    )
+    session.cookies = {}
+
+    with pytest.raises(RegistryError) as caught:
+        authenticate.login(session, "https://auth", "user", "expired")
+
+    assert isinstance(caught.value, RegistryLoginError) is refused
 
 
 # --- logout never masks the real error ---

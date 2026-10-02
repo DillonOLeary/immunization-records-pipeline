@@ -375,6 +375,39 @@ def test_opening_a_period_supersedes_one_left_open(world, capsys):
 # --- rosters exported from Infinite Campus ---
 
 
+def test_a_refused_miic_login_fails_now_instead_of_waiting(world, capsys, monkeypatch):
+    # The account's password expired after the rosters went out. Waiting
+    # out the 20-hour deadline would only delay the alert: the first tick
+    # that is refused fails the period, naming the error.
+    monkeypatch.setenv("POLL_DEADLINE_SECONDS", "72000")
+    world.aisr.faults.stale_listing.update({"2542", "2543"})
+    code, result = world.run("run", capsys)
+    assert result["status"] == "waiting"
+
+    world.aisr.faults.login_refused = True
+    code, _ = world.run("tick", capsys)
+
+    assert code == 1
+    assert world.latest_run_events()[-1]["data"] == {
+        "step": "awaiting_results",
+        "error": "AuthenticationError",
+    }
+    assert world.latest_event_types()[-2] == "PeriodClosed"
+
+
+def test_canary_reports_every_failing_check(world, capsys):
+    # A refused MIIC login must not hide whether IC and the known set work.
+    world.set_schools(["2542", "2543"], ic=True)
+    world.aisr.faults.login_refused = True
+
+    code, result = world.run("canary", capsys)
+
+    assert code == 1
+    assert result["failed_checks"] == ["AuthenticationError"]
+    assert result["rosters_checked"] == 2  # IC was still checked, and is fine
+    assert result["known_records"] == 0
+
+
 def test_rosters_are_exported_from_ic_put_on_file_and_sent(world, capsys):
     world.set_schools(["2542", "2543"], ic=True)
 
@@ -446,6 +479,7 @@ def test_canary_checks_every_roster_export_and_keeps_none(world, capsys):
     assert world.latest_run_events()[-1]["data"] == {
         "step": "canary",
         "error": "RosterCheckFailed",
+        "failed_checks": ["RosterCheckFailed"],
     }
 
 
@@ -481,6 +515,7 @@ def test_canary_fails_when_any_listing_fails(world, capsys):
     assert world.latest_run_events()[-1]["data"] == {
         "step": "canary",
         "error": "StagingCheckFailed",
+        "failed_checks": ["StagingCheckFailed"],
     }
 
 
@@ -490,7 +525,7 @@ def test_canary_fails_on_a_missing_master(world, capsys):
     code, result = world.run("canary", capsys)
 
     assert code == 1
-    assert result["error"] == "KnownRecordsMissingError"
+    assert result["failed_checks"] == ["KnownRecordsMissingError"]
 
 
 def test_refresh_rebuilds_the_known_set_and_delivers_all_of_it(

@@ -179,72 +179,58 @@ def run_refresh_cycle(services: Services, trigger: str = "manual") -> dict:
 
 
 def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
-    """Read-only readiness probe, the day before a run: AISR login and a
-    staged-results count per school; a full read of the known set, so an
-    unreadable one (KnownRecordsMissingError, a malformed row) fails here;
-    and, with a roster source, every school's roster exported and checked.
+    """Read-only readiness probe: weekly, and the day before a run.
+
+    Three independent checks, each run even if another fails, so one
+    broken credential cannot hide another:
+    - MIIC: log in and list every school's results;
+    - the known set: read it whole (a missing or malformed set fails here,
+      before a run depends on it);
+    - Infinite Campus, when configured: export and check every roster.
+
     Stores nothing and emails no one: what it reads stays in memory, and
-    only counts are logged or recorded."""
+    only counts and error classes are logged or recorded. Any failure
+    fails the execution, so the alert names `failed_checks`.
+    """
     with pipeline_run("canary", services, trigger) as ctx:
         logger.info(
             "District zone %s: roster period %s",
             ctx.settings.time_zone.key,
             query_period(ctx),
         )
-        with ctx.open_registry() as registry:
-            probe = probe_staging(registry, ctx.schools, ctx.clock.now())
-        available = probe.staged
-        if probe.failed:
-            # The run cycle tolerates a failed listing (it retries for
-            # hours); the canary exists to notice one, so it fails loudly.
+        failed: list[str] = []
+        summary: dict[str, int] = {"schools_checked": len(ctx.schools)}
+
+        try:
+            with ctx.open_registry() as registry:
+                probe = probe_staging(registry, ctx.schools, ctx.clock.now())
+            summary["records_available"] = probe.staged
+            if probe.failed:
+                failed.append("StagingCheckFailed")
+        except Exception as error:
+            failed.append(type(error).__name__)
+            logger.error("Canary: MIIC check failed (%s)", type(error).__name__)
+
+        try:
+            summary["known_records"] = len(load_known_records(ctx.objects))
+        except Exception as error:
+            failed.append(type(error).__name__)
+            logger.error("Canary: known set check failed (%s)", type(error).__name__)
+
+        if ctx.open_rosters is not None:
+            checked, bad = check_roster_exports(ctx)
+            summary["rosters_checked"] = checked
+            if bad:
+                failed.append("RosterCheckFailed")
+
+        if failed:
             append_event(
                 ctx.ledger,
-                events.run_failed(step="canary", error="StagingCheckFailed"),
+                events.run_failed(step="canary", error=failed[0], failed_checks=failed),
             )
-            logger.error(
-                "Canary failed: results listing failed for %d/%d schools",
-                probe.failed,
-                len(ctx.schools),
-            )
-            return {
-                "status": "failed",
-                "reason": f"results listing failed for {probe.failed} school(s)",
-            }
-        known = load_known_records(ctx.objects)
-        rosters: dict[str, int] = {}
-        if ctx.open_rosters is not None:
-            checked, failed = check_roster_exports(ctx)
-            if failed:
-                append_event(
-                    ctx.ledger,
-                    events.run_failed(step="canary", error="RosterCheckFailed"),
-                )
-                return {
-                    "status": "failed",
-                    "reason": f"roster export failed for {failed} school(s)",
-                }
-            rosters = {"rosters_checked": checked}
+            logger.error("Canary failed: %s", ", ".join(failed))
+            return {"status": "failed", "failed_checks": failed, **summary}
 
-        append_event(
-            ctx.ledger,
-            events.run_completed(
-                schools_checked=len(ctx.schools),
-                records_available=available,
-                known_records=len(known),
-                **rosters,
-            ),
-        )
-        logger.info(
-            "Canary passed: login ok, %d/%d schools have records available, "
-            "master readable with %d known records",
-            available,
-            len(ctx.schools),
-            len(known),
-        )
-        return {
-            "status": "success",
-            "schools_checked": len(ctx.schools),
-            "records_available": available,
-            "known_records": len(known),
-            **rosters,
-        }
+        append_event(ctx.ledger, events.run_completed(**summary))
+        logger.info("Canary passed: %s", summary)
+        return {"status": "success", **summary}

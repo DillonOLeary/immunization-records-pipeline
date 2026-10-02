@@ -38,6 +38,12 @@ class RegistryError(Exception):
         self.status_code = status_code
 
 
+class RegistryLoginError(RegistryError):
+    """The registry refused our credentials: wrong, expired, or the account
+    disabled. Waiting will not fix it; a human must update the secrets, so
+    a period fails at once instead of waiting out its deadline."""
+
+
 class RosterNotSentError(RegistryError):
     """A roster submission failed before anything was uploaded, so the
     registry received nothing and emailed no one. The one failure after

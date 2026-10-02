@@ -50,9 +50,9 @@ variable "tick_schedule" {
 }
 
 variable "canary_schedule" {
-  description = "Cron for the read-only canary; the day before the run cycle"
+  description = "Cron for the read-only canary: the day before the run, and every Monday (day-of-month OR day-of-week)"
   type        = string
-  default     = "9 2 27 * *"
+  default     = "9 2 27 * 1"
 }
 
 variable "time_zone" {

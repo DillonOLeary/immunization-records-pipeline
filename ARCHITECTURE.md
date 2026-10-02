@@ -162,8 +162,10 @@ set; safe any time because IC imports are idempotent.
 - Every call has a timeout. Retries key off HTTP status (502/503/504) and
   only for side-effect-free calls; the roster upload is never retried.
 - Errors carry a status, never a response body.
-- The canary (scheduled the day before each run) fails on any listing
-  error; the run's staging probe tolerates them.
+- A refused login (wrong or expired credentials) fails a period at once;
+  only transient errors (timeouts, 5xx) are waited out. The canary (every
+  Monday and the day before each run) runs every check, MIIC, the known
+  set, and IC, and names each one that fails.
 - AISR lists one results entry per school and keeps the previous one for
   days after a run (seen 2026-10-01), so freshness is judged by upload
   time against the school's submission.
@@ -171,8 +173,8 @@ set; safe any time because IC imports are idempotent.
 ## Operations and security
 
 - Cloud Run Job `pipeline-job`, launched by Cloud Scheduler: `run` on the
-  district's cadence, `tick` every 3 hours, `canary` the day before a
-  run. Manual runs: `gcloud run jobs execute`. The CLI only reads the
+  district's cadence, `tick` every 3 hours, `canary` every Monday and
+  the day before a run. Manual runs: `gcloud run jobs execute`. The CLI only reads the
   ledger.
 - Alerts email on a failed job execution, on a failed scheduler launch,
   and when the job has not run for 12 hours.

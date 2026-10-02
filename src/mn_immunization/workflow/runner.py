@@ -28,6 +28,7 @@ from mn_immunization.workflow.policy import (
     SubmitQueries,
     decide,
 )
+from mn_immunization.workflow.ports import RegistryLoginError
 from mn_immunization.workflow.steps import delivery, diff, staging, submit
 from mn_immunization.workflow.support import append_event
 
@@ -169,6 +170,8 @@ def run_to_completion(ctx: RunContext, executors: Executors = REAL_EXECUTORS) ->
                 submission = state.submission or Submission()
                 try:
                     staged = executors.probe(ctx, submission.submitted)
+                except RegistryLoginError:
+                    raise  # refused credentials: fail now, not at the deadline
                 except Exception as error:
                     # One AISR blip (a failed login, a maintenance page)
                     # must not end the period's wait. Remember why, and

@@ -4,8 +4,9 @@
 # - tick advances the open period every few hours: it probes staging and,
 #   once results are in, diffs, delivers, and commits. Idle ticks write
 #   nothing;
-# - canary runs the day before a run: login plus read-only listings, so
-#   MIIC breakage surfaces a day early. It emails no one.
+# - canary runs the day before a run and every Monday: every login (MIIC,
+#   IC) and read-only checks, so an expired password or a broken export
+#   surfaces within a week, not on run day. It emails no one.
 # All three launch through the same path (scheduler service account, args
 # override, runWithOverrides), so the canary and every tick also prove the
 # launch itself works: the path that failed silently with a 403 on

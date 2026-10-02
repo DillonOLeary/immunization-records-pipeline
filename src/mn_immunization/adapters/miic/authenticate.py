@@ -10,6 +10,8 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup, Tag
 
+from mn_immunization.workflow.ports import RegistryError, RegistryLoginError
+
 logger = logging.getLogger(__name__)
 
 # (connect, read) seconds for every Keycloak call. Without a timeout a
@@ -42,14 +44,21 @@ class TokenRequestError(Exception):
         return self.message
 
 
-class AuthenticationError(Exception):
-    """Custom exception for authentication failures."""
+class AuthenticationError(RegistryLoginError):
+    """AISR refused the credentials: a 401, or no session afterwards (an
+    expired password lands on Keycloak's "update password" page)."""
 
     def __init__(self, message):
+        super().__init__(message)
         self.message = message
 
     def __str__(self):
         return self.message
+
+
+class LoginUnavailableError(RegistryError):
+    """AISR's login answered with a server error: transient, unlike a
+    refusal, so a waiting period keeps waiting."""
 
 
 @dataclass
@@ -167,6 +176,11 @@ def login(
             session, base_url, _get_code_from_response(response)
         )
         return AISRAuthResponse(access_token=access_token)
+
+    if response.status_code >= 500:
+        raise LoginUnavailableError(
+            f"HTTP {response.status_code} at login", response.status_code
+        )
 
     # Handle authentication failures
     if response.status_code == 401:
