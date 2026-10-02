@@ -30,6 +30,12 @@ resource "google_cloud_run_v2_job" "pipeline" {
           name  = "DISTRICT_TIME_ZONE"
           value = var.time_zone
         }
+        # One roster per school per period; must match the run schedule
+        # (twice a month: "%Y-%m-{half}" with runs on the 13th and 28th).
+        env {
+          name  = "QUERY_PERIOD_FORMAT"
+          value = var.period_format
+        }
 
         resources {
           limits = {

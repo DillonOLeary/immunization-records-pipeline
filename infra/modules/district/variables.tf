@@ -43,6 +43,12 @@ variable "schedule" {
   default     = "9 2 28 * *"
 }
 
+variable "period_format" {
+  description = "Roster period key (QUERY_PERIOD_FORMAT): one submission per school per period. \"%Y-%m\" monthly; \"%Y-%m-{half}\" twice a month (1st-15th, 16th-end)"
+  type        = string
+  default     = "%Y-%m"
+}
+
 variable "tick_schedule" {
   description = "Cron for tick: advances the open period (staging, diff, delivery)"
   type        = string

@@ -30,7 +30,10 @@ Already done if any district is live.
 2. `terraform plan` in `infra/`, read the whole diff, apply. Humans apply
    Terraform; CI only validates.
 
-`schedule` is the run cadence (cron, in `time_zone`); `canary_schedule`
+`schedule` is the run cadence (cron, in `time_zone`) and `period_format`
+its period: monthly runs keep `%Y-%m`; twice a month (ISD 197: the 13th
+and 28th) uses `%Y-%m-{half}`, so a retry inside a half never resends a
+roster. `canary_schedule`
 defaults to every Monday plus the day before, `tick_schedule` to every
 3 hours. Choose the cadence with the district: every
 run emails its nurses.
