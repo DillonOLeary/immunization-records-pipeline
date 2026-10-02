@@ -25,21 +25,25 @@ owns is knowledge of its own runs: the ledger.
 
 ```
 src/mn_immunization/
-  domain/                pure: records, IC CSV format, hashing
-  sources/aisr/          MIIC protocol: login, actions, parsing, client, port
-  sinks/                 Google Drive delivery (drive.py) and its port
-  gcp/                   object store, secrets, and the store's port
-  ledger/                events, GCS ledger and snapshots, ports
-  pipeline/              the application layer
+  records/               pure: what a record is, IC's CSV format, hashing
+  workflow/              the process: periods, decisions, steps
+    ports.py             what it needs from outside: Registry, Delivery, ObjectStore, RunLedger
+    events.py            the ledger's event types
     policy.py            the decider: CycleState -> next Step (pure)
-    execute.py           executors and the runner loop
+    periods.py           which period is open: a fold over the ledger (pure)
+    runner.py            the loop: decide, execute, terminal event
+    steps/               one executor per step: submit, staging, diff, delivery
+    known.py             the known set (fail-closed), diff, master commit
     cycles.py            run, tick, canary, rebaseline
-    periods.py           which period is open: a fold over the ledger
-    incremental.py       known set (fail-closed), diff, master commit
     settings.py          every environment variable, parsed once
     services.py          what a cycle is given: ports, settings, clock
-    context.py           one run's view: RunContext
+    context.py           one execution's view: RunContext
+  adapters/              one folder per external system
+    miic/                AISR: login, actions, parsing, the Registry
+    drive/               the Drive folder: the Delivery
+    gcs/                 object store, ledger and snapshots, secrets
   runtime/
+    config.py            config.json, bound to its adapters
     composition.py       the only place adapters are built
     job.py               Cloud Run Job entrypoint
     cli.py               mn-immunization status (read-only)
@@ -48,11 +52,15 @@ tests/                   mirrors src/; e2e/ runs the job end to end
 infra/                   Terraform: one district module per districts/*.json
 ```
 
-Dependencies point inward: domain imports nothing; adapters import domain
-and ports; the pipeline imports only domain and ports; only `runtime/`
-builds adapters, reads the environment, or reads the clock.
-`tests/test_architecture.py` enforces this, along with the rule that no
-exception value ever reaches a log line.
+Dependencies point inward: records <- workflow <- adapters <- runtime.
+`records/` is facts about the data and knows no process. `workflow/` is
+the process, and declares what it needs from outside in
+`workflow/ports.py`, in its own words. Each adapter implements those ports
+for one system and imports nothing of the workflow but them. The
+workflow imports no adapter and no third-party package, and only
+`runtime/` builds adapters, reads the environment or config, or reads the
+clock. `tests/test_architecture.py` enforces this, along with the rule
+that no exception value ever reaches a log line.
 
 ## Periods, runs, and ticks
 
@@ -73,7 +81,7 @@ superseded (AISR lists only the newest results, which carry each
 student's full history).
 
 `policy.decide` is the pipeline on one screen: pure, no I/O, no clock.
-The runner (`execute.run_to_completion`) asks it for the next step,
+The runner (`runner.run_to_completion`) asks it for the next step,
 executes it, folds the result into the state, and repeats until `Finish`,
 the only step that writes a terminal event.
 

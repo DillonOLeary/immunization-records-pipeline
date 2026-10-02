@@ -27,16 +27,16 @@ import pytest
 from minnesota_immunization_mock.sample_data import CANARY_PHI
 
 import mn_immunization.runtime.job as job
-from mn_immunization.gcp.storage import GcsObjectStore
-from mn_immunization.ledger.gcs_ledger import (
+from mn_immunization.adapters.gcs.ledger import (
     GcsRunLedger,
     GcsSnapshotStore,
     read_recent_runs,
     recent_months,
 )
-from mn_immunization.pipeline.services import Clock, Services
-from mn_immunization.pipeline.settings import Settings
-from mn_immunization.sources.aisr.client import aisr_opener
+from mn_immunization.adapters.gcs.storage import GcsObjectStore
+from mn_immunization.runtime.config import CONFIG_PATH, district_from_config
+from mn_immunization.workflow.services import Clock, Services
+from mn_immunization.workflow.settings import Settings
 from tests.conftest import MockAisr
 from tests.fakes import FakeBucket, FakeDrive
 
@@ -104,17 +104,21 @@ class World:
 
     def build(self, settings: Settings) -> Services:
         """Test composition: the real GCS adapters over the shared fake
-        bucket, the fake Drive, the real AISR opener, no sleeping."""
+        bucket, the fake Drive, and the real config binding and AISR
+        adapter."""
         assert settings.data_bucket == self.bucket.name
         clock = Clock(now=lambda: datetime.now(UTC))
+        objects = GcsObjectStore(self.bucket)
         return Services(
             settings=settings,
             clock=clock,
             new_ledger=lambda run_id: GcsRunLedger(self.bucket, run_id, now=clock.now),
             snapshots=GcsSnapshotStore(self.bucket),
-            objects=GcsObjectStore(self.bucket),
-            drive=self.drive if settings.drive_folder_id else None,
-            open_source=aisr_opener(SECRETS.__getitem__),
+            objects=objects,
+            delivery=self.drive if settings.drive_folder_id else None,
+            load_district=lambda: district_from_config(
+                json.loads(objects.read_text(CONFIG_PATH)), SECRETS.__getitem__
+            ),
         )
 
     def run_ids(self) -> set[str]:

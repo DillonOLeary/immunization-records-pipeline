@@ -13,16 +13,16 @@ import os
 import sys
 from datetime import UTC, datetime, timedelta
 
-from mn_immunization.gcp.storage import get_storage_client
-from mn_immunization.ledger.events import TERMINAL_TYPES
-from mn_immunization.ledger.gcs_ledger import (
+from mn_immunization.adapters.gcs.ledger import (
     CLAIMS_PREFIX,
     read_claims,
     read_recent_runs,
     recent_months,
 )
-from mn_immunization.pipeline.execute import submitted_this_period
-from mn_immunization.pipeline.periods import open_periods
+from mn_immunization.adapters.gcs.storage import get_storage_client
+from mn_immunization.workflow.events import TERMINAL_TYPES
+from mn_immunization.workflow.periods import open_periods
+from mn_immunization.workflow.steps.submit import submitted_this_period
 
 
 def create_parser() -> argparse.ArgumentParser:

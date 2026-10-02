@@ -22,13 +22,13 @@ from zoneinfo import ZoneInfo
 
 from google.api_core.exceptions import NotFound, PreconditionFailed
 
-from mn_immunization.gcp.storage import GcsObjectStore
-from mn_immunization.ledger.events import LedgerEvent
-from mn_immunization.pipeline.context import RunContext
-from mn_immunization.pipeline.periods import period_key
-from mn_immunization.pipeline.services import Clock
-from mn_immunization.pipeline.settings import Settings
-from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
+from mn_immunization.adapters.gcs.storage import GcsObjectStore
+from mn_immunization.workflow.context import RunContext
+from mn_immunization.workflow.events import LedgerEvent
+from mn_immunization.workflow.periods import period_key
+from mn_immunization.workflow.ports import School
+from mn_immunization.workflow.services import Clock
+from mn_immunization.workflow.settings import Settings
 
 
 class FakeBlob:
@@ -115,7 +115,7 @@ class FakeStorageClient:
 
 
 class FakeDrive:
-    """A DriveSink: the import queue, with what was uploaded and what is
+    """A Delivery: the import queue, with what was uploaded and what is
     still there (staff delete a file once imported). `list_error` makes
     listing fail."""
 
@@ -124,8 +124,8 @@ class FakeDrive:
         self.uploads: list[str] = []
         self.list_error = list_error
 
-    def upload(self, path: Path, name: str) -> str:
-        self.files[name] = Path(path).read_text(encoding="utf-8")
+    def upload(self, name: str, text: str) -> str:
+        self.files[name] = text
         self.uploads.append(name)
         return f"drive-file-{len(self.uploads)}"
 
@@ -235,8 +235,8 @@ class FakeClock:
         return Clock(now=self.now)
 
 
-def no_source(auth_url: str, api_url: str):
-    raise AssertionError("no AISR session expected in this test")
+def no_registry():
+    raise AssertionError("no registry session expected in this test")
 
 
 _DEFAULT = object()
@@ -249,17 +249,16 @@ def make_run_context(
     clock: Clock | None = None,
     ledger=None,
     objects=None,
-    drive=_DEFAULT,
-    open_source=no_source,
-    schools: list[SchoolQueryInformation] | None = None,
-    roster_paths: dict[str, str] | None = None,
+    delivery=_DEFAULT,
+    open_registry=no_registry,
+    schools: list[School] | None = None,
     opened_at: datetime | None = None,
 ) -> RunContext:
     """A RunContext of fakes: in-memory ledger and snapshots, a FakeBucket
-    object store, a FakeDrive, and an AISR opener that must not be used.
-    Its period is the one current at the clock's time, opened then unless
-    `opened_at` says otherwise. Pass `drive=None` for a district with no
-    delivery folder."""
+    object store, a FakeDrive, and a registry opener that must not be
+    used. Its period is the one current at the clock's time, opened then
+    unless `opened_at` says otherwise. Pass `delivery=None` for a district
+    with no delivery folder."""
     settings = settings or Settings(data_bucket="test-bucket", time_zone=DISTRICT)
     clock = clock or FakeClock().as_clock()
     now = clock.now()
@@ -269,16 +268,12 @@ def make_run_context(
         ledger=ledger or InMemoryRunLedger(),
         snapshots=InMemorySnapshotStore(),
         objects=objects or GcsObjectStore(FakeBucket()),
-        drive=FakeDrive() if drive is _DEFAULT else drive,
-        open_source=open_source,
+        delivery=FakeDrive() if delivery is _DEFAULT else delivery,
+        open_registry=open_registry,
         temp=tmp_path,
-        auth_url="https://auth.test",
-        api_url="https://api.test",
-        district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
         period=period_key(
             now.astimezone(settings.time_zone), settings.query_period_format
         ),
         opened_at=opened_at or now,
         schools=schools or [],
-        roster_paths=roster_paths or {},
     )

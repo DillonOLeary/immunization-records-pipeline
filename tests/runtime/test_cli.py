@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 import pytest
 
 import mn_immunization.runtime.cli as cli
-from mn_immunization.ledger import events
-from mn_immunization.ledger.gcs_ledger import GcsRunLedger
+from mn_immunization.adapters.gcs.ledger import GcsRunLedger
+from mn_immunization.workflow import events
 from tests.fakes import FakeBucket
 
 

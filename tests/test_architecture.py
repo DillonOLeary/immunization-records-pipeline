@@ -6,15 +6,17 @@ fails on a violation. No dependency beyond the standard library.
 
 Rules:
 
-1. domain/ imports only the standard library and domain.
-2. Port modules (the contracts adapters implement) import only the
-   standard library, domain, and other port modules.
-3. Adapter slices (sources, sinks, gcp, ledger) never import pipeline or
-   runtime, and reach other slices only through their port modules.
-4. pipeline/ imports only the standard library, domain, port modules, and
-   pipeline: no adapter implementations, no third-party packages.
-   policy.py, the pure decider, imports only the standard library and
-   domain.
+1. records/ imports only the standard library and records.
+2. The port modules (workflow/ports.py, workflow/events.py: the
+   contracts adapters implement) import only the standard library,
+   records, and each other.
+3. Each adapter (adapters/<system>/) imports only third-party packages,
+   records, the port modules, and its own package: never the rest of the
+   workflow, another adapter, or runtime.
+4. workflow/ imports only the standard library, records, and workflow:
+   no adapter, no third-party package. policy.py and periods.py, the
+   pure decider and the period fold, import only the standard library
+   and records.
 5. Only runtime/ imports runtime.
 6. Only runtime/ reads the environment or the clock (os.environ,
    os.getenv, datetime.now, time.sleep, time.monotonic): everything else
@@ -38,14 +40,8 @@ from pathlib import Path
 PACKAGE = "mn_immunization"
 SRC = Path(__file__).resolve().parents[1] / "src" / PACKAGE
 
-ADAPTER_SLICES = ("sources", "sinks", "gcp", "ledger")
-PORT_MODULES = {
-    f"{PACKAGE}.ledger.port",
-    f"{PACKAGE}.ledger.events",
-    f"{PACKAGE}.sources.aisr.port",
-    f"{PACKAGE}.sinks.port",
-    f"{PACKAGE}.gcp.port",
-}
+PORT_MODULES = {f"{PACKAGE}.workflow.ports", f"{PACKAGE}.workflow.events"}
+PURE_MODULES = {f"{PACKAGE}.workflow.policy", f"{PACKAGE}.workflow.periods"}
 CLOCK_AND_ENV = {
     ("os", "environ"),
     ("os", "getenv"),
@@ -66,6 +62,12 @@ def module_name(path: Path) -> str:
 def slice_of(module: str) -> str:
     parts = module.split(".")
     return parts[1] if len(parts) > 1 else ""
+
+
+def adapter_of(module: str) -> str:
+    """The external system an adapter module belongs to (adapters/<it>/)."""
+    parts = module.split(".")
+    return parts[2] if len(parts) > 2 and parts[1] == "adapters" else ""
 
 
 def is_stdlib(module: str) -> bool:
@@ -110,16 +112,17 @@ def import_violations(module: str, imports: set[str]) -> set[str]:
         ours = is_ours(target)
         there = slice_of(target) if ours else ""
         is_port = target in PORT_MODULES
-        if here == "domain":
-            ok = ours and there == "domain"
+        if here == "records":
+            ok = ours and there == "records"
         elif module in PORT_MODULES:
-            ok = ours and (there == "domain" or target in PORT_MODULES)
-        elif here in ADAPTER_SLICES:
-            ok = not ours or there in ("domain", here) or is_port
-        elif module == f"{PACKAGE}.pipeline.policy":
-            ok = ours and there == "domain"
-        elif here == "pipeline":
-            ok = ours and (there in ("domain", "pipeline") or is_port)
+            ok = ours and (there == "records" or is_port)
+        elif here == "adapters":
+            same = adapter_of(target) == adapter_of(module)
+            ok = not ours or there == "records" or is_port or same
+        elif module in PURE_MODULES:
+            ok = ours and there == "records"
+        elif here == "workflow":
+            ok = ours and there in ("records", "workflow")
         else:
             ok = True
         if ours and there == "runtime" and here != "runtime":
@@ -267,14 +270,21 @@ def test_checker_flags_logger_exception_and_exc_info():
     assert _phi("logger.error('boom', exc_info=True)\n") == {"sample logs exc_info"}
 
 
-def test_checker_flags_a_pipeline_reaching_an_adapter():
-    imports = {f"{PACKAGE}.gcp.storage", f"{PACKAGE}.ledger.port", "json"}
-    assert import_violations(f"{PACKAGE}.pipeline.x", imports) == {
-        f"{PACKAGE}.pipeline.x imports {PACKAGE}.gcp.storage"
+def test_checker_flags_the_workflow_reaching_an_adapter():
+    imports = {f"{PACKAGE}.adapters.gcs.storage", f"{PACKAGE}.workflow.ports", "json"}
+    assert import_violations(f"{PACKAGE}.workflow.x", imports) == {
+        f"{PACKAGE}.workflow.x imports {PACKAGE}.adapters.gcs.storage"
     }
 
 
-def test_checker_keeps_the_domain_pure():
-    assert import_violations(f"{PACKAGE}.domain.x", {"requests"}) == {
-        f"{PACKAGE}.domain.x imports requests"
+def test_checker_keeps_adapters_apart():
+    imports = {f"{PACKAGE}.adapters.gcs.storage", f"{PACKAGE}.adapters.miic.parsing"}
+    assert import_violations(f"{PACKAGE}.adapters.miic.client", imports) == {
+        f"{PACKAGE}.adapters.miic.client imports {PACKAGE}.adapters.gcs.storage"
+    }
+
+
+def test_checker_keeps_records_pure():
+    assert import_violations(f"{PACKAGE}.records.x", {"requests"}) == {
+        f"{PACKAGE}.records.x imports requests"
     }

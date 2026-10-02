@@ -25,15 +25,15 @@ import traceback
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from mn_immunization.pipeline.cycles import (
+from mn_immunization.runtime.composition import build_services
+from mn_immunization.workflow.cycles import (
     run_canary_cycle,
     run_cycle,
     run_rebaseline_cycle,
     run_tick_cycle,
 )
-from mn_immunization.pipeline.services import Services
-from mn_immunization.pipeline.settings import Settings, SettingsError
-from mn_immunization.runtime.composition import build_services
+from mn_immunization.workflow.services import Services
+from mn_immunization.workflow.settings import Settings, SettingsError
 
 CYCLES = {
     "run": run_cycle,
