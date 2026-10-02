@@ -44,19 +44,8 @@ def record_import_confirmations(ctx: RunContext) -> None:
     try:
         # Delivered files carry the district-local date they were made on.
         now = ctx.local_now().replace(tzinfo=None)
-        runs = ctx.ledger.recent_runs(limit=50)
-
-        delivered: set[str] = set()
-        confirmed: set[str] = set()
-        for run in runs:
-            for event in run["events"]:
-                data = event["data"]
-                if event["type"] == "Delivered" and data.get("target") == "drive":
-                    delivered.add(data["file_name"])
-                elif event["type"] == "ImportConfirmed":
-                    confirmed.add(data["file_name"])
-
-        outstanding = delivered - confirmed
+        history = ctx.history()
+        outstanding = set(history.deliveries()) - history.confirmed_imports()
         if not outstanding:
             return
         present = ctx.delivery.list_filenames()
@@ -87,19 +76,13 @@ def _drive_deliveries(ctx: RunContext) -> dict[str, str]:
     which errs toward delivering: zero deliveries is the unacceptable
     failure, a duplicate the survivable one."""
     try:
-        runs = ctx.ledger.recent_runs(limit=50)
+        return ctx.history().deliveries()
     except Exception as error:
         logger.warning(
             "could not read recent runs (%s); assuming not delivered",
             type(error).__name__,
         )
         return {}
-    return {
-        event["data"]["file_name"]: event["data"].get("content_hash", "")
-        for run in runs
-        for event in run["events"]
-        if event["type"] == "Delivered" and event["data"].get("target") == "drive"
-    }
 
 
 def _unused_name(name: str, deliveries: dict[str, str]) -> str:

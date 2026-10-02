@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 from mn_immunization.workflow.context import RunContext
 from mn_immunization.workflow.ports import Registry, School
-from mn_immunization.workflow.steps.submit import query_period, submission_times
+from mn_immunization.workflow.steps.submit import query_period
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def probe_staged(ctx: RunContext, school_ids: frozenset[str]) -> int:
     results uploaded since each school's submission; the others are not
     waited for."""
     schools = [school for school in ctx.schools if school.id in school_ids]
-    since = submission_times(ctx.ledger.recent_runs(), query_period(ctx))
+    since = ctx.history().submissions(query_period(ctx))
     with ctx.open_registry() as registry:
         probe = probe_staging(registry, schools, ctx.clock.now(), since)
     logger.info("%d/%d schools have results staged", probe.staged, len(schools))

@@ -29,8 +29,9 @@ from pathlib import Path
 from mn_immunization.records.ic_format import chunk, render_csv
 from mn_immunization.workflow import events
 from mn_immunization.workflow.context import RunContext
+from mn_immunization.workflow.history import History
 from mn_immunization.workflow.known import load_known_records
-from mn_immunization.workflow.periods import OpenPeriod, open_periods, period_key
+from mn_immunization.workflow.periods import OpenPeriod, period_key
 from mn_immunization.workflow.ports import RunLedger
 from mn_immunization.workflow.runner import run_to_completion
 from mn_immunization.workflow.services import Services
@@ -111,7 +112,7 @@ def run_cycle(services: Services, trigger: str = "scheduled") -> dict:
     blocks the delivery work.
     """
     with pipeline_run("run", services, trigger) as ctx:
-        for other in open_periods(ctx.ledger.recent_runs()):
+        for other in ctx.history().open_periods():
             if other.key != ctx.period:
                 append_event(ctx.ledger, events.period_closed(other.key, "superseded"))
         append_event(ctx.ledger, events.period_opened(ctx.period))
@@ -126,7 +127,7 @@ def run_tick_cycle(services: Services, trigger: str = "scheduled") -> dict:
     With no period open, write nothing at all: most ticks are idle, and
     the ledger records work, not polling."""
     ledger = services.new_ledger(new_run_id("tick", services.clock.now()))
-    periods = open_periods(ledger.recent_runs())
+    periods = History.from_runs(ledger.recent_runs()).open_periods()
     if not periods:
         logger.info("No open period; nothing to do")
         return {"status": "idle"}

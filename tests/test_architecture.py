@@ -41,7 +41,12 @@ PACKAGE = "mn_immunization"
 SRC = Path(__file__).resolve().parents[1] / "src" / PACKAGE
 
 PORT_MODULES = {f"{PACKAGE}.workflow.ports", f"{PACKAGE}.workflow.events"}
-PURE_MODULES = {f"{PACKAGE}.workflow.policy", f"{PACKAGE}.workflow.periods"}
+PURE_MODULES = {
+    f"{PACKAGE}.workflow.policy",
+    f"{PACKAGE}.workflow.periods",
+}
+"""The decider and the period key: standard library and records only.
+(history.py also folds events, so it may import the event vocabulary.)"""
 CLOCK_AND_ENV = {
     ("os", "environ"),
     ("os", "getenv"),

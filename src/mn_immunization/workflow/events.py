@@ -10,6 +10,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Event types, as stored; writers below and `history.py` share them.
+RUN_STARTED = "RunStarted"
+PERIOD_OPENED = "PeriodOpened"
+PERIOD_CLOSED = "PeriodClosed"
+QUERY_SUBMITTED = "QuerySubmitted"
+RECORDS_FETCHED = "RecordsFetched"
+DIFF_COMPUTED = "DiffComputed"
+DELIVERED = "Delivered"
+MASTER_COMMITTED = "MasterCommitted"
+IMPORT_CONFIRMED = "ImportConfirmed"
+RUN_SKIPPED = "RunSkipped"
+RUN_WAITING = "RunWaiting"
+RUN_COMPLETED = "RunCompleted"
+RUN_FAILED = "RunFailed"
+
 
 @dataclass(frozen=True, slots=True)
 class LedgerEvent:
@@ -19,20 +34,20 @@ class LedgerEvent:
 
 def run_started(kind: str, trigger: str) -> LedgerEvent:
     """kind: run|tick|canary|rebaseline; trigger: scheduled|manual."""
-    return LedgerEvent("RunStarted", {"kind": kind, "trigger": trigger})
+    return LedgerEvent(RUN_STARTED, {"kind": kind, "trigger": trigger})
 
 
 def period_opened(period: str) -> LedgerEvent:
     """`run` opened (or reopened) a period: ticks advance it until it
     closes. Its time starts the staging deadline."""
-    return LedgerEvent("PeriodOpened", {"period": period})
+    return LedgerEvent(PERIOD_OPENED, {"period": period})
 
 
 def period_closed(period: str, outcome: str) -> LedgerEvent:
     """outcome: success|skipped|blocked|failed, or superseded when a newer
     period opened first. A closed period gets no more ticks; `run` reopens
     it."""
-    return LedgerEvent("PeriodClosed", {"period": period, "outcome": outcome})
+    return LedgerEvent(PERIOD_CLOSED, {"period": period, "outcome": outcome})
 
 
 def query_submitted(school_id: str, query_file_hash: str, period: str) -> LedgerEvent:
@@ -105,27 +120,27 @@ def master_committed(
 
 
 def import_confirmed(file_name: str, how: str) -> LedgerEvent:
-    return LedgerEvent("ImportConfirmed", {"file_name": file_name, "how": how})
+    return LedgerEvent(IMPORT_CONFIRMED, {"file_name": file_name, "how": how})
 
 
 def run_skipped(reason: str) -> LedgerEvent:
-    return LedgerEvent("RunSkipped", {"reason": reason})
+    return LedgerEvent(RUN_SKIPPED, {"reason": reason})
 
 
 def run_waiting(reason: str) -> LedgerEvent:
     """This execution is done but its period is not: results are still
     staging, and the next tick looks again."""
-    return LedgerEvent("RunWaiting", {"reason": reason})
+    return LedgerEvent(RUN_WAITING, {"reason": reason})
 
 
 def run_completed(**summary: int | str) -> LedgerEvent:
-    return LedgerEvent("RunCompleted", dict(summary))
+    return LedgerEvent(RUN_COMPLETED, dict(summary))
 
 
 def run_failed(step: str, error: str, **detail: object) -> LedgerEvent:
     """error is an error class or short category, never message content.
     detail carries ids and counts only (e.g. stuck_schools)."""
-    return LedgerEvent("RunFailed", {"step": step, "error": error, **detail})
+    return LedgerEvent(RUN_FAILED, {"step": step, "error": error, **detail})
 
 
-TERMINAL_TYPES = frozenset({"RunCompleted", "RunSkipped", "RunFailed", "RunWaiting"})
+TERMINAL_TYPES = frozenset({RUN_COMPLETED, RUN_SKIPPED, RUN_FAILED, RUN_WAITING})

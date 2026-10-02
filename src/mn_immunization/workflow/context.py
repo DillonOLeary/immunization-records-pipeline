@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from mn_immunization.workflow.history import History
 from mn_immunization.workflow.ports import (
     Delivery,
     ObjectStore,
@@ -43,3 +44,7 @@ class RunContext:
         follow the district's calendar, as its schedulers do. (Ledger
         timestamps and run ids stay UTC.)"""
         return self.clock.now().astimezone(self.settings.time_zone)
+
+    def history(self) -> History:
+        """The ledger's recent events, read now and folded."""
+        return History.from_runs(self.ledger.recent_runs())

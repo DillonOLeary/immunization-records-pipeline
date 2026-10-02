@@ -30,7 +30,8 @@ src/mn_immunization/
     ports.py             what it needs from outside: Registry, Delivery, ObjectStore, RunLedger
     events.py            the ledger's event types
     policy.py            the decider: CycleState -> next Step (pure)
-    periods.py           which period is open: a fold over the ledger (pure)
+    history.py           the ledger folded: open periods, submissions, deliveries (pure)
+    periods.py           the period key
     runner.py            the loop: decide, execute, terminal event
     steps/               one executor per step: submit, staging, diff, delivery
     known.py             the known set (fail-closed), diff, master commit
@@ -71,7 +72,8 @@ advances whichever period is open. Nothing sleeps: waiting for MDH ends
 the execution as RunWaiting and the next tick looks again, so a period
 spans as many executions as staging takes (each well under the job's
 one-hour timeout). Whether a period is open is a fold over PeriodOpened
-and PeriodClosed events; an idle tick writes nothing.
+and PeriodClosed events (`history.py`, where every read of the past
+lives); an idle tick writes nothing.
 
 Every outcome but waiting closes the period, failures included, so a
 failure alerts once rather than every tick. `run` reopens a closed

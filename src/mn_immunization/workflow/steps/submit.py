@@ -4,7 +4,6 @@ per period, because each one emails every nurse in the district."""
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 
 from mn_immunization.records.hashing import sha256_hex
 from mn_immunization.workflow import events
@@ -20,17 +19,6 @@ def query_period(ctx: RunContext) -> str:
     """The period this execution works on: one roster submission per
     school per period."""
     return ctx.period
-
-
-def submitted_this_period(runs: list[dict], period: str) -> set[str]:
-    """School ids with a QuerySubmitted event for `period`. Events written
-    before per-school claims carry no period and are ignored."""
-    return {
-        event["data"]["school_id"]
-        for run in runs
-        for event in run["events"]
-        if event["type"] == "QuerySubmitted" and event["data"].get("period") == period
-    }
 
 
 def submit_queries(ctx: RunContext) -> Submission:
@@ -58,7 +46,7 @@ def submit_queries(ctx: RunContext) -> Submission:
     """
     period = query_period(ctx)
     prefix = f"{period}_query"
-    runs = ctx.ledger.recent_runs()
+    history = ctx.history()
     held = ctx.ledger.held_claims(prefix)
     all_ids = {school.id for school in ctx.schools}
 
@@ -68,7 +56,7 @@ def submit_queries(ctx: RunContext) -> Submission:
         logger.info("Period %s was submitted under the legacy claim", period)
         return Submission(submitted=frozenset(all_ids))
 
-    submitted = submitted_this_period(runs, period) & all_ids
+    submitted = set(history.submissions(period)) & all_ids
     pending = [school for school in ctx.schools if school.id not in submitted]
     if not pending:
         logger.info(
@@ -156,19 +144,3 @@ def _release_unsent(ctx: RunContext, key: str, school_name: str) -> None:
         "Roster for %s was never sent; claim released, a rerun will submit it",
         school_name,
     )
-
-
-def submission_times(runs: list[dict], period: str) -> dict[str, datetime]:
-    """When each school's roster went out for `period` (UTC), from its
-    QuerySubmitted event."""
-    times: dict[str, datetime] = {}
-    for run in runs:
-        for event in run["events"]:
-            if (
-                event["type"] == "QuerySubmitted"
-                and event["data"].get("period") == period
-            ):
-                at = datetime.fromisoformat(event["at"]).replace(tzinfo=UTC)
-                school_id = event["data"]["school_id"]
-                times[school_id] = max(at, times.get(school_id, at))
-    return times
