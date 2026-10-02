@@ -1,15 +1,13 @@
-"""GCS-backed run ledger and snapshot store.
+"""GCS-backed run ledger.
 
 One immutable JSON object per event under ledger/YYYY/MM/<run_id>/; claims
 are create-if-absent objects (if_generation_match=0), which makes exactly
-one claimant win regardless of concurrent runs; snapshots are
-content-addressed CSV objects. No database, no extra IAM surface: the same
-bucket the pipeline already uses.
+one claimant win regardless of concurrent runs. No database, no extra IAM
+surface: the same bucket the pipeline already uses.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -92,32 +90,6 @@ class GcsRunLedger:
         """Every claim whose key starts with prefix: key -> its payload
         (the claimant's run_id and when it claimed)."""
         return read_claims(self.bucket, prefix)
-
-
-SNAPSHOT_PREFIX = "snapshots/"
-"""Every master commit writes a snapshot here, so anything under this
-prefix means a master has been committed before."""
-
-
-class GcsSnapshotStore:
-    def __init__(self, bucket) -> None:
-        self.bucket = bucket
-
-    def put(self, content: str) -> tuple[str, str]:
-        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        path = f"{SNAPSHOT_PREFIX}{digest}.csv"
-        blob = self.bucket.blob(path)
-        try:
-            blob.upload_from_string(
-                content, content_type="text/csv", if_generation_match=0
-            )
-        except PreconditionFailed:
-            pass  # content-addressed: identical content is already there
-        return digest, path
-
-    def any_stored(self) -> bool:
-        blobs = self.bucket.list_blobs(prefix=SNAPSHOT_PREFIX, max_results=1)
-        return any(True for _ in blobs)
 
 
 def recent_months(now: datetime, count: int = 2) -> tuple[tuple[int, int], ...]:

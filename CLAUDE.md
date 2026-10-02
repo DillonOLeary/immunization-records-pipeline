@@ -21,7 +21,7 @@ uv run mock-server                         # local fake AISR
 ```
 
 The pipeline runs as the Cloud Run Job `pipeline-job` (`run` opens a
-period, `tick` advances it, `canary`, `rebaseline`); a manual run is
+period, `tick` advances it, `canary`, `refresh`); a manual run is
 `gcloud run jobs execute`. The
 `mn-immunization` CLI only reads the ledger.
 

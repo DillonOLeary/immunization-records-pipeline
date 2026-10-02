@@ -36,12 +36,21 @@ def test_diff_computed_fields():
     assert event.data["diff_hash"] == "d" * 64
 
 
-def test_master_committed_references_its_snapshot():
-    event = events.master_committed(
-        master_hash="m" * 64, record_count=171_009, snapshot_path="snapshots/abc.csv"
+def test_master_committed_carries_a_hash_and_count():
+    event = events.master_committed(master_hash="m" * 64, record_count=171_009)
+    assert event.data == {"master_hash": "m" * 64, "record_count": 171_009}
+
+
+def test_each_delivered_file_names_its_part_and_the_whole_content():
+    event = events.delivered(
+        "2026-10-28_0247_new_01-of-02.csv", "drive", "id", "h" * 64, 1, 2, 25_000
     )
-    assert event.data["record_count"] == 171_009
-    assert event.data["snapshot_path"] == "snapshots/abc.csv"
+    assert (event.data["part"], event.data["parts"], event.data["rows"]) == (
+        1,
+        2,
+        25_000,
+    )
+    assert event.data["content_hash"] == "h" * 64
 
 
 def test_delivered_defaults_remote_id_to_empty():

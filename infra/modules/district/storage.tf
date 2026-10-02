@@ -1,4 +1,7 @@
-# The one data bucket: config, query files, output, ledger, snapshots.
+# The one data bucket: config, the ledger, and a cache of PHI (rosters,
+# the known set) that can be rebuilt from IC and MIIC. Keep as little PHI
+# as possible for as short as possible: versioning gives a week to undo an
+# accidental overwrite or delete, then old versions go.
 
 resource "google_storage_bucket" "data" {
   project  = local.project_id
@@ -6,6 +9,7 @@ resource "google_storage_bucket" "data" {
   location = "US"
 
   uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
 
   versioning {
     enabled = true
@@ -14,6 +18,15 @@ resource "google_storage_bucket" "data" {
   lifecycle_rule {
     condition {
       age = 1095 # 3 years
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 7
     }
     action {
       type = "Delete"

@@ -1,13 +1,13 @@
 """Cloud Run Job entrypoint.
 
-One container, four cycles: `mn-immunization-job run|tick|canary|rebaseline`.
+One container, four cycles: `mn-immunization-job run|tick|canary|refresh`.
 Cloud Scheduler executes `run` on the district's cadence (it opens a
 period), `tick` every few hours (it advances the open one), and `canary`
 the day before a run. A human retries a closed period with `gcloud run
 jobs execute pipeline-job --args=run,--trigger,manual` (safe: ledger
 claims prevent duplicate emails and deliveries). `canary` is a read-only
-readiness probe; `rebaseline` pushes the whole known set to Drive in
-chunks to recover from sync trouble (idempotent on the IC side).
+readiness probe; `refresh` rebuilds the known set from MIIC and
+delivers all of it (idempotent on the IC side).
 
 This is where the environment is read (once, into Settings) and where
 the adapters are built (runtime/composition.py); everything below
@@ -29,7 +29,7 @@ from mn_immunization.runtime.composition import build_services
 from mn_immunization.workflow.cycles import (
     run_canary_cycle,
     run_cycle,
-    run_rebaseline_cycle,
+    run_refresh_cycle,
     run_tick_cycle,
 )
 from mn_immunization.workflow.services import Services
@@ -39,7 +39,7 @@ CYCLES = {
     "run": run_cycle,
     "tick": run_tick_cycle,
     "canary": run_canary_cycle,
-    "rebaseline": run_rebaseline_cycle,
+    "refresh": run_refresh_cycle,
 }
 
 

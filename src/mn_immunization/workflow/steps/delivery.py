@@ -1,5 +1,6 @@
-"""Delivery: the diff into the import queue, at most once per content;
-and noticing which delivered files staff have since imported."""
+"""Delivery: records into the import queue as capped files, at most once
+per content; and noticing which delivered files staff have since
+imported."""
 
 from __future__ import annotations
 
@@ -7,6 +8,8 @@ import logging
 from datetime import datetime
 
 from mn_immunization.records.hashing import sha256_hex
+from mn_immunization.records.ic_format import chunk, render_csv
+from mn_immunization.records.model import RecordSet
 from mn_immunization.workflow import events
 from mn_immunization.workflow.context import RunContext
 from mn_immunization.workflow.policy import DiffResult
@@ -70,68 +73,97 @@ def record_import_confirmations(ctx: RunContext) -> None:
                 )
 
 
-def _drive_deliveries(ctx: RunContext) -> dict[str, str]:
-    """Recent Drive deliveries: file name -> content hash ("" for ones
-    recorded before hashes were). Empty if the ledger cannot be read,
-    which errs toward delivering: zero deliveries is the unacceptable
-    failure, a duplicate the survivable one."""
+def delivery_files(
+    records: RecordSet, stem: str, max_rows: int
+) -> list[tuple[str, RecordSet]]:
+    """`records` as files of at most `max_rows`, named `<stem>_NN-of-MM.csv`.
+    Which records share a file carries no meaning; schools are mixed."""
+    pieces = chunk(records, max_rows)
+    return [
+        (f"{stem}_{index:02d}-of-{len(pieces):02d}.csv", piece)
+        for index, piece in enumerate(pieces, start=1)
+    ]
+
+
+def _stem(ctx: RunContext, kind: str, taken: set[str]) -> str:
+    """`YYYY-MM-DD_HHMM_<kind>` in district-local time: readable, sorted,
+    unique per delivery. Seconds are added only if another delivery
+    already used the minute."""
+    now = ctx.local_now()
+    stem = f"{now:%Y-%m-%d_%H%M}_{kind}"
+    if any(name.startswith(f"{stem}_") for name in taken):
+        stem = f"{now:%Y-%m-%d_%H%M%S}_{kind}"
+    return stem
+
+
+def deliver_records(ctx: RunContext, records: RecordSet, kind: str) -> tuple[str, int]:
+    """Deliver `records` as capped files, at most once per content.
+    Returns ("delivered" or "already_delivered", the number of files).
+    An upload failure propagates, so the run fails loudly with the known
+    set untouched.
+
+    The claim is the date, the kind, and the content's hash: two runs with
+    the same content (a crash between delivery and commit, then a rerun)
+    race for one claim and deliver once; two runs the same day with
+    different content both deliver. Every file is recorded as part NN of
+    MM, so a crash partway through is finished by the rerun, sending only
+    the missing parts under the same names.
+    """
+    if ctx.delivery is None:
+        raise RuntimeError("no Drive folder configured")
+    digest = sha256_hex(render_csv(records))
+    claim_kind = "diff" if kind == "new" else kind
+    date_str = ctx.local_now().strftime("%Y-%m-%d")
+    won = claim_or_proceed(ctx.ledger, f"{date_str}_{claim_kind}_{digest[:16]}")
     try:
-        return ctx.history().deliveries()
+        history = ctx.history()
+        sent, taken = history.delivered_parts(digest), set(history.deliveries())
     except Exception as error:
+        # Errs toward delivering: a duplicate is survivable (IC imports
+        # are idempotent), a delivery that never happens is not.
         logger.warning(
             "could not read recent runs (%s); assuming not delivered",
             type(error).__name__,
         )
-        return {}
+        sent, taken = {}, set()
 
-
-def _unused_name(name: str, deliveries: dict[str, str]) -> str:
-    """`name`, or `<stem>_2.csv`, `_3`, ... when a different diff already
-    went out under it (a second run the same day with new records): every
-    delivery gets its own file, and none masks another."""
-    stem, suffix = name.rsplit(".", 1)
-    candidate, n = name, 2
-    while candidate in deliveries:
-        candidate, n = f"{stem}_{n}.{suffix}", n + 1
-    return candidate
-
-
-def deliver_diff(ctx: RunContext, diff: DiffResult) -> str:
-    """Drive delivery, at most once per diff *content*. Returns "delivered"
-    or "already_delivered"; an upload failure propagates so the run fails
-    loudly with the master untouched.
-
-    The claim is the date plus the diff's hash: two runs with the same
-    diff (a crash between delivery and commit, then a rerun) race for one
-    claim and deliver once; two runs the same day with different diffs
-    (new records arrived in between) both deliver. Keying on the date
-    alone made the second one look "already delivered", and its records
-    would have been committed to the master without ever reaching staff.
-    """
-    if ctx.delivery is None:
-        raise RuntimeError("no Drive folder configured")
-    text = diff.diff_path.read_text(encoding="utf-8")
-    digest = sha256_hex(text)
-    # The filename starts with the %Y-%m-%d the diff was computed on; the
-    # claim shares that date so a run crossing midnight stays consistent.
-    date_str = diff.diff_path.name[:10]
-    won = claim_or_proceed(ctx.ledger, f"{date_str}_diff_{digest[:16]}")
-    deliveries = _drive_deliveries(ctx)
-    if not won:
-        if digest in deliveries.values():
-            logger.info("Skipping delivery: this diff was already delivered")
-            return "already_delivered"
+    max_rows = ctx.settings.delivery_file_rows
+    count = len(chunk(records, max_rows))
+    if sent and len(sent) >= count:
+        logger.info("Skipping delivery: this content was already delivered")
+        return "already_delivered", count
+    if not won and not sent:
         logger.warning(
-            "diff claim for %s already taken but no delivery of this content "
-            "found; delivering anyway (a claimant that crashed before "
+            "delivery claim for %s already taken but nothing of this content "
+            "delivered; delivering anyway (a claimant that crashed before "
             "uploading must not suppress delivery)",
             date_str,
         )
-    name = _unused_name(diff.diff_path.name, deliveries)
-    drive_file_id = ctx.delivery.upload(name, text)
-    append_event(
-        ctx.ledger,
-        events.delivered(name, "drive", str(drive_file_id), content_hash=digest),
-    )
-    logger.info("Delivered the diff as %s", name)
-    return "delivered"
+    # Finish a partial delivery under its own names; otherwise a new stem.
+    stem = next(iter(sent.values())).rsplit("_", 1)[0] if sent else None
+    files = delivery_files(records, stem or _stem(ctx, kind, taken), max_rows)
+    for part, (name, piece) in enumerate(files, start=1):
+        if part in sent:
+            continue
+        remote_id = ctx.delivery.upload(name, render_csv(piece))
+        append_event(
+            ctx.ledger,
+            events.delivered(
+                name,
+                "drive",
+                str(remote_id),
+                content_hash=digest,
+                part=part,
+                parts=len(files),
+                rows=len(piece),
+            ),
+        )
+        logger.info("Delivered %s (%d records)", name, len(piece))
+    return "delivered", len(files)
+
+
+def deliver_diff(ctx: RunContext, diff: DiffResult) -> str:
+    """The period's new records, as `new` files. Returns "delivered" or
+    "already_delivered"."""
+    outcome, _ = deliver_records(ctx, diff.new_records, "new")
+    return outcome

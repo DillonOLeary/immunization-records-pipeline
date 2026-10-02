@@ -74,7 +74,7 @@ def test_the_opener_reads_credentials_once_per_run(mock_aisr):
 def test_a_roster_goes_up_with_the_schools_upload_metadata(mock_aisr):
     uploads = {"2542": SchoolUpload("N", "nurse@example.test")}
     with open_registry(mock_aisr, uploads) as registry:
-        registry.submit_roster(School("2542", "Friendly Hills", "unused"), "rows\n")
+        registry.submit_roster(School("2542", "Friendly Hills"), "rows\n")
 
     assert mock_aisr.received_uploads == ["2542"]
 
@@ -83,6 +83,6 @@ def test_a_school_without_upload_metadata_is_never_sent(mock_aisr):
     # A config mismatch is caught before anything reaches MDH, as the one
     # failure after which a retry is safe.
     with open_registry(mock_aisr) as registry, pytest.raises(RosterNotSentError):
-        registry.submit_roster(School("2542", "Friendly Hills", "unused"), "rows\n")
+        registry.submit_roster(School("2542", "Friendly Hills"), "rows\n")
 
     assert mock_aisr.received_uploads == []

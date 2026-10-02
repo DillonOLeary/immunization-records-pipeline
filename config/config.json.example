@@ -8,7 +8,7 @@
         "4. Look for a GET request to 'https://aisr-api.web.health.state.mn.us/school/<school_id>'",
         "5. This request response contains the id, classification, and email values needed",
         "6. The 'name' field can be any descriptive name, but id, classification, and email must match AISR exactly",
-        "7. bulk_query_file is the GCS blob path (within the data bucket) of the school's roster CSV",
+        "7. Each school's roster CSV lives at rosters/<id>.csv in the data bucket",
         "8. district.iddis is the district's MDE number; api.s3_upload_host is the MDH ingest bucket host"
     ],
     "_mock_server": [
@@ -27,15 +27,13 @@
             "name": "Friendly Hills Mid (Mock Server)",
             "id": "2542",
             "classification": "N",
-            "email": "nurse@friendlyhills.example.org",
-            "bulk_query_file": "data/queries/friendly_hills_students.csv"
+            "email": "nurse@friendlyhills.example.org"
         },
         {
             "name": "Garlough Elementary (Mock Server)",
             "id": "2543",
             "classification": "N",
-            "email": "health@garlough.example.org",
-            "bulk_query_file": "data/queries/garlough_students.csv"
+            "email": "health@garlough.example.org"
         }
     ]
 }

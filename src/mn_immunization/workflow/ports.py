@@ -27,7 +27,6 @@ class School:
 
     id: str
     name: str
-    roster_path: str  # where its roster lives in the object store
 
 
 class RegistryError(Exception):
@@ -115,7 +114,7 @@ class Delivery(Protocol):
         ...
 
 
-# --- the district's object store: config, rosters, the master ---
+# --- the district's object store: config, rosters, the known set ---
 
 
 class ObjectNotFoundError(Exception):
@@ -132,7 +131,7 @@ class ObjectStore(Protocol):
     ) -> None: ...
 
 
-# --- the run ledger and master snapshots ---
+# --- the run ledger ---
 
 
 class RunLedger(Protocol):
@@ -154,16 +153,4 @@ class RunLedger(Protocol):
 
     def held_claims(self, prefix: str) -> dict[str, dict]:
         """Claims whose key starts with prefix: key -> claimant payload."""
-        ...
-
-
-class SnapshotStore(Protocol):
-    def put(self, content: str) -> tuple[str, str]:
-        """Store content-addressed; returns (sha256_hex, storage_path)."""
-        ...
-
-    def any_stored(self) -> bool:
-        """Has any snapshot ever been stored? Every master commit stores
-        one, so True means a master was committed before: an absent or
-        empty master is then damage, not a first run."""
         ...

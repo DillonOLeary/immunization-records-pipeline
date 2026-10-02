@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from mn_immunization.workflow import events
-from tests.fakes import InMemoryRunLedger, InMemorySnapshotStore
+from tests.fakes import InMemoryRunLedger
 
 
 def fixed_now():
@@ -27,14 +27,3 @@ def test_claim_wins_exactly_once():
     assert ledger.claim("2026-07-22_diff") is True
     assert ledger.claim("2026-07-22_diff") is False
     assert ledger.claim("2026-07-23_diff") is True
-
-
-def test_snapshot_store_is_content_addressed():
-    store = InMemorySnapshotStore()
-    digest_a, path_a = store.put("a,b,c\n")
-    digest_b, path_b = store.put("a,b,c\n")
-    digest_c, path_c = store.put("x,y,z\n")
-
-    assert (digest_a, path_a) == (digest_b, path_b)
-    assert path_a != path_c
-    assert store.snapshots[path_a] == "a,b,c\n"

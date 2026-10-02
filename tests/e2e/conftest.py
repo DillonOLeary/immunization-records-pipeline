@@ -2,7 +2,7 @@
 
 Every test here runs `job.main([...])`, which runs the real cycles, the
 real decider and executors, the real AISR adapter (against the in-process
-fake AISR), and the real GCS ledger, snapshot, and master code over one
+fake AISR), and the real GCS ledger and known-set code over one
 shared FakeBucket. Only the edges are swapped, by handing `job.main` a
 `build` that composes test services: the bucket, Secret Manager, and Drive.
 
@@ -29,12 +29,12 @@ from minnesota_immunization_mock.sample_data import CANARY_PHI
 import mn_immunization.runtime.job as job
 from mn_immunization.adapters.gcs.ledger import (
     GcsRunLedger,
-    GcsSnapshotStore,
     read_recent_runs,
     recent_months,
 )
 from mn_immunization.adapters.gcs.storage import GcsObjectStore
 from mn_immunization.runtime.config import CONFIG_PATH, district_from_config
+from mn_immunization.workflow.layout import roster_path
 from mn_immunization.workflow.services import Clock, Services
 from mn_immunization.workflow.settings import Settings
 from tests.conftest import MockAisr
@@ -63,15 +63,13 @@ class World:
         """Write config.json and a roster per school into the bucket."""
         schools = []
         for school_id in school_ids:
-            roster = f"data/queries/{school_id}.csv"
-            self.bucket.write(roster, "roster rows\n")
+            self.bucket.write(roster_path(school_id), "roster rows\n")
             schools.append(
                 {
                     "name": SCHOOLS.get(school_id, f"School {school_id}"),
                     "id": school_id,
                     "classification": "N",
                     "email": "nurse@example.test",
-                    "bulk_query_file": roster,
                 }
             )
         config = {
@@ -113,7 +111,6 @@ class World:
             settings=settings,
             clock=clock,
             new_ledger=lambda run_id: GcsRunLedger(self.bucket, run_id, now=clock.now),
-            snapshots=GcsSnapshotStore(self.bucket),
             objects=objects,
             delivery=self.drive if settings.drive_folder_id else None,
             load_district=lambda: district_from_config(

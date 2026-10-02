@@ -60,8 +60,8 @@ printf '%s' '<value>' | gcloud secrets versions add aisr-password --project <pro
    [config/config.json.example](config/config.json.example) (its
    `_instructions` explain how to read school values from AISR) and upload
    it to `gs://<data-bucket>/config/config.json`.
-2. Upload each school's roster CSV (exported from Infinite Campus) to the
-   path in its `bulk_query_file`.
+2. Upload each school's roster CSV (exported from Infinite Campus) to
+   `gs://<data-bucket>/rosters/<school_id>.csv`.
 
 ## 7. Verify [terminal]
 
@@ -84,7 +84,7 @@ run should be the scheduled one, with the district told to expect it.
 | Respond to an alert | on email | `uv run mn-immunization status --bucket <data-bucket>`; a failed period stays closed until `--args=run,--trigger,manual` reopens it |
 | Merge Dependabot PRs | weekly-ish | by hand: merging to `main` deploys |
 | Rotate a credential | as needed | add a secret version (steps 4, 5) |
-| Drive out of sync | as needed | `gcloud run jobs execute pipeline-job --args=rebaseline,--trigger,manual` |
+| Drive out of sync, or cache lost | as needed | `gcloud run jobs execute pipeline-job --args=refresh,--trigger,manual` |
 
 ## Stuck roster claims
 

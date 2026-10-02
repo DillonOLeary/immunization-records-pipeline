@@ -6,10 +6,9 @@ Finish per path, waiting as a branch. Plain dataclasses in, one Step
 out — no mocks, no I/O.
 """
 
-from pathlib import Path
-
 import pytest
 
+from mn_immunization.records.model import RecordSet
 from mn_immunization.workflow.policy import (
     AwaitStaging,
     CommitMaster,
@@ -42,8 +41,8 @@ def diff_result(
         known_count=known_count,
         files_transformed=files_transformed,
         fetch_failures=fetch_failures,
-        diff_path=Path("diff.csv"),
-        master_path=Path("master.csv"),
+        new_records=RecordSet(),
+        known_after=RecordSet(),
     )
 
 

@@ -2,8 +2,8 @@
 
 Each scenario pins what a run does to the outside world: the ledger events
 it writes (exact sequence), what lands in Drive (exact text), what happens
-to the master, which rosters reach MIIC, and the exit code the alert keys
-on. The autouse PHI scan (conftest) runs on every one of them.
+to the known set, which rosters reach MIIC, and the exit code the alert
+keys on. The autouse PHI scan (conftest) runs on every one of them.
 """
 
 from __future__ import annotations
@@ -15,9 +15,10 @@ from datetime import UTC, datetime
 from google.api_core.exceptions import ServiceUnavailable
 from minnesota_immunization_mock.sample_data import expected_ic_rows
 
+from mn_immunization.workflow.layout import KNOWN_MARKER, KNOWN_RECORDS
 from tests.fakes import district_period
 
-MASTER = "output/all_known_vaccinations.csv"
+MASTER = KNOWN_RECORDS
 
 
 def ic_text(*school_ids: str) -> str:
@@ -26,10 +27,9 @@ def ic_text(*school_ids: str) -> str:
 
 
 def seed_master(world, text: str) -> None:
-    """A master committed by an earlier run: the file and its snapshot."""
+    """A known set committed by an earlier run: the records and the marker."""
     world.bucket.write(MASTER, text)
-    digest = hashlib.sha256(text.encode()).hexdigest()
-    world.bucket.write(f"snapshots/{digest}.csv", text)
+    world.bucket.write(KNOWN_MARKER, '{"records": 1}')
 
 
 def only_drive_file(world) -> tuple[str, str]:
@@ -61,7 +61,7 @@ def test_first_run_submits_fetches_delivers_and_commits(world, capsys):
     ]
     assert world.aisr.received_uploads == ["2542", "2543"]
     name, text = only_drive_file(world)
-    assert name.endswith("_new_vaccinations.csv")
+    assert name.endswith("_new_01-of-01.csv")
     assert text == ic_text("2542", "2543")
     assert world.bucket.objects[MASTER] == ic_text("2542", "2543")
     diff_event = next(
@@ -131,14 +131,14 @@ def test_an_unparseable_master_fails_before_anything_is_delivered(world, capsys)
 
 
 def test_a_missing_master_with_history_fails_instead_of_flooding(world, capsys):
-    world.bucket.write("snapshots/0000.csv", "a,b,c,01/01/2020\n")
+    world.bucket.write(KNOWN_MARKER, '{"records": 1}')
 
     code, _ = world.run("run", capsys)
 
     assert code == 1
     assert world.latest_run_events()[-1]["data"] == {
         "step": "compute_diff",
-        "error": "MasterMissingError",
+        "error": "KnownRecordsMissingError",
     }
     assert world.drive.uploads == []
     assert MASTER not in world.bucket.objects
@@ -222,7 +222,8 @@ def test_a_second_run_the_same_day_with_new_records_delivers_them(world, capsys)
     assert code == 0
     assert result["new_records"] == len(expected_ic_rows("2543"))
     first, second = world.drive.uploads
-    assert second == first.replace(".csv", "_2.csv")
+    assert first != second
+    assert first.endswith("_new_01-of-01.csv") and second.endswith("_new_01-of-01.csv")
     assert world.drive.files[first] == ic_text("2542")
     assert world.drive.files[second] == ic_text("2543")
     assert world.bucket.objects[MASTER] == ic_text("2542", "2543")
@@ -276,8 +277,8 @@ def test_a_tick_with_no_open_period_writes_nothing(world, capsys):
     assert world.printed[-1] == '{"status": "idle"}'
     assert world.bucket.objects.keys() == {
         "config/config.json",
-        "data/queries/2542.csv",
-        "data/queries/2543.csv",
+        "rosters/2542.csv",
+        "rosters/2543.csv",
     }
 
 
@@ -406,34 +407,80 @@ def test_canary_fails_when_any_listing_fails(world, capsys):
 
 
 def test_canary_fails_on_a_missing_master(world, capsys):
-    world.bucket.write("snapshots/0000.csv", "a,b,c,01/01/2020\n")
+    world.bucket.write(KNOWN_MARKER, '{"records": 1}')
 
     code, result = world.run("canary", capsys)
 
     assert code == 1
-    assert result["error"] == "MasterMissingError"
+    assert result["error"] == "KnownRecordsMissingError"
 
 
-def test_rebaseline_pushes_the_whole_master_in_chunks(world, capsys, monkeypatch):
-    monkeypatch.setenv("REBASELINE_CHUNK_RECORDS", "4")
-    seed_master(world, ic_text("2542"))  # 6 records
+def test_refresh_rebuilds_the_known_set_and_delivers_all_of_it(
+    world, capsys, monkeypatch
+):
+    # No roster goes out (no one is emailed); every record MIIC lists is
+    # delivered as capped files, and the known set becomes exactly that.
+    monkeypatch.setenv("DELIVERY_FILE_ROWS", "4")
+    seed_master(world, "1,2,MMR,01/01/2001\n")  # stale: refresh replaces it
 
-    code, result = world.run("rebaseline", capsys)
+    code, result = world.run("refresh", capsys)
 
     assert code == 0
-    assert (result["chunks"], result["records"]) == (2, 6)
+    assert (result["files"], result["records"]) == (3, 10)
+    assert world.aisr.received_uploads == []
     names = sorted(world.drive.files)
-    assert [n[10:] for n in names] == [
-        "_rebaseline_01-of-02.csv",
-        "_rebaseline_02-of-02.csv",
+    assert [n[15:] for n in names] == [  # after YYYY-MM-DD_HHMM
+        "_refresh_01-of-03.csv",
+        "_refresh_02-of-03.csv",
+        "_refresh_03-of-03.csv",
     ]
-    assert "".join(world.drive.files[n] for n in names) == ic_text("2542")
-    assert world.latest_event_types() == [
-        "RunStarted",
-        "Delivered",
-        "Delivered",
-        "RunCompleted",
+    delivered = "".join(world.drive.files[n] for n in names)
+    assert sorted(delivered.splitlines()) == sorted(
+        ic_text("2542", "2543").splitlines()
+    )
+    assert sorted(world.bucket.objects[MASTER].splitlines()) == sorted(
+        ic_text("2542", "2543").splitlines()
+    )
+    assert world.latest_event_types()[-2:] == ["MasterCommitted", "RunCompleted"]
+
+
+def test_refresh_is_all_or_nothing(world, capsys):
+    seed_master(world, ic_text("2542"))
+    world.aisr.faults.listing_status["2543"] = 500
+
+    code, result = world.run("refresh", capsys)
+
+    assert code == 1
+    assert world.drive.uploads == []
+    assert world.bucket.objects[MASTER] == ic_text("2542")
+
+
+def test_a_delivery_cut_short_is_finished_by_the_rerun(world, capsys, monkeypatch):
+    # Drive fails on the second of three files: the run fails with the
+    # known set untouched; the rerun sends only the missing parts, under
+    # the first run's names, then commits.
+    monkeypatch.setenv("DELIVERY_FILE_ROWS", "4")
+    world.drive.fail_upload_after = 1
+
+    code, _ = world.run("run", capsys)
+
+    assert code == 1
+    assert len(world.drive.uploads) == 1
+    assert MASTER not in world.bucket.objects
+
+    world.drive.fail_upload_after = None
+    code, _ = world.run("run", capsys)
+
+    assert code == 0
+    first, *rest = world.drive.uploads
+    assert first.endswith("_01-of-03.csv")
+    assert [n.removeprefix(first[:20]) for n in rest] == [  # YYYY-MM-DD_HHMM_new_
+        "02-of-03.csv",
+        "03-of-03.csv",
     ]
+    assert sorted(world.bucket.objects[MASTER].splitlines()) == sorted(
+        ic_text("2542", "2543").splitlines()
+    )
 
 
 # --- the PHI scan itself ---
@@ -445,9 +492,7 @@ def test_the_phi_scan_catches_a_planted_leak():
 
     bucket = FakeBucket()
     bucket.write("ledger/2026/10/run-x/001_RunFailed.json", '{"error": "8100231"}')
-    bucket.write(
-        "output/all_known_vaccinations.csv", "8100231,9100231,MMR,01/01/2019\n"
-    )
+    bucket.write(KNOWN_RECORDS, "8100231,9100231,MMR,01/01/2019\n")
 
     leaks = find_leaks("INFO parsed Zelda Canaryfield", ["{}"], bucket)
 

@@ -7,14 +7,13 @@ raises the real NotFound / PreconditionFailed exceptions, so adapter code
 under test takes its real error paths. `fail_next_write` injects one
 failure into a named object's next write, to crash a run at an exact
 point. FakeStorageClient wraps it as a client; FakeDrive records what was
-delivered to the Drive folder. InMemoryRunLedger and InMemorySnapshotStore
+delivered to the Drive folder. InMemoryRunLedger is
 are the ledger ports with nothing behind them, for unit tests that need a
 ledger but not storage semantics.
 """
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -123,8 +122,14 @@ class FakeDrive:
         self.files: dict[str, str] = {}
         self.uploads: list[str] = []
         self.list_error = list_error
+        self.fail_upload_after: int | None = None  # uploads that succeed first
 
     def upload(self, name: str, text: str) -> str:
+        if (
+            self.fail_upload_after is not None
+            and len(self.uploads) >= self.fail_upload_after
+        ):
+            raise ConnectionError("drive upload failed")
         self.files[name] = text
         self.uploads.append(name)
         return f"drive-file-{len(self.uploads)}"
@@ -194,20 +199,6 @@ class InMemoryRunLedger:
         return [event["type"] for event in self.events]
 
 
-class InMemorySnapshotStore:
-    def __init__(self) -> None:
-        self.snapshots: dict[str, str] = {}
-
-    def put(self, content: str) -> tuple[str, str]:
-        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        path = f"snapshots/{digest}.csv"
-        self.snapshots[path] = content
-        return digest, path
-
-    def any_stored(self) -> bool:
-        return bool(self.snapshots)
-
-
 DISTRICT = ZoneInfo("America/Chicago")
 """The test district's zone (ISD 197's)."""
 
@@ -254,7 +245,7 @@ def make_run_context(
     schools: list[School] | None = None,
     opened_at: datetime | None = None,
 ) -> RunContext:
-    """A RunContext of fakes: in-memory ledger and snapshots, a FakeBucket
+    """A RunContext of fakes: an in-memory ledger, a FakeBucket
     object store, a FakeDrive, and a registry opener that must not be
     used. Its period is the one current at the clock's time, opened then
     unless `opened_at` says otherwise. Pass `delivery=None` for a district
@@ -266,7 +257,6 @@ def make_run_context(
         settings=settings,
         clock=clock,
         ledger=ledger or InMemoryRunLedger(),
-        snapshots=InMemorySnapshotStore(),
         objects=objects or GcsObjectStore(FakeBucket()),
         delivery=FakeDrive() if delivery is _DEFAULT else delivery,
         open_registry=open_registry,

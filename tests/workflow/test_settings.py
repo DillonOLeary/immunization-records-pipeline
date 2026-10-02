@@ -26,7 +26,7 @@ def test_every_variable_is_read():
         "DIFF_SANITY_FRACTION": "0.5",
         "QUERY_PERIOD_FORMAT": "%G-W%V",
         "IMPORT_REMINDER_DAYS": "3",
-        "REBASELINE_CHUNK_RECORDS": "500",
+        "DELIVERY_FILE_ROWS": "500",
     }
     assert Settings.from_env(env) == Settings(
         data_bucket="b",
@@ -37,7 +37,7 @@ def test_every_variable_is_read():
         brake_fraction=0.5,
         query_period_format="%G-W%V",
         import_reminder_days=3,
-        rebaseline_chunk_records=500,
+        delivery_file_rows=500,
     )
 
 
@@ -63,8 +63,8 @@ def test_empty_optional_values_mean_unset():
             "POLL_DEADLINE_SECONDS",
         ),
         (
-            {**BASE, "REBASELINE_CHUNK_RECORDS": "0"},
-            "REBASELINE_CHUNK_RECORDS",
+            {**BASE, "DELIVERY_FILE_ROWS": "0"},
+            "DELIVERY_FILE_ROWS",
         ),
         ({**BASE, "DIFF_SANITY_FRACTION": "lots"}, "DIFF_SANITY_FRACTION"),
         ({**BASE, "DIFF_SANITY_FRACTION": "-1"}, "DIFF_SANITY_FRACTION"),

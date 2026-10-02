@@ -16,7 +16,6 @@ from mn_immunization.workflow.ports import (
     District,
     ObjectStore,
     RunLedger,
-    SnapshotStore,
 )
 from mn_immunization.workflow.settings import Settings
 
@@ -35,7 +34,6 @@ class Services:
     settings: Settings
     clock: Clock
     new_ledger: Callable[[str], RunLedger]  # run id -> that run's ledger
-    snapshots: SnapshotStore
     objects: ObjectStore
     delivery: Delivery | None  # None: no delivery folder configured
     # Reads the district's config and binds its adapters: called inside

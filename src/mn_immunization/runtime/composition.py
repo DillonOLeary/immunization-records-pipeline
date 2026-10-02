@@ -12,7 +12,7 @@ import json
 from datetime import UTC, datetime
 
 from mn_immunization.adapters.drive.delivery import GoogleDriveDelivery
-from mn_immunization.adapters.gcs.ledger import GcsRunLedger, GcsSnapshotStore
+from mn_immunization.adapters.gcs.ledger import GcsRunLedger
 from mn_immunization.adapters.gcs.secrets import secret_reader
 from mn_immunization.adapters.gcs.storage import GcsObjectStore, get_storage_client
 from mn_immunization.runtime.config import CONFIG_PATH, district_from_config
@@ -33,7 +33,6 @@ def build_services(settings: Settings, clock: Clock = SYSTEM_CLOCK) -> Services:
         settings=settings,
         clock=clock,
         new_ledger=lambda run_id: GcsRunLedger(bucket, run_id, now=clock.now),
-        snapshots=GcsSnapshotStore(bucket),
         objects=objects,
         delivery=GoogleDriveDelivery(folder, secret) if folder else None,
         load_district=lambda: district_from_config(

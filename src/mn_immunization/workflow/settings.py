@@ -74,7 +74,7 @@ class Settings:
     brake_fraction: float | None = 0.2  # DIFF_SANITY_FRACTION; "off" -> None
     query_period_format: str = "%Y-%m"  # QUERY_PERIOD_FORMAT
     import_reminder_days: int = 7  # IMPORT_REMINDER_DAYS
-    rebaseline_chunk_records: int = 10000  # REBASELINE_CHUNK_RECORDS
+    delivery_file_rows: int = 25000  # DELIVERY_FILE_ROWS: rows per Drive file
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> Settings:
@@ -90,7 +90,5 @@ class Settings:
             brake_fraction=_brake(env),
             query_period_format=env.get("QUERY_PERIOD_FORMAT") or "%Y-%m",
             import_reminder_days=_int(env, "IMPORT_REMINDER_DAYS", 7),
-            rebaseline_chunk_records=_int(
-                env, "REBASELINE_CHUNK_RECORDS", 10000, minimum=1
-            ),
+            delivery_file_rows=_int(env, "DELIVERY_FILE_ROWS", 25000, minimum=1),
         )

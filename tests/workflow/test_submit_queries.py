@@ -20,6 +20,7 @@ from mn_immunization.adapters.miic.actions import DistrictInfo
 from mn_immunization.adapters.miic.authenticate import AuthenticationError
 from mn_immunization.adapters.miic.client import SchoolUpload, aisr_session
 from mn_immunization.records.hashing import sha256_hex
+from mn_immunization.workflow.layout import roster_path
 from mn_immunization.workflow.ports import School
 from mn_immunization.workflow.steps import submit as submit_step
 from tests.fakes import FakeBucket, district_period, make_run_context
@@ -49,13 +50,7 @@ def make_ctx(
     for school_id in SCHOOL_IDS:
         if roster_path(school_id) not in bucket.objects:
             bucket.write(roster_path(school_id), "roster rows\n")
-        schools.append(
-            School(
-                id=school_id,
-                name=f"School {school_id}",
-                roster_path=roster_path(school_id),
-            )
-        )
+        schools.append(School(id=school_id, name=f"School {school_id}"))
     uploads = dict.fromkeys(SCHOOL_IDS, SchoolUpload("N", "nurse@example.test"))
     return make_run_context(
         tmp_path,
@@ -71,10 +66,6 @@ def make_ctx(
         ),
         schools=schools,
     )
-
-
-def roster_path(school_id: str) -> str:
-    return f"data/queries/{school_id}.csv"
 
 
 def submit(ctx):

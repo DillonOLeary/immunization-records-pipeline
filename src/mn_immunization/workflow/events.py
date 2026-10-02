@@ -33,7 +33,7 @@ class LedgerEvent:
 
 
 def run_started(kind: str, trigger: str) -> LedgerEvent:
-    """kind: run|tick|canary|rebaseline; trigger: scheduled|manual."""
+    """kind: run|tick|canary|refresh; trigger: scheduled|manual."""
     return LedgerEvent(RUN_STARTED, {"kind": kind, "trigger": trigger})
 
 
@@ -89,33 +89,35 @@ def diff_computed(
 
 
 def delivered(
-    file_name: str, target: str, remote_id: str | None = None, content_hash: str = ""
+    file_name: str,
+    target: str,
+    remote_id: str | None = None,
+    content_hash: str = "",
+    part: int = 1,
+    parts: int = 1,
+    rows: int = 0,
 ) -> LedgerEvent:
-    """content_hash is the delivered file's sha256: what makes "this diff
-    was already delivered" a statement about content, not about a name."""
+    """One file of a delivery. `content_hash` is the sha256 of the whole
+    delivery (every part shares it): what makes "already delivered" a
+    statement about content, and lets a rerun send only missing parts."""
     return LedgerEvent(
-        "Delivered",
+        DELIVERED,
         {
             "file_name": file_name,
             "target": target,
             "remote_id": remote_id or "",
             "content_hash": content_hash,
+            "part": part,
+            "parts": parts,
+            "rows": rows,
         },
     )
 
 
-def master_committed(
-    master_hash: str, record_count: int, snapshot_path: str
-) -> LedgerEvent:
-    """The one event that advances durable state; recorded only after the
-    diff was delivered."""
+def master_committed(master_hash: str, record_count: int) -> LedgerEvent:
+    """The known set moved forward; recorded only after delivery."""
     return LedgerEvent(
-        "MasterCommitted",
-        {
-            "master_hash": master_hash,
-            "record_count": record_count,
-            "snapshot_path": snapshot_path,
-        },
+        MASTER_COMMITTED, {"master_hash": master_hash, "record_count": record_count}
     )
 
 

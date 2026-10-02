@@ -8,29 +8,29 @@ import logging
 from mn_immunization.records.model import RecordSet
 from mn_immunization.workflow import events
 from mn_immunization.workflow.context import RunContext
-from mn_immunization.workflow.known import commit_master, compute_diff
+from mn_immunization.workflow.known import commit_known as write_known
+from mn_immunization.workflow.known import diff_against_known
 from mn_immunization.workflow.policy import DiffResult
 from mn_immunization.workflow.support import append_event
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_and_diff(ctx: RunContext) -> DiffResult:
-    """Fetch every school's latest results and diff them against the known
-    set. Reads only: nothing this executor does needs unwinding if the
-    brake fires next."""
+def fetch_all(ctx: RunContext) -> tuple[RecordSet, int, int]:
+    """Every school's latest results, unioned: (records, schools fetched,
+    schools failed). One school's failure (after retries) is counted and
+    logged by class, never fatal to the others."""
     current = RecordSet()
-    fetched = fetch_failures = 0
+    fetched = failures = 0
     with ctx.open_registry() as registry:
         for school in ctx.schools:
             try:
                 result = registry.fetch_latest_records(school.id)
             except Exception as error:
-                # Not listed, not downloadable, or not parseable: one
-                # school's loss (after retries) is counted, never fatal to
-                # the others. All of them failing is AllDownloadsFailed,
-                # which is where a MIIC format change lands.
-                fetch_failures += 1
+                # Not listed, not downloadable, or not parseable. All of
+                # them failing is AllDownloadsFailed, which is where a
+                # MIIC format change lands.
+                failures += 1
                 logger.error(
                     "Fetch failed for %s: %s (HTTP %s)",
                     school.name,
@@ -49,32 +49,23 @@ def fetch_and_diff(ctx: RunContext) -> DiffResult:
             )
             current = current.union(result.records)
             logger.info("Fetched %d records for %s", len(result.records), school.name)
+    return current, fetched, failures
 
-    diff_path, master_path, new_count, known_count = compute_diff(
-        current=current,
-        output_folder=ctx.temp,
-        objects=ctx.objects,
-        snapshots=ctx.snapshots,
-        ledger=ctx.ledger,
-        now=ctx.local_now(),
-    )
-    logger.info("Created incremental diff file: %s", diff_path.name)
+
+def fetch_and_diff(ctx: RunContext) -> DiffResult:
+    """Fetch and diff against the known set. Reads only: nothing here needs
+    unwinding if the brake fires next."""
+    current, fetched, failures = fetch_all(ctx)
+    new, known_after, known_count = diff_against_known(current, ctx.objects, ctx.ledger)
     return DiffResult(
-        new_count=new_count,
+        new_count=len(new),
         known_count=known_count,
         files_transformed=fetched,
-        fetch_failures=fetch_failures,
-        diff_path=diff_path,
-        master_path=master_path,
+        fetch_failures=failures,
+        new_records=new,
+        known_after=known_after,
     )
 
 
 def commit_known(ctx: RunContext, diff: DiffResult) -> None:
-    commit_master(
-        objects=ctx.objects,
-        master_path=diff.master_path,
-        ledger=ctx.ledger,
-        snapshots=ctx.snapshots,
-        # The union master is the known set plus exactly the new records.
-        record_count=diff.known_count + diff.new_count,
-    )
+    write_known(ctx.objects, diff.known_after, ctx.ledger)

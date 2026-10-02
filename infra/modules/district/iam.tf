@@ -73,3 +73,18 @@ resource "google_project_iam_member_remove" "default_appengine_not_editor" {
   role    = "roles/editor"
   member  = "serviceAccount:${local.project_id}@appspot.gserviceaccount.com"
 }
+
+# Who read or wrote PHI, and when: Data Access audit logs for Cloud
+# Storage (off by default). Pipeline reads and writes land here too; the
+# volume is a few hundred entries a day.
+resource "google_project_iam_audit_config" "storage_data_access" {
+  project = local.project_id
+  service = "storage.googleapis.com"
+
+  audit_log_config {
+    log_type = "DATA_READ"
+  }
+  audit_log_config {
+    log_type = "DATA_WRITE"
+  }
+}

@@ -12,8 +12,8 @@ school's roster goes out twice in a period (each one emails every
 nurse), and no diff is delivered twice.
 
 `run_canary_cycle` is a read-only probe (login + staged-results count).
-`run_rebaseline_cycle` pushes the entire known set to Drive in chunks to
-recover from sync trouble; safe because IC imports are idempotent.
+`run_refresh_cycle` rebuilds the known set from MIIC and delivers all of
+it; safe any time because IC imports are idempotent.
 
 Each cycle owns its ledger and guarantees a terminal event; an idle tick
 writes nothing at all.
@@ -26,16 +26,20 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from mn_immunization.records.ic_format import chunk, render_csv
 from mn_immunization.workflow import events
 from mn_immunization.workflow.context import RunContext
 from mn_immunization.workflow.history import History
+from mn_immunization.workflow.known import commit_known as write_known
 from mn_immunization.workflow.known import load_known_records
 from mn_immunization.workflow.periods import OpenPeriod, period_key
 from mn_immunization.workflow.ports import RunLedger
 from mn_immunization.workflow.runner import run_to_completion
 from mn_immunization.workflow.services import Services
-from mn_immunization.workflow.steps.delivery import record_import_confirmations
+from mn_immunization.workflow.steps.delivery import (
+    deliver_records,
+    record_import_confirmations,
+)
+from mn_immunization.workflow.steps.diff import fetch_all
 from mn_immunization.workflow.steps.staging import probe_staging
 from mn_immunization.workflow.steps.submit import query_period
 from mn_immunization.workflow.support import append_event, new_run_id
@@ -78,7 +82,6 @@ def pipeline_run(
                 settings=services.settings,
                 clock=services.clock,
                 ledger=ledger,
-                snapshots=services.snapshots,
                 objects=services.objects,
                 delivery=services.delivery,
                 open_registry=district.open_registry,
@@ -137,52 +140,41 @@ def run_tick_cycle(services: Services, trigger: str = "scheduled") -> dict:
         return run_to_completion(ctx)
 
 
-def run_rebaseline_cycle(services: Services, trigger: str = "manual") -> dict:
-    """Push the entire known set to Drive as numbered chunk files.
+def run_refresh_cycle(services: Services, trigger: str = "manual") -> dict:
+    """Rebuild the known set from MIIC and deliver all of it.
 
-    Recovery tool for sync trouble (missed imports, IC drift): every chunk
-    goes to the import queue, staff import them all and delete each as
-    done. Safe to run any time because Infinite Campus imports are
-    idempotent; re-importing known records changes nothing. Chunk size
-    exists only to keep individual IC uploads manageable
-    (REBASELINE_CHUNK_RECORDS, default 10000).
+    Fetches every school's latest results (no roster goes out, so no one
+    is emailed), delivers every record as capped `refresh` files, then
+    replaces the known set with exactly those records. Safe any time,
+    because Infinite Campus imports are idempotent; it is also how a lost
+    or cleared cache is rebuilt. All or nothing: if any school's results
+    cannot be fetched, nothing is delivered or replaced.
     """
-    with pipeline_run("rebaseline", services, trigger) as ctx:
+    with pipeline_run("refresh", services, trigger) as ctx:
         if ctx.delivery is None:
             append_event(
-                ctx.ledger,
-                events.run_failed(step="rebaseline", error="NoDriveFolder"),
+                ctx.ledger, events.run_failed(step="refresh", error="NoDriveFolder")
             )
             return {"status": "failed", "reason": "GOOGLE_DRIVE_FOLDER_ID not set"}
 
-        known = load_known_records(ctx.objects, ctx.snapshots)
-        if not known:
-            append_event(
-                ctx.ledger,
-                events.run_failed(step="rebaseline", error="EmptyMaster"),
-            )
-            return {"status": "failed", "reason": "known-vaccinations master is empty"}
+        records, _, failures = fetch_all(ctx)
+        if failures or not records:
+            error = "FetchFailed" if failures else "NoRecords"
+            append_event(ctx.ledger, events.run_failed(step="refresh", error=error))
+            return {
+                "status": "failed",
+                "reason": f"{failures} school(s) failed to fetch"
+                if failures
+                else "MIIC listed no records",
+            }
 
-        pieces = chunk(known, ctx.settings.rebaseline_chunk_records)
-        date_str = ctx.local_now().strftime("%Y-%m-%d")
-
-        for index, piece in enumerate(pieces, start=1):
-            filename = f"{date_str}_rebaseline_{index:02d}-of-{len(pieces):02d}.csv"
-            drive_file_id = ctx.delivery.upload(filename, render_csv(piece))
-            append_event(
-                ctx.ledger,
-                events.delivered(filename, "drive", str(drive_file_id)),
-            )
-            logger.info("Pushed %s (%d records)", filename, len(piece))
-
+        _, files = deliver_records(ctx, records, "refresh")
+        write_known(ctx.objects, records, ctx.ledger)
         append_event(
-            ctx.ledger,
-            events.run_completed(chunks=len(pieces), records=len(known)),
+            ctx.ledger, events.run_completed(files=files, records=len(records))
         )
-        logger.info(
-            "Rebaseline complete: %d records in %d files", len(known), len(pieces)
-        )
-        return {"status": "success", "chunks": len(pieces), "records": len(known)}
+        logger.info("Refresh complete: %d records in %d files", len(records), files)
+        return {"status": "success", "files": files, "records": len(records)}
 
 
 def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
@@ -216,7 +208,7 @@ def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
                 "status": "failed",
                 "reason": f"results listing failed for {probe.failed} school(s)",
             }
-        known = load_known_records(ctx.objects, ctx.snapshots)
+        known = load_known_records(ctx.objects)
 
         append_event(
             ctx.ledger,

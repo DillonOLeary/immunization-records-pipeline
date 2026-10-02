@@ -28,7 +28,8 @@ and diffing are read-only and cheap, so a resumed run recomputes them.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from pathlib import Path
+
+from mn_immunization.records.model import RecordSet
 
 
 def suspicious_diff(new_count: int, known_count: int, fraction: float = 0.2) -> bool:
@@ -68,15 +69,15 @@ class Submission:
 
 @dataclass(frozen=True)
 class DiffResult:
-    """What ComputeDiff learned. Counts drive decisions; the paths are
-    opaque hand-offs to the deliver and commit executors."""
+    """What ComputeDiff learned. Counts drive decisions; the record sets
+    are hand-offs to the deliver and commit executors."""
 
     new_count: int
     known_count: int
     files_transformed: int
     fetch_failures: int  # school files that failed to download OR to parse
-    diff_path: Path
-    master_path: Path
+    new_records: RecordSet  # what to deliver
+    known_after: RecordSet  # the known set grown by this fetch: committed last
 
 
 @dataclass(frozen=True)

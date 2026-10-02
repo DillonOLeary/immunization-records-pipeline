@@ -19,7 +19,6 @@ from mn_immunization.workflow.ports import (
     RegistryOpener,
     RunLedger,
     School,
-    SnapshotStore,
 )
 from mn_immunization.workflow.services import Clock
 from mn_immunization.workflow.settings import Settings
@@ -30,7 +29,6 @@ class RunContext:
     settings: Settings
     clock: Clock
     ledger: RunLedger
-    snapshots: SnapshotStore
     objects: ObjectStore
     delivery: Delivery | None  # None: no delivery folder configured
     open_registry: RegistryOpener

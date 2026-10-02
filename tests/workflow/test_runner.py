@@ -14,6 +14,8 @@ from datetime import timedelta
 
 import mn_immunization.workflow.runner as runner
 from mn_immunization.records.hashing import sha256_hex
+from mn_immunization.records.ic_format import parse_ic_csv, render_csv
+from mn_immunization.records.model import RecordSet
 from mn_immunization.workflow.policy import DiffResult, Submission
 from mn_immunization.workflow.ports import School
 from mn_immunization.workflow.runner import Executors
@@ -40,10 +42,7 @@ def make_ctx(tmp_path, schools: int = SCHOOLS, opened_seconds_ago: float = 0):
         settings=SETTINGS,
         clock=clock.as_clock(),
         opened_at=clock.now() - timedelta(seconds=opened_seconds_ago),
-        schools=[
-            School(id=str(1000 + i), name=f"school-{i}", roster_path="")
-            for i in range(schools)
-        ],
+        schools=[School(id=str(1000 + i), name=f"school-{i}") for i in range(schools)],
     )
 
 
@@ -57,8 +56,8 @@ def make_diff(tmp_path, new=648, known=170_361, files=8, failures=0) -> DiffResu
         known_count=known,
         files_transformed=files,
         fetch_failures=failures,
-        diff_path=tmp_path / "2026-07-23_new_vaccinations.csv",
-        master_path=tmp_path / "all_known_vaccinations.csv",
+        new_records=RecordSet(),
+        known_after=RecordSet(),
     )
 
 
@@ -349,97 +348,117 @@ def test_missing_drive_folder_fails_before_any_step(tmp_path):
     }
 
 
-# --- the real deliver_diff: at most once per diff *content* ---
-
-DIFF_TEXT = "1,2,MMR,01/01/2020\n"
+# --- the real deliver_diff: capped files, at most once per content ---
 
 
-def write_diff(tmp_path, text=DIFF_TEXT):
-    diff = make_diff(tmp_path)
-    diff.diff_path.write_text(text, encoding="utf-8")
-    return diff
+def records(count: int) -> RecordSet:
+    return parse_ic_csv(
+        "".join(
+            f"{8100 + i},{9100 + i},MMR,01/{i + 1:02d}/2020\n" for i in range(count)
+        )
+    )
 
 
-def claim_key(diff, text=DIFF_TEXT):
-    return f"{diff.diff_path.name[:10]}_diff_{sha256_hex(text)[:16]}"
+def delivery_ctx(tmp_path, rows_per_file=2):
+    ctx = make_ctx(tmp_path)
+    ctx.settings = replace(SETTINGS, delivery_file_rows=rows_per_file)
+    return ctx
 
 
-def prior_delivery(ctx, file_name, text):
+def diff_of(new: RecordSet) -> DiffResult:
+    return DiffResult(len(new), 100, 8, 0, new_records=new, known_after=new)
+
+
+def stem(ctx) -> str:
+    return ctx.local_now().strftime("%Y-%m-%d_%H%M") + "_new"
+
+
+def claim_key(ctx, new: RecordSet) -> str:
+    date = ctx.local_now().strftime("%Y-%m-%d")
+    return f"{date}_diff_{sha256_hex(render_csv(new))[:16]}"
+
+
+def prior_delivery(ctx, file_name, new: RecordSet | None, part=1, parts=1):
+    data = {"file_name": file_name, "target": "drive", "remote_id": "drive-id-0"}
+    if new is not None:
+        data.update(content_hash=sha256_hex(render_csv(new)), part=part, parts=parts)
     ctx.ledger.history.append(
         {
             "run_id": "earlier-run",
-            "seq": 9,
+            "seq": 9 + part,
             "type": "Delivered",
             "at": "2026-07-23T02:15:00",
-            "data": {
-                "file_name": file_name,
-                "target": "drive",
-                "remote_id": "drive-id-0",
-                "content_hash": sha256_hex(text),
-            },
+            "data": data,
         }
     )
 
 
-def test_deliver_wins_the_content_claim_uploads_and_records(tmp_path):
-    ctx = make_ctx(tmp_path)
-    diff = write_diff(tmp_path)
+def test_records_go_out_as_capped_files_each_recorded_as_a_part(tmp_path):
+    ctx = delivery_ctx(tmp_path)
+    new = records(3)
 
-    assert delivery.deliver_diff(ctx, diff) == "delivered"
+    assert delivery.deliver_diff(ctx, diff_of(new)) == "delivered"
 
-    assert ctx.delivery.uploads == [diff.diff_path.name]
-    assert claim_key(diff) in ctx.ledger.claims
-    (event,) = ctx.ledger.events
-    assert event["data"]["content_hash"] == sha256_hex(DIFF_TEXT)
+    first, second = f"{stem(ctx)}_01-of-02.csv", f"{stem(ctx)}_02-of-02.csv"
+    assert ctx.delivery.uploads == [first, second]
+    assert len(ctx.delivery.files[first].splitlines()) == 2
+    assert len(ctx.delivery.files[second].splitlines()) == 1
+    assert claim_key(ctx, new) in ctx.ledger.claims
+    parts = [(e["data"]["part"], e["data"]["parts"]) for e in ctx.ledger.events]
+    assert parts == [(1, 2), (2, 2)]
+    assert {e["data"]["content_hash"] for e in ctx.ledger.events} == {
+        sha256_hex(render_csv(new))
+    }
 
 
 def test_claim_lost_without_evidence_delivers_anyway(tmp_path):
     # The claimant crashed between claiming and uploading. Zero deliveries
     # is the unacceptable failure mode; deliver.
-    ctx = make_ctx(tmp_path)
-    diff = write_diff(tmp_path)
-    ctx.ledger.claims[claim_key(diff)] = {"run_id": "earlier"}
+    ctx = delivery_ctx(tmp_path)
+    new = records(1)
+    ctx.ledger.claims[claim_key(ctx, new)] = {"run_id": "earlier"}
 
-    assert delivery.deliver_diff(ctx, diff) == "delivered"
-    assert ctx.delivery.uploads == [diff.diff_path.name]
+    assert delivery.deliver_diff(ctx, diff_of(new)) == "delivered"
+    assert ctx.delivery.uploads == [f"{stem(ctx)}_01-of-01.csv"]
 
 
 def test_the_same_content_already_delivered_is_skipped(tmp_path):
-    # Another run claimed AND delivered this exact diff (a crash before its
-    # commit, then this rerun): skip the upload. The July 1 double-run
-    # incident stays dead.
-    ctx = make_ctx(tmp_path)
-    diff = write_diff(tmp_path)
-    ctx.ledger.claims[claim_key(diff)] = {"run_id": "earlier"}
-    prior_delivery(ctx, diff.diff_path.name, DIFF_TEXT)
+    # Another run claimed AND delivered this exact content (a crash before
+    # its commit, then this rerun): skip the upload.
+    ctx = delivery_ctx(tmp_path)
+    new = records(1)
+    ctx.ledger.claims[claim_key(ctx, new)] = {"run_id": "earlier"}
+    prior_delivery(ctx, "2026-07-23_0215_new_01-of-01.csv", new)
 
-    assert delivery.deliver_diff(ctx, diff) == "already_delivered"
+    assert delivery.deliver_diff(ctx, diff_of(new)) == "already_delivered"
     assert ctx.delivery.uploads == []
 
 
-def test_a_different_diff_the_same_day_is_delivered_under_its_own_name(tmp_path):
-    # Found 2026-10-01: a second run the same day with *new* records saw
-    # the date claim taken and a Delivered event with the same file name,
-    # called it "already delivered", and would have committed its records
-    # to the master without staff ever receiving them.
-    ctx = make_ctx(tmp_path)
-    diff = write_diff(tmp_path, text="9,9,DTaP,02/02/2021\n")
-    prior_delivery(ctx, diff.diff_path.name, DIFF_TEXT)  # earlier, other content
+def test_a_delivery_cut_short_is_finished_under_its_own_names(tmp_path):
+    # Part 1 of 2 went out, then the upload of part 2 failed. The rerun
+    # sends only part 2, named to match part 1.
+    ctx = delivery_ctx(tmp_path)
+    new = records(3)
+    ctx.ledger.claims[claim_key(ctx, new)] = {"run_id": "earlier"}
+    prior_delivery(ctx, "2026-07-23_0215_new_01-of-02.csv", new, part=1, parts=2)
 
-    assert delivery.deliver_diff(ctx, diff) == "delivered"
-
-    stem = diff.diff_path.name.removesuffix(".csv")
-    assert ctx.delivery.uploads == [f"{stem}_2.csv"]
-    assert ctx.delivery.files[f"{stem}_2.csv"] == "9,9,DTaP,02/02/2021\n"
+    assert delivery.deliver_diff(ctx, diff_of(new)) == "delivered"
+    assert ctx.delivery.uploads == ["2026-07-23_0215_new_02-of-02.csv"]
 
 
-def test_a_delivery_recorded_before_hashes_never_suppresses_a_diff(tmp_path):
-    # Delivered events written before content hashes carry none, so they
-    # can only make a new diff take a fresh name, never skip it.
-    ctx = make_ctx(tmp_path)
-    diff = write_diff(tmp_path)
-    prior_delivery(ctx, diff.diff_path.name, DIFF_TEXT)
-    ctx.ledger.history[-1]["data"].pop("content_hash")
+def test_another_delivery_in_the_same_minute_gets_seconds(tmp_path):
+    ctx = delivery_ctx(tmp_path)
+    prior_delivery(ctx, f"{stem(ctx)}_01-of-01.csv", records(2))  # other content
 
-    assert delivery.deliver_diff(ctx, diff) == "delivered"
-    assert ctx.delivery.uploads == [diff.diff_path.name.replace(".csv", "_2.csv")]
+    assert delivery.deliver_diff(ctx, diff_of(records(1))) == "delivered"
+
+    seconds = ctx.local_now().strftime("%Y-%m-%d_%H%M%S") + "_new"
+    assert ctx.delivery.uploads == [f"{seconds}_01-of-01.csv"]
+
+
+def test_a_delivery_recorded_before_hashes_never_suppresses_one(tmp_path):
+    ctx = delivery_ctx(tmp_path)
+    prior_delivery(ctx, "2026-07-23_new_vaccinations.csv", None)
+
+    assert delivery.deliver_diff(ctx, diff_of(records(1))) == "delivered"
+    assert ctx.delivery.uploads == [f"{stem(ctx)}_01-of-01.csv"]

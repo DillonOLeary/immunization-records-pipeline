@@ -9,10 +9,9 @@ import json
 from datetime import UTC, date, datetime
 
 from mn_immunization.adapters.gcs.ledger import GcsRunLedger
-from mn_immunization.records.model import RecordSet
+from mn_immunization.records.ic_format import parse_ic_csv
 from mn_immunization.workflow import events
-from mn_immunization.workflow.known import compute_diff
-from mn_immunization.workflow.steps import submit
+from mn_immunization.workflow.steps import delivery, submit
 from tests.fakes import FakeBucket, FakeClock, make_run_context
 
 SEPT_30_10PM_CHICAGO = datetime(2026, 10, 1, 3, 0, tzinfo=UTC)
@@ -25,19 +24,13 @@ def test_the_evening_of_a_months_last_day_is_still_that_month(tmp_path):
     assert ctx.local_now().date() == date(2026, 9, 30)
 
 
-def test_diff_files_carry_the_district_date(tmp_path):
+def test_delivered_files_carry_the_district_date_and_time(tmp_path):
     ctx = make_run_context(tmp_path, clock=FakeClock(SEPT_30_10PM_CHICAGO).as_clock())
+    new = parse_ic_csv("8100231,9100231,MMR,01/15/2024\n")
 
-    diff_path, *_ = compute_diff(
-        current=RecordSet(),
-        output_folder=tmp_path,
-        objects=ctx.objects,
-        snapshots=ctx.snapshots,
-        ledger=ctx.ledger,
-        now=ctx.local_now(),
-    )
+    delivery.deliver_records(ctx, new, "new")
 
-    assert diff_path.name == "2026-09-30_new_vaccinations.csv"
+    assert ctx.delivery.uploads == ["2026-09-30_2200_new_01-of-01.csv"]
 
 
 def test_ledger_stamps_stay_utc_in_the_existing_format():

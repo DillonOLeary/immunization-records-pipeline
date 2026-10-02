@@ -88,6 +88,16 @@ class History:
             if entry.data.get("target") == "drive"
         }
 
+    def delivered_parts(self, content_hash: str) -> dict[int, str]:
+        """Part number -> file name, for the delivery of this content.
+        Deliveries from before parts count as part 1."""
+        return {
+            entry.data.get("part", 1): entry.data["file_name"]
+            for entry in self._of(events.DELIVERED)
+            if entry.data.get("target") == "drive"
+            and entry.data.get("content_hash") == content_hash
+        }
+
     def confirmed_imports(self) -> set[str]:
         """Delivered files already recorded as imported."""
         return {entry.data["file_name"] for entry in self._of(events.IMPORT_CONFIRMED)}

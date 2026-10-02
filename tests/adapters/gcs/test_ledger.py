@@ -8,7 +8,6 @@ import pytest
 
 from mn_immunization.adapters.gcs.ledger import (
     GcsRunLedger,
-    GcsSnapshotStore,
     recent_months,
 )
 from mn_immunization.workflow import events
@@ -51,16 +50,6 @@ def test_claim_wins_once_across_separate_runs(bucket):
 
     claim = json.loads(bucket.objects["ledger/claims/2026-07-22_diff"])
     assert claim["run_id"] == "run-a"
-
-
-def test_snapshots_are_content_addressed_and_idempotent(bucket):
-    store = GcsSnapshotStore(bucket)
-    digest_a, path_a = store.put("1,2,MMR,01/15/2024\n")
-    digest_b, path_b = store.put("1,2,MMR,01/15/2024\n")
-
-    assert (digest_a, path_a) == (digest_b, path_b)
-    assert path_a == f"snapshots/{digest_a}.csv"
-    assert bucket.objects[path_a] == "1,2,MMR,01/15/2024\n"
 
 
 def test_read_recent_runs_groups_and_orders(bucket):

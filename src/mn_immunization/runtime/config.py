@@ -25,10 +25,7 @@ CONFIG_PATH = "config/config.json"
 def district_from_config(config: dict, secret: Callable[[str], str]) -> District:
     """The district's schools, and a registry opener bound to its AISR
     endpoints, upload identity, and each school's upload metadata."""
-    schools = tuple(
-        School(id=s["id"], name=s["name"], roster_path=s["bulk_query_file"])
-        for s in config["schools"]
-    )
+    schools = tuple(School(id=s["id"], name=s["name"]) for s in config["schools"])
     uploads = {
         s["id"]: SchoolUpload(
             classification=s["classification"], email_contact=s["email"]

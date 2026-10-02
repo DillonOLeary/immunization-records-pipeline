@@ -8,6 +8,7 @@ import logging
 from mn_immunization.records.hashing import sha256_hex
 from mn_immunization.workflow import events
 from mn_immunization.workflow.context import RunContext
+from mn_immunization.workflow.layout import roster_path
 from mn_immunization.workflow.policy import Submission
 from mn_immunization.workflow.ports import RosterNotSentError
 from mn_immunization.workflow.support import append_event
@@ -70,7 +71,7 @@ def submit_queries(ctx: RunContext) -> Submission:
     with ctx.open_registry() as registry:
         for school in pending:
             try:
-                roster = ctx.objects.read_text(school.roster_path)
+                roster = ctx.objects.read_text(roster_path(school.id))
             except Exception as error:
                 failed.add(school.id)
                 logger.error(
