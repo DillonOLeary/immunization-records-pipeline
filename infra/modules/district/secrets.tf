@@ -3,11 +3,16 @@
 
 resource "google_secret_manager_secret" "secrets" {
   for_each = toset([
-    "aisr-username",
-    "aisr-password",
+    "miic-username",
+    "miic-password",
+    "infinite-campus-username",
+    "infinite-campus-password",
     "drive-refresh-token",
     "drive-client-id",
     "drive-client-secret",
+    # Old names, kept until the code reads the new ones; then removed.
+    "aisr-username",
+    "aisr-password",
     "ic-username",
     "ic-password",
   ])
