@@ -156,7 +156,12 @@ def run_refresh_cycle(services: Services, trigger: str = "manual") -> dict:
             append_event(
                 ctx.ledger, events.run_failed(step="refresh", error="NoDriveFolder")
             )
-            return {"status": "failed", "reason": "GOOGLE_DRIVE_FOLDER_ID not set"}
+            return {
+                "status": "failed",
+                "step": "refresh",
+                "error": "NoDriveFolder",
+                "reason": "GOOGLE_DRIVE_FOLDER_ID not set",
+            }
 
         records, _, failures = fetch_all(ctx)
         if failures or not records:
@@ -164,6 +169,8 @@ def run_refresh_cycle(services: Services, trigger: str = "manual") -> dict:
             append_event(ctx.ledger, events.run_failed(step="refresh", error=error))
             return {
                 "status": "failed",
+                "step": "refresh",
+                "error": error,
                 "reason": f"{failures} school(s) failed to fetch"
                 if failures
                 else "MIIC listed no records",
@@ -229,7 +236,13 @@ def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
                 events.run_failed(step="canary", error=failed[0], failed_checks=failed),
             )
             logger.error("Canary failed: %s", ", ".join(failed))
-            return {"status": "failed", "failed_checks": failed, **summary}
+            return {
+                "status": "failed",
+                "step": "canary",
+                "error": failed[0],
+                "failed_checks": failed,
+                **summary,
+            }
 
         append_event(ctx.ledger, events.run_completed(**summary))
         logger.info("Canary passed: %s", summary)

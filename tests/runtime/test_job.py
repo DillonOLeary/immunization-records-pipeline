@@ -118,3 +118,44 @@ def test_a_failure_building_services_is_caught_the_same_way(capsys):
     out = capsys.readouterr().out
     assert "Zelda" not in out
     assert json.loads(out.strip().splitlines()[-1])["error"] == "PermissionError"
+
+
+def test_a_failure_prints_one_line_the_alert_turns_into_a_clear_email(
+    monkeypatch, capsys
+):
+    monkeypatch.setitem(
+        job.CYCLES,
+        "canary",
+        lambda s, trigger: {
+            "status": "failed",
+            "step": "canary",
+            "error": "AuthenticationError",
+            "failed_checks": ["AuthenticationError", "RosterCheckFailed"],
+        },
+    )
+
+    assert main(["canary"]) == 1
+
+    line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert line["severity"] == "ERROR"
+    assert (
+        line["action_needed"] == line["message"] == "MIIC refused the pipeline's login"
+    )
+    assert "miic-password" in line["what_to_do"]
+    assert line["what_to_do"].endswith("Also failing: RosterCheckFailed.")
+
+
+def test_success_prints_no_action(monkeypatch, capsys):
+    monkeypatch.setitem(job.CYCLES, "tick", lambda s, trigger: {"status": "idle"})
+
+    assert main(["tick"]) == 0
+
+    assert "action_needed" not in capsys.readouterr().out
+
+
+def test_a_bad_setting_also_prints_the_action_line(capsys):
+    assert main(["run"], env={**ENV, "POLL_DEADLINE_SECONDS": "x"}) == 2
+
+    line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert line["action_needed"] == "The job's configuration is invalid"
+    assert "POLL_DEADLINE_SECONDS must be an integer" in line["what_to_do"]

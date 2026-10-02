@@ -25,6 +25,7 @@ import traceback
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from mn_immunization.runtime.advice import advise
 from mn_immunization.runtime.composition import build_services
 from mn_immunization.workflow.cycles import (
     run_canary_cycle,
@@ -69,6 +70,12 @@ def main(
         settings = Settings.from_env(env)
     except SettingsError as error:
         print(f"configuration error: {error.variable} {error.problem}", file=sys.stderr)
+        _report(
+            {"status": "failed", "step": "startup", "error": "SettingsError"},
+            headline="The job's configuration is invalid",
+            what_to_do=f"{error.variable} {error.problem}. Fix it in "
+            "infra/modules/district/job.tf (or the execution's overrides).",
+        )
         return 2
 
     try:
@@ -83,10 +90,34 @@ def main(
             "error": type(error).__name__,
             "where": where(error),
         }
-    print(json.dumps(result))
     # waiting: the period continues on the next tick; idle: none is open.
     ok = ("success", "skipped", "waiting", "idle")
-    return 0 if result.get("status") in ok else 1
+    if result.get("status") in ok:
+        print(json.dumps(result))
+        return 0
+    headline, what_to_do = advise(result, settings.data_bucket)
+    also = result.get("failed_checks", [])[1:]
+    if also:
+        what_to_do += f" Also failing: {', '.join(also)}."
+    _report(result, headline, what_to_do)
+    return 1
+
+
+def _report(result: dict, headline: str, what_to_do: str) -> None:
+    """The one line a failure prints. Cloud Logging reads `severity` and
+    `message` from it; the action-needed alert (infra alerts.tf) emails
+    `action_needed` as the subject and `what_to_do` as the body."""
+    print(
+        json.dumps(
+            {
+                **result,
+                "severity": "ERROR",
+                "message": headline,
+                "action_needed": headline,
+                "what_to_do": what_to_do,
+            }
+        )
+    )
 
 
 def where(error: BaseException, depth: int = 6) -> list[str]:

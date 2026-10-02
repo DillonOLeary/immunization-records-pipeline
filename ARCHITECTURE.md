@@ -176,8 +176,11 @@ set; safe any time because IC imports are idempotent.
   district's cadence, `tick` every 3 hours, `canary` every Monday and
   the day before a run. Manual runs: `gcloud run jobs execute`. The CLI only reads the
   ledger.
-- Alerts email on a failed job execution, on a failed scheduler launch,
-  and when the job has not run for 12 hours.
+- Alerts email only when a human must act, and say what happened and
+  what to do: a failed run or canary (the job prints a headline and a
+  fix, `runtime/advice.py`, which become the email's subject and body),
+  a crash that repeats, a failed launch, or 12 hours without any
+  execution. Nothing on success or while waiting; no "resolved" emails.
 - CI: pytest (including e2e and the architecture rules), ruff,
   basedpyright, pip-audit, gitleaks, terraform validate, CodeQL. Deploys
   build and smoke-test the image, then update the job (via WIF; no

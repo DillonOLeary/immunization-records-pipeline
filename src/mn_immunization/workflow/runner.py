@@ -105,7 +105,13 @@ def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
     append_event(
         ctx.ledger, events.run_failed(step=step.step, error=step.error, **detail)
     )
-    return {"status": step.status, "reason": step.reason, **detail}
+    return {
+        "status": step.status,
+        "step": step.step,
+        "error": step.error,
+        "reason": step.reason,
+        **detail,
+    }
 
 
 @dataclass(frozen=True)
@@ -148,7 +154,12 @@ def run_to_completion(ctx: RunContext, executors: Executors = REAL_EXECUTORS) ->
         append_event(
             ctx.ledger, events.run_failed(step="delivery", error="NoDriveFolder")
         )
-        return {"status": "failed", "reason": "GOOGLE_DRIVE_FOLDER_ID not set"}
+        return {
+            "status": "failed",
+            "step": "delivery",
+            "error": "NoDriveFolder",
+            "reason": "GOOGLE_DRIVE_FOLDER_ID not set",
+        }
 
     brake = ctx.settings.brake_fraction
     waited = (ctx.clock.now() - ctx.opened_at).total_seconds()
@@ -206,5 +217,7 @@ def run_to_completion(ctx: RunContext, executors: Executors = REAL_EXECUTORS) ->
             logger.error("cycle failed at %s: %s", name, type(error).__name__)
             return {
                 "status": "failed",
+                "step": name,
+                "error": type(error).__name__,
                 "reason": f"{type(error).__name__} at {name}",
             }
