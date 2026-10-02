@@ -10,11 +10,6 @@ resource "google_secret_manager_secret" "secrets" {
     "drive-refresh-token",
     "drive-client-id",
     "drive-client-secret",
-    # Old names, kept until the code reads the new ones; then removed.
-    "aisr-username",
-    "aisr-password",
-    "ic-username",
-    "ic-password",
   ])
 
   project   = local.project_id
