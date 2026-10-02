@@ -90,6 +90,17 @@ def test_the_period_key_is_the_format_of_local_time():
     assert period_key(local, "%Y-%m-%d") == "2026-09-30"
 
 
+def test_a_half_month_period_splits_after_the_15th():
+    # Runs on the 13th and the 28th land in different periods; a retry the
+    # day after either one stays in its period and resends nothing.
+    fmt = "%Y-%m-{half}"
+    assert period_key(datetime(2026, 10, 13, 2, 9), fmt) == "2026-10-1"
+    assert period_key(datetime(2026, 10, 15, 23, 0), fmt) == "2026-10-1"
+    assert period_key(datetime(2026, 10, 16, 0, 0), fmt) == "2026-10-2"
+    assert period_key(datetime(2026, 10, 28, 2, 9), fmt) == "2026-10-2"
+    assert period_key(datetime(2026, 10, 29, 9, 0), fmt) == "2026-10-2"
+
+
 def test_submissions_are_per_period_with_the_latest_time():
     runs = [
         run(

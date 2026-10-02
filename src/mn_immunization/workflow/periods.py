@@ -20,6 +20,11 @@ class OpenPeriod:
 
 
 def period_key(local_now: datetime, period_format: str) -> str:
-    """The period a submission made now belongs to (QUERY_PERIOD_FORMAT of
-    the district-local time): "%Y-%m" monthly, "%Y-%m-%d" per run day."""
-    return local_now.strftime(period_format)
+    """The period a submission made now belongs to: QUERY_PERIOD_FORMAT of
+    the district-local time. "%Y-%m" is monthly; "%Y-%m-{half}" is twice
+    a month ({half} is 1 for the 1st to the 15th, 2 after), for runs on,
+    say, the 13th and the 28th. A period, not a run, is what limits each
+    school to one roster (one nurse email): a rerun anywhere in the same
+    period resends nothing."""
+    half = "1" if local_now.day <= 15 else "2"
+    return local_now.strftime(period_format).replace("{half}", half)

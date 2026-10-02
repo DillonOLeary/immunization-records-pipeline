@@ -22,6 +22,7 @@ from mn_immunization.adapters.gcs.ledger import (
 from mn_immunization.adapters.gcs.storage import get_storage_client
 from mn_immunization.workflow.events import TERMINAL_TYPES
 from mn_immunization.workflow.history import History
+from mn_immunization.workflow.periods import period_key
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -50,7 +51,10 @@ def stuck_claims(bucket, now: datetime) -> list[tuple[str, dict]]:
     still submitting can show one here for a moment."""
     period_format = os.environ.get("QUERY_PERIOD_FORMAT", "%Y-%m")
     last_month = now.replace(day=1) - timedelta(days=1)
-    periods = {now.strftime(period_format), last_month.strftime(period_format)}
+    periods = {
+        period_key(moment, period_format)
+        for moment in (now, now - timedelta(days=16), last_month)
+    }
     history = History.from_runs(
         read_recent_runs(bucket, recent_months(now, 2), limit=None)
     )
