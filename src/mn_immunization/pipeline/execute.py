@@ -2,8 +2,9 @@
 
 `run_to_completion` is the runner: decide, execute the one named step,
 fold what it learned back into the state, repeat. It is the only place
-terminal events are written — the run ends when and only when `decide`
-says `Finish`. Executors are dumb dispatch onto the adapters; every
+terminal events are written — the execution ends when and only when
+`decide` says `Finish`, and the period closes with it unless that Finish
+is "waiting". Executors are dumb dispatch onto the adapters; every
 decision they might have been tempted to make lives in `policy.decide`.
 """
 
@@ -11,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -178,9 +179,9 @@ def record_import_confirmations(ctx: RunContext) -> None:
 
 
 def query_period(ctx: RunContext) -> str:
-    """The roster-submission period key (QUERY_PERIOD_FORMAT, monthly by
-    default): one submission per school per period."""
-    return ctx.local_now().strftime(ctx.settings.query_period_format)
+    """The period this execution works on: one roster submission per
+    school per period."""
+    return ctx.period
 
 
 def submitted_this_period(runs: list[dict], period: str) -> set[str]:
@@ -210,7 +211,9 @@ def _submit_queries(ctx: RunContext) -> Submission:
       failure that matters);
     - an upload that raises is `failed`; if it failed before anything was
       uploaded (QueryNotSentError), its claim is released so a rerun can
-      submit it, since MIIC received nothing.
+      submit it, since MIIC received nothing;
+    - a roster that cannot be read from the bucket is `failed` before
+      anything is claimed.
 
     Ledger reads happen before anything is claimed, and login before any
     claim too, so a read error or a failed login leaves no claims behind.
@@ -240,6 +243,16 @@ def _submit_queries(ctx: RunContext) -> Submission:
     logger.info("Submitting %d roster(s) for period %s", len(pending), period)
     with ctx.open_source(ctx.auth_url, ctx.api_url) as source:
         for school in pending:
+            try:
+                school = _stage_roster(ctx, school)
+            except Exception as error:
+                failed.add(school.school_id)
+                logger.error(
+                    "Roster for %s could not be read (%s); not submitting",
+                    school.school_name,
+                    type(error).__name__,
+                )
+                continue
             key = f"{prefix}_{school.school_id}"
             try:
                 won = ctx.ledger.claim(key)
@@ -289,6 +302,17 @@ def _submit_queries(ctx: RunContext) -> Submission:
         stuck=frozenset(stuck),
         failed=frozenset(failed),
     )
+
+
+def _stage_roster(
+    ctx: RunContext, school: SchoolQueryInformation
+) -> SchoolQueryInformation:
+    """Copy the school's roster from the bucket into this execution's temp
+    dir, under the name MDH signing has always been sent as `filePath`."""
+    path = ctx.temp / f"{school.school_name}_query.csv"
+    roster = ctx.objects.read_text(ctx.roster_paths[school.school_id])
+    path.write_text(roster, encoding="utf-8")
+    return replace(school, query_file_path=str(path))
 
 
 def _release_unsent(ctx: RunContext, key: str, school_name: str) -> None:
@@ -478,9 +502,15 @@ def _commit_master(ctx: RunContext, diff: DiffResult) -> None:
 
 
 def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
-    """The one place terminal events are written."""
+    """The one place terminal events are written. Every outcome but
+    "waiting" closes the period first, so the terminal event stays last."""
     diff = state.diff
     submission = state.submission or Submission()
+    if step.status == "waiting":
+        append_event(ctx.ledger, events.run_waiting(step.reason))
+        logger.info("Period %s waiting: %s", ctx.period, step.reason)
+        return {"status": "waiting", "reason": step.reason}
+    append_event(ctx.ledger, events.period_closed(ctx.period, step.status))
     if step.status == "success":
         files = diff.files_transformed if diff else 0
         new = diff.new_count if diff else 0
@@ -552,28 +582,30 @@ REAL_EXECUTORS = Executors(
 
 
 def run_to_completion(ctx: RunContext, executors: Executors = REAL_EXECUTORS) -> dict:
-    """Drive the cycle to its terminal event, one decided step at a time.
+    """Advance the execution's period as far as it can go now, one decided
+    step at a time, and write the terminal event.
 
-    A step that raises becomes a loud RunFailed naming the step; nothing
-    after it runs, which is what makes "delivery failed" leave the master
-    untouched instead of silently absorbing undelivered records.
+    Waiting for staging never sleeps: a short count ends the execution as
+    "waiting" and the next tick looks again, until POLL_DEADLINE_SECONDS
+    after the period opened. A step that raises becomes a loud RunFailed
+    naming the step and closes the period; nothing after it runs, which is
+    what makes "delivery failed" leave the master untouched instead of
+    silently absorbing undelivered records.
     """
     if ctx.drive is None:
         # Checked before anything happens: a misconfigured delivery target
         # must not cost the period's one roster submission.
+        append_event(ctx.ledger, events.period_closed(ctx.period, "failed"))
         append_event(
             ctx.ledger, events.run_failed(step="delivery", error="NoDriveFolder")
         )
         return {"status": "failed", "reason": "GOOGLE_DRIVE_FOLDER_ID not set"}
 
-    interval = ctx.settings.poll_interval_seconds
-    deadline = ctx.settings.poll_deadline_seconds
     brake = ctx.settings.brake_fraction
-    clock, sleep = ctx.clock.monotonic, ctx.clock.sleep
-
-    state = CycleState()
-    start = clock()
-    probed = False
+    waited = (ctx.clock.now() - ctx.opened_at).total_seconds()
+    state = CycleState(
+        staging_deadline_passed=waited >= ctx.settings.poll_deadline_seconds
+    )
 
     while True:
         step = decide(state, brake)
@@ -585,23 +617,16 @@ def run_to_completion(ctx: RunContext, executors: Executors = REAL_EXECUTORS) ->
             if isinstance(step, SubmitQueries):
                 state = state.with_submission(executors.submit(ctx))
             elif isinstance(step, AwaitStaging):
-                if probed:
-                    remaining = deadline - (clock() - start)
-                    if remaining <= 0:
-                        state = state.with_staging_deadline_passed()
-                        continue
-                    sleep(min(interval, remaining))
-                probed = True
-                # decide only waits once a submission exists
+                # decide only probes once a submission exists
                 submission = state.submission or Submission()
                 try:
                     staged = executors.probe(ctx, submission.submitted)
                 except Exception as error:
                     # One AISR blip (a failed login, a maintenance page)
-                    # must not end a 20-hour wait. Keep the last count,
-                    # remember why, and let the deadline decide.
+                    # must not end the period's wait. Remember why, and
+                    # let the next tick (or the deadline) decide.
                     logger.warning(
-                        "Staging probe failed (%s); retrying next interval",
+                        "Staging probe failed (%s); the next tick retries",
                         type(error).__name__,
                     )
                     state = state.with_probe_error(type(error).__name__)
@@ -620,6 +645,7 @@ def run_to_completion(ctx: RunContext, executors: Executors = REAL_EXECUTORS) ->
                 executors.commit(ctx, step.diff)
                 state = state.with_master_committed()
         except Exception as error:
+            append_event(ctx.ledger, events.period_closed(ctx.period, "failed"))
             append_event(
                 ctx.ledger,
                 events.run_failed(step=name, error=type(error).__name__),

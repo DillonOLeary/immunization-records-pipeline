@@ -1,13 +1,16 @@
 """The runner loop, driven with stub executors and a fake clock.
 
 The policy tests prove `decide` names the right steps; these prove the
-loop executes them faithfully: polling at the interval, stopping at the
-deadline, failing loudly mid-step with the master untouched, and writing
-exactly one terminal event per run. The stubs are injected as an
-`Executors` table: no monkeypatching.
+loop executes them faithfully: one staging probe per execution, ending
+"waiting" (period still open) before the deadline and moving on after
+it, failing loudly mid-step with the master untouched, and writing
+exactly one terminal event per execution, after closing the period
+unless it is waiting. The stubs are injected as an `Executors` table: no
+monkeypatching.
 """
 
 from dataclasses import replace
+from datetime import timedelta
 
 import mn_immunization.pipeline.execute as execute
 from mn_immunization.domain.hashing import sha256_hex
@@ -18,21 +21,24 @@ from mn_immunization.sources.aisr.port import SchoolQueryInformation
 from tests.fakes import DISTRICT, FakeClock, make_run_context
 
 SCHOOLS = 8
-INTERVAL = 14400
 DEADLINE = 72000
 SETTINGS = Settings(
     data_bucket="test-bucket",
     time_zone=DISTRICT,
-    poll_interval_seconds=INTERVAL,
     poll_deadline_seconds=DEADLINE,
     brake_fraction=0.2,
 )
 
 
-def make_ctx(tmp_path, schools: int = SCHOOLS):
+def make_ctx(tmp_path, schools: int = SCHOOLS, opened_seconds_ago: float = 0):
+    """A period opened `opened_seconds_ago`: at or past DEADLINE, a short
+    staging count no longer waits."""
+    clock = FakeClock()
     return make_run_context(
         tmp_path,
         settings=SETTINGS,
+        clock=clock.as_clock(),
+        opened_at=clock.now() - timedelta(seconds=opened_seconds_ago),
         schools=[
             SchoolQueryInformation(
                 school_name=f"school-{i}",
@@ -44,6 +50,10 @@ def make_ctx(tmp_path, schools: int = SCHOOLS):
             for i in range(schools)
         ],
     )
+
+
+def past_deadline(tmp_path):
+    return make_ctx(tmp_path, opened_seconds_ago=DEADLINE)
 
 
 def make_diff(tmp_path, new=648, known=170_361, files=8, failures=0) -> DiffResult:
@@ -66,14 +76,11 @@ class Stubs(list):
 def stub_executors(staged, diff, deliver_outcome="delivered", submission=None):
     """Stub executors; the loop under test stays real.
 
-    `staged` is the sequence of probe results (the last repeats); an
-    exception in it is raised by that probe. `deliver_outcome` is
-    "delivered", "already_delivered", or an exception to raise. Returns
-    the call log, carrying the executors as `.executors`.
+    `staged` is the probe's result, or an exception for it to raise.
+    `deliver_outcome` is "delivered", "already_delivered", or an exception
+    to raise. Returns the call log, carrying the executors as `.executors`.
     """
     calls = Stubs()
-    staged_iter = iter(staged)
-    last = {"outcome": 0}
 
     def fake_submit(ctx):
         calls.append("submit")
@@ -83,13 +90,9 @@ def stub_executors(staged, diff, deliver_outcome="delivered", submission=None):
 
     def fake_probe(ctx, school_ids):
         calls.append("probe")
-        try:
-            last["outcome"] = next(staged_iter)
-        except StopIteration:
-            pass
-        if isinstance(last["outcome"], Exception):
-            raise last["outcome"]
-        return last["outcome"]
+        if isinstance(staged, Exception):
+            raise staged
+        return staged
 
     def fake_deliver(ctx, d):
         calls.append("deliver")
@@ -107,17 +110,21 @@ def stub_executors(staged, diff, deliver_outcome="delivered", submission=None):
     return calls
 
 
-def run(ctx, fake_clock, calls):
-    ctx.clock = fake_clock.as_clock()
+def run(ctx, calls):
     return execute.run_to_completion(ctx, calls.executors)
+
+
+def closed_as(ctx) -> str:
+    (event,) = [e for e in ctx.ledger.events if e["type"] == "PeriodClosed"]
+    assert event["data"]["period"] == ctx.period
+    return event["data"]["outcome"]
 
 
 def test_happy_path_runs_the_steps_in_order(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(staged=[SCHOOLS], diff=make_diff(tmp_path))
-    fake = FakeClock()
+    calls = stub_executors(staged=SCHOOLS, diff=make_diff(tmp_path))
 
-    result = run(ctx, fake, calls)
+    result = run(ctx, calls)
 
     assert calls == ["submit", "probe", "compute", "deliver", "commit"]
     assert result == {
@@ -125,84 +132,76 @@ def test_happy_path_runs_the_steps_in_order(tmp_path):
         "files_transformed": 8,
         "new_records": 648,
     }
-    assert ctx.ledger.event_types() == ["RunCompleted"]
-    assert fake.sleeps == []
+    assert ctx.ledger.event_types() == ["PeriodClosed", "RunCompleted"]
+    assert closed_as(ctx) == "success"
 
 
-def test_polls_at_interval_until_staged(tmp_path):
-    ctx = make_ctx(tmp_path)
-    calls = stub_executors(staged=[2, 5, 8], diff=make_diff(tmp_path))
-    fake = FakeClock()
+def test_a_short_count_before_the_deadline_ends_the_execution_waiting(tmp_path):
+    # Nothing sleeps: the execution ends, the period stays open, and the
+    # next tick probes again.
+    ctx = make_ctx(tmp_path, opened_seconds_ago=DEADLINE - 1)
+    calls = stub_executors(staged=2, diff=make_diff(tmp_path))
 
-    result = run(ctx, fake, calls)
+    result = run(ctx, calls)
 
-    assert result["status"] == "success"
-    assert fake.sleeps == [INTERVAL, INTERVAL]
-    assert calls.count("probe") == 3
+    assert result == {"status": "waiting", "reason": "2/8 schools have results staged"}
+    assert calls == ["submit", "probe"]
+    assert ctx.ledger.event_types() == ["RunWaiting"]
 
 
-def test_nothing_staged_by_deadline_fails_loudly(tmp_path):
-    ctx = make_ctx(tmp_path)
-    calls = stub_executors(staged=[0], diff=make_diff(tmp_path))
-    fake = FakeClock()
+def test_nothing_staged_by_the_deadline_fails_loudly(tmp_path):
+    ctx = past_deadline(tmp_path)
+    calls = stub_executors(staged=0, diff=make_diff(tmp_path))
 
-    result = run(ctx, fake, calls)
+    result = run(ctx, calls)
 
     assert result["status"] == "failed"
-    assert sum(fake.sleeps) == DEADLINE
     assert "compute" not in calls
-    assert ctx.ledger.event_types() == ["RunFailed"]
-    assert ctx.ledger.events[0]["data"] == {
+    assert ctx.ledger.event_types() == ["PeriodClosed", "RunFailed"]
+    assert closed_as(ctx) == "failed"
+    assert ctx.ledger.events[-1]["data"] == {
         "step": "awaiting_results",
         "error": "NoResultsStaged",
     }
 
 
-def test_a_failed_probe_mid_wait_does_not_end_the_run(tmp_path):
-    # One AISR blip during the 20-hour wait (a failed login, a maintenance
-    # page) used to be a RunFailed; now the loop keeps waiting.
+def test_a_failed_probe_before_the_deadline_waits(tmp_path):
+    # One AISR blip (a failed login, a maintenance page) is not a failed
+    # period: the next tick looks again.
     ctx = make_ctx(tmp_path)
     calls = stub_executors(
-        staged=[2, ConnectionError("aisr blip"), SCHOOLS],
-        diff=make_diff(tmp_path),
+        staged=ConnectionError("aisr blip"), diff=make_diff(tmp_path)
     )
-    fake = FakeClock()
 
-    result = run(ctx, fake, calls)
+    result = run(ctx, calls)
 
-    assert result["status"] == "success"
-    assert fake.sleeps == [INTERVAL, INTERVAL]
-    assert calls.count("probe") == 3
-    assert ctx.ledger.event_types() == ["RunCompleted"]
+    assert result["status"] == "waiting"
+    assert ctx.ledger.event_types() == ["RunWaiting"]
 
 
-def test_probes_failing_through_the_deadline_fail_naming_the_error(tmp_path):
-    ctx = make_ctx(tmp_path)
+def test_a_failing_probe_at_the_deadline_fails_naming_the_error(tmp_path):
+    ctx = past_deadline(tmp_path)
     calls = stub_executors(
-        staged=[ConnectionError("aisr down")], diff=make_diff(tmp_path)
+        staged=ConnectionError("aisr down"), diff=make_diff(tmp_path)
     )
-    fake = FakeClock()
 
-    result = run(ctx, fake, calls)
+    result = run(ctx, calls)
 
     assert result["status"] == "failed"
-    assert sum(fake.sleeps) == DEADLINE
     assert "compute" not in calls
-    assert ctx.ledger.events[0]["data"] == {
+    assert ctx.ledger.events[-1]["data"] == {
         "step": "awaiting_results",
         "error": "ConnectionError",
     }
 
 
 def test_partial_staging_past_deadline_proceeds(tmp_path):
-    ctx = make_ctx(tmp_path)
-    calls = stub_executors(staged=[4], diff=make_diff(tmp_path))
-    fake = FakeClock()
+    ctx = past_deadline(tmp_path)
+    calls = stub_executors(staged=4, diff=make_diff(tmp_path))
 
-    result = run(ctx, fake, calls)
+    result = run(ctx, calls)
 
     assert result["status"] == "success"
-    assert sum(fake.sleeps) == DEADLINE
     assert calls[-3:] == ["compute", "deliver", "commit"]
 
 
@@ -211,16 +210,16 @@ def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(tmp_path):
     ids = frozenset(s.school_id for s in ctx.schools)
     stuck = Submission(submitted=ids - {"1000"}, stuck=frozenset({"1000"}))
     calls = stub_executors(
-        staged=[SCHOOLS - 1], diff=make_diff(tmp_path), submission=stuck
+        staged=SCHOOLS - 1, diff=make_diff(tmp_path), submission=stuck
     )
 
-    result = run(ctx, FakeClock(), calls)
+    result = run(ctx, calls)
 
     assert calls == ["submit", "probe", "compute", "deliver", "commit"]
     assert result["status"] == "failed"
     assert result["stuck_schools"] == ["1000"]
-    assert ctx.ledger.event_types() == ["RunFailed"]
-    assert ctx.ledger.events[0]["data"] == {
+    assert ctx.ledger.event_types() == ["PeriodClosed", "RunFailed"]
+    assert ctx.ledger.events[-1]["data"] == {
         "step": "submit_queries",
         "error": "QuerySubmissionIncomplete",
         "stuck_schools": ["1000"],
@@ -232,18 +231,16 @@ def test_nothing_submitted_fails_without_waiting(tmp_path):
     ctx = make_ctx(tmp_path)
     ids = frozenset(s.school_id for s in ctx.schools)
     calls = stub_executors(
-        staged=[0],
+        staged=0,
         diff=make_diff(tmp_path),
         submission=Submission(failed=ids),
     )
-    fake = FakeClock()
 
-    result = run(ctx, fake, calls)
+    result = run(ctx, calls)
 
     assert calls == ["submit"]
-    assert fake.sleeps == []
     assert result["status"] == "failed"
-    assert ctx.ledger.events[0]["data"]["error"] == "NoQueriesSubmitted"
+    assert ctx.ledger.events[-1]["data"]["error"] == "NoQueriesSubmitted"
 
 
 def test_staging_waits_only_for_submitted_schools(tmp_path):
@@ -252,7 +249,7 @@ def test_staging_waits_only_for_submitted_schools(tmp_path):
     one_failed = Submission(submitted=ids - {"1003"}, failed=frozenset({"1003"}))
     probed = []
     calls = stub_executors(
-        staged=[SCHOOLS - 1],
+        staged=SCHOOLS - 1,
         diff=make_diff(tmp_path),
         submission=one_failed,
     )
@@ -263,26 +260,25 @@ def test_staging_waits_only_for_submitted_schools(tmp_path):
         return stubbed_probe(ctx, school_ids)
 
     calls.executors = replace(calls.executors, probe=recording_probe)
-    fake = FakeClock()
 
-    run(ctx, fake, calls)
+    run(ctx, calls)
 
     assert probed == [ids - {"1003"}]
-    assert fake.sleeps == []  # 7 of 7 expected schools staged at once
-    assert "compute" in calls
+    assert "compute" in calls  # 7 of 7 expected schools staged at once
 
 
 def test_brake_blocks_before_delivery_and_commit(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(staged=[SCHOOLS], diff=make_diff(tmp_path, new=100_000))
+    calls = stub_executors(staged=SCHOOLS, diff=make_diff(tmp_path, new=100_000))
 
-    result = run(ctx, FakeClock(), calls)
+    result = run(ctx, calls)
 
     assert result["status"] == "blocked"
     assert "deliver" not in calls
     assert "commit" not in calls
-    assert ctx.ledger.event_types() == ["RunFailed"]
-    assert ctx.ledger.events[0]["data"] == {
+    assert ctx.ledger.event_types() == ["PeriodClosed", "RunFailed"]
+    assert closed_as(ctx) == "blocked"
+    assert ctx.ledger.events[-1]["data"] == {
         "step": "diff_sanity",
         "error": "SuspiciousDiffVolume",
     }
@@ -294,18 +290,19 @@ def test_delivery_failure_fails_loudly_with_master_untouched(tmp_path):
     # already absorbed the records.
     ctx = make_ctx(tmp_path)
     calls = stub_executors(
-        staged=[SCHOOLS],
+        staged=SCHOOLS,
         diff=make_diff(tmp_path),
         deliver_outcome=ConnectionError("drive down"),
     )
 
-    result = run(ctx, FakeClock(), calls)
+    result = run(ctx, calls)
 
     assert result["status"] == "failed"
     assert "ConnectionError" in result["reason"]
     assert "commit" not in calls
-    assert ctx.ledger.event_types() == ["RunFailed"]
-    assert ctx.ledger.events[0]["data"] == {
+    assert ctx.ledger.event_types() == ["PeriodClosed", "RunFailed"]
+    assert closed_as(ctx) == "failed"
+    assert ctx.ledger.events[-1]["data"] == {
         "step": "deliver_diff",
         "error": "ConnectionError",
     }
@@ -316,23 +313,23 @@ def test_diff_already_delivered_still_commits_then_skips(tmp_path):
     # rerun's job is to finish the commit, then record the skip.
     ctx = make_ctx(tmp_path)
     calls = stub_executors(
-        staged=[SCHOOLS],
+        staged=SCHOOLS,
         diff=make_diff(tmp_path),
         deliver_outcome="already_delivered",
     )
 
-    result = run(ctx, FakeClock(), calls)
+    result = run(ctx, calls)
 
     assert result["status"] == "skipped"
     assert calls[-2:] == ["deliver", "commit"]
-    assert ctx.ledger.event_types() == ["RunSkipped"]
+    assert ctx.ledger.event_types() == ["PeriodClosed", "RunSkipped"]
 
 
 def test_empty_diff_completes_without_delivering(tmp_path):
     ctx = make_ctx(tmp_path)
-    calls = stub_executors(staged=[SCHOOLS], diff=make_diff(tmp_path, new=0))
+    calls = stub_executors(staged=SCHOOLS, diff=make_diff(tmp_path, new=0))
 
-    result = run(ctx, FakeClock(), calls)
+    result = run(ctx, calls)
 
     assert result == {"status": "success", "files_transformed": 8, "new_records": 0}
     assert "deliver" not in calls
@@ -344,13 +341,14 @@ def test_missing_drive_folder_fails_before_any_step(tmp_path):
     # not cost the period's one roster submission (and its nurse email).
     ctx = make_ctx(tmp_path)
     ctx.drive = None
-    calls = stub_executors(staged=[SCHOOLS], diff=make_diff(tmp_path))
+    calls = stub_executors(staged=SCHOOLS, diff=make_diff(tmp_path))
 
-    result = run(ctx, FakeClock(), calls)
+    result = run(ctx, calls)
 
     assert result["status"] == "failed"
     assert calls == []
-    assert ctx.ledger.events[0]["data"] == {
+    assert closed_as(ctx) == "failed"
+    assert ctx.ledger.events[-1]["data"] == {
         "step": "delivery",
         "error": "NoDriveFolder",
     }

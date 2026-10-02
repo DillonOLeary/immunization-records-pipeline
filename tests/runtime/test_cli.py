@@ -69,3 +69,37 @@ def test_status_prints_the_release_command_for_a_stuck_claim(monkeypatch, capsys
     out = capsys.readouterr().out
     assert "STUCK ROSTER CLAIMS" in out
     assert f"gs://data-bucket/ledger/claims/{datetime.now(UTC):%Y-%m}_query_2543" in out
+
+
+def test_stuck_claims_cover_periods_named_in_the_ledger(monkeypatch):
+    # A per-day cadence (QUERY_PERIOD_FORMAT=%Y-%m-%d) has periods the
+    # month-based guess never names; the ledger's PeriodOpened does.
+    monkeypatch.delenv("QUERY_PERIOD_FORMAT", raising=False)
+    now = datetime(2026, 10, 28, 9, 0, 0)
+    bucket = FakeBucket()
+    run = GcsRunLedger(bucket, run_id="run_x", now=lambda: now)
+    run.append(events.period_opened("2026-10-26"))
+    run.claim("2026-10-26_query_2543")
+
+    assert [key for key, _ in cli.stuck_claims(bucket, now)] == [
+        "2026-10-26_query_2543"
+    ]
+
+
+def test_status_names_the_open_period(monkeypatch, capsys):
+    bucket = FakeBucket()
+    run = GcsRunLedger(bucket, run_id="run_x", now=lambda: datetime.now(UTC))
+    run.append(events.run_started("run", "scheduled"))
+    run.append(events.period_opened("2026-10"))
+    run.append(events.run_waiting("3/8 schools have results staged"))
+    monkeypatch.setattr(
+        cli,
+        "get_storage_client",
+        lambda: type("C", (), {"bucket": lambda s, n: bucket})(),
+    )
+
+    cli.main(["status", "--bucket", "data-bucket"])
+
+    out = capsys.readouterr().out
+    assert "OPEN PERIOD 2026-10" in out
+    assert "RunWaiting  reason=3/8 schools have results staged" in out

@@ -20,13 +20,11 @@ from mn_immunization.sources.aisr.port import SourceOpener
 
 @dataclass(frozen=True)
 class Clock:
-    """Wall time (timezone-aware, UTC) for dates and ledger stamps; sleep
-    and a monotonic clock for the staging wait. Tests pass a fake that
-    never sleeps."""
+    """Wall time (timezone-aware, UTC) for periods, dates, deadlines, and
+    ledger stamps. Nothing sleeps: a wait ends the execution, and the
+    next tick looks again."""
 
     now: Callable[[], datetime]
-    sleep: Callable[[float], None]
-    monotonic: Callable[[], float]
 
 
 @dataclass(frozen=True)

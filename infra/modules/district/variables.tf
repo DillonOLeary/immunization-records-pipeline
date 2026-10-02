@@ -38,9 +38,15 @@ variable "google_drive_folder_id" {
 }
 
 variable "schedule" {
-  description = "Cron for the unified run cycle (query, poll, deliver)"
+  description = "Cron for run: opens a period (rosters go to MIIC, nurses are emailed)"
   type        = string
   default     = "9 2 28 * *"
+}
+
+variable "tick_schedule" {
+  description = "Cron for tick: advances the open period (staging, diff, delivery)"
+  type        = string
+  default     = "17 */3 * * *"
 }
 
 variable "canary_schedule" {

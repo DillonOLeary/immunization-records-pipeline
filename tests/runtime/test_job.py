@@ -27,11 +27,11 @@ def test_missing_bucket_returns_2_naming_the_variable(capsys):
 
 
 def test_malformed_setting_returns_2_without_echoing_the_value(capsys):
-    env = {**ENV, "POLL_INTERVAL_SECONDS": "four-hours-ish"}
+    env = {**ENV, "POLL_DEADLINE_SECONDS": "a-day-ish"}
     assert main(["run"], env=env) == 2
     err = capsys.readouterr().err
-    assert "POLL_INTERVAL_SECONDS must be an integer" in err
-    assert "four-hours-ish" not in err
+    assert "POLL_DEADLINE_SECONDS must be an integer" in err
+    assert "a-day-ish" not in err
 
 
 def test_dispatches_cycle_with_services_and_trigger(monkeypatch):
@@ -74,6 +74,15 @@ def test_trigger_env_sets_the_default(monkeypatch):
 def test_skipped_status_is_success_exit(monkeypatch):
     monkeypatch.setitem(job.CYCLES, "run", lambda s, trigger: {"status": "skipped"})
     assert main(["run"]) == 0
+
+
+def test_waiting_and_idle_ticks_exit_0(monkeypatch):
+    # A period still waiting for staging, or no period open, is the normal
+    # state between runs, not something to alert on.
+    for status in ("waiting", "idle"):
+        result = {"status": status}
+        monkeypatch.setitem(job.CYCLES, "tick", lambda s, trigger, r=result: r)
+        assert main(["tick"]) == 0
 
 
 def test_failed_status_exits_1_so_the_alert_fires(monkeypatch):

@@ -4,13 +4,16 @@
 and names the single next `Step`; the runner executes that step, folds
 what it learned back into the state with the `with_*` transitions, and
 asks again. No I/O, no clock, no environment here — which is what makes
-the ordering guarantees checkable as a decision table:
+the ordering guarantees checkable as a decision table. One execution (a
+`run` or a `tick`) starts from a fresh state; whatever must outlive it is
+in the ledger, so a period spans as many executions as staging takes:
 
 - the sanity brake precedes every step that persists anything;
 - `DeliverDiff` precedes `CommitMaster`, so a failed delivery leaves the
   master untouched and the records still in tomorrow's diff;
 - `Finish` is the only step that ends a run, so the terminal-event
-  guarantee is the loop's shape, not a discipline.
+  guarantee is the loop's shape, not a discipline; `Finish("waiting")`
+  ends the execution but not the period.
 
 - a school whose roster may already have gone to MIIC is never
   resubmitted (every submission emails every nurse); if any school is
@@ -80,7 +83,8 @@ class DiffResult:
 class CycleState:
     submission: Submission | None = None
     staged: int = 0
-    staging_deadline_passed: bool = False
+    probed: bool = False  # this execution has looked at staging
+    staging_deadline_passed: bool = False  # set at start, from the period
     probe_error: str = ""  # class of the last failed staging probe, if any
     diff: DiffResult | None = None
     delivered: bool = False
@@ -93,12 +97,12 @@ class CycleState:
     def with_staged(self, count: int) -> CycleState:
         """A probe succeeded: its count replaces the last one, and any
         earlier probe failure is forgotten."""
-        return replace(self, staged=count, probe_error="")
+        return replace(self, staged=count, probed=True, probe_error="")
 
     def with_probe_error(self, error: str) -> CycleState:
         """A probe failed: the staged count stands, the error is kept so a
         deadline with nothing staged can name it."""
-        return replace(self, probe_error=error)
+        return replace(self, probed=True, probe_error=error)
 
     def with_staging_deadline_passed(self) -> CycleState:
         return replace(self, staging_deadline_passed=True)
@@ -144,10 +148,11 @@ class CommitMaster:
 
 @dataclass(frozen=True)
 class Finish:
-    """End the run. `status` matches the cycle's return dict ("success",
-    "skipped", "blocked", "failed"); the runner maps it to the terminal
-    event: success -> RunCompleted, skipped -> RunSkipped, blocked and
-    failed -> RunFailed(step, error)."""
+    """End the execution. `status` matches the cycle's return dict
+    ("success", "skipped", "blocked", "failed", "waiting"); the runner maps
+    it to the terminal event: success -> RunCompleted, skipped ->
+    RunSkipped, blocked and failed -> RunFailed(step, error), waiting ->
+    RunWaiting. Every status but waiting also closes the period."""
 
     status: str
     step: str = ""
@@ -196,10 +201,17 @@ def decide(state: CycleState, brake_fraction: float | None) -> Step:
         )
 
     # Only the submitted schools can stage; stuck and failed ones are not
-    # waited for.
+    # waited for. Each execution looks once; short of the deadline, a
+    # short count ends the execution and the next tick looks again.
     expected = len(submission.submitted)
-    if state.staged < expected and not state.staging_deadline_passed:
-        return AwaitStaging()
+    if state.staged < expected:
+        if not state.probed:
+            return AwaitStaging()
+        if not state.staging_deadline_passed:
+            return Finish(
+                status="waiting",
+                reason=f"{state.staged}/{expected} schools have results staged",
+            )
 
     if state.staged == 0:
         # If probes were failing at the deadline, that failure is the

@@ -22,6 +22,7 @@ from mn_immunization.ledger.gcs_ledger import (
     recent_months,
 )
 from mn_immunization.pipeline.execute import submitted_this_period
+from mn_immunization.pipeline.periods import open_periods
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -43,14 +44,22 @@ def create_parser() -> argparse.ArgumentParser:
 
 
 def stuck_claims(bucket, now: datetime) -> list[tuple[str, dict]]:
-    """Per-school query claims for this period and the last that have no
-    QuerySubmitted event: (claim key, claimant payload). Each is a roster
-    that may or may not have reached MIIC; runs skip it until a human
-    decides. A run still submitting can show one here for a moment."""
+    """Per-school query claims with no QuerySubmitted event, for every
+    period the last two months of the ledger mention (and the current
+    month's): (claim key, claimant payload). Each is a roster that may or
+    may not have reached MIIC; runs skip it until a human decides. A run
+    still submitting can show one here for a moment."""
     period_format = os.environ.get("QUERY_PERIOD_FORMAT", "%Y-%m")
     last_month = now.replace(day=1) - timedelta(days=1)
     periods = {now.strftime(period_format), last_month.strftime(period_format)}
     runs = read_recent_runs(bucket, recent_months(now, 2), limit=None)
+    periods |= {
+        event["data"]["period"]
+        for run in runs
+        for event in run["events"]
+        if event["type"] in ("PeriodOpened", "QuerySubmitted")
+        and "period" in event["data"]
+    }
 
     stuck = []
     for period in sorted(periods):
@@ -69,8 +78,11 @@ def handle_status_command(args: argparse.Namespace) -> None:
     # US district's, so this month and last always cover its periods.
     now = datetime.now(UTC)
     bucket = get_storage_client().bucket(args.bucket)
-    runs = read_recent_runs(bucket, recent_months(now, 2), limit=args.limit)
+    all_runs = read_recent_runs(bucket, recent_months(now, 2), limit=None)
+    runs = all_runs[: args.limit]
 
+    for period in open_periods(all_runs):
+        print(f"OPEN PERIOD {period.key} (opened {period.opened_at:%Y-%m-%dT%H:%M}Z)")
     if not runs:
         print("No runs found in the ledger for the last two months.")
     for run in runs:

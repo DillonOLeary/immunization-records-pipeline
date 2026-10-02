@@ -64,8 +64,29 @@ def test_a_fresh_run_submits_queries_first():
     assert decide(CycleState(), BRAKE) == SubmitQueries()
 
 
-def test_partial_staging_before_the_deadline_waits():
+def test_each_execution_probes_staging_once_submitted():
+    state = CycleState().with_submission(ALL_SUBMITTED)
+    assert decide(state, BRAKE) == AwaitStaging()
+
+
+def test_a_short_count_before_the_deadline_ends_the_execution_waiting():
+    # Not a failure and not a sleep: the period stays open for the next
+    # tick.
     state = CycleState().with_submission(ALL_SUBMITTED).with_staged(3)
+    assert decide(state, BRAKE) == Finish(
+        status="waiting", reason="3/8 schools have results staged"
+    )
+
+
+def test_a_failed_probe_before_the_deadline_waits_too():
+    state = CycleState().with_submission(ALL_SUBMITTED).with_probe_error("Timeout")
+    step = decide(state, BRAKE)
+    assert isinstance(step, Finish)
+    assert step.status == "waiting"
+
+
+def test_past_the_deadline_staging_is_still_probed_once():
+    state = CycleState(staging_deadline_passed=True).with_submission(ALL_SUBMITTED)
     assert decide(state, BRAKE) == AwaitStaging()
 
 

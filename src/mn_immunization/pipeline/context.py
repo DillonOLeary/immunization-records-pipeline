@@ -1,9 +1,9 @@
 """RunContext: one cycle's view of the world, as ports.
 
 Built by `cycles.pipeline_run` from Services plus what this run loaded
-(its ledger, config, schools, temp dir). The pipeline never sees an
-adapter class, a bucket, a credential, the environment, or the system
-clock. Tests build one from fakes.
+(its ledger, config, schools, temp dir) and the period it works on. The
+pipeline never sees an adapter class, a bucket, a credential, the
+environment, or the system clock. Tests build one from fakes.
 """
 
 from __future__ import annotations
@@ -37,7 +37,12 @@ class RunContext:
     auth_url: str
     api_url: str
     district: DistrictInfo
+    period: str  # the period this execution works on (periods.period_key)
+    opened_at: datetime  # when that period was (re)opened, UTC
     schools: list[SchoolQueryInformation] = field(default_factory=list)
+    # school id -> its roster object in the bucket, read only when the
+    # school is about to be submitted
+    roster_paths: dict[str, str] = field(default_factory=dict)
 
     def local_now(self) -> datetime:
         """Now in the district's zone: roster periods and delivery dates

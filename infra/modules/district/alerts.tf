@@ -5,12 +5,9 @@
 # and no execution metric existed — the failure was invisible to the first
 # alert by construction.
 #
-# Known limitation, on purpose: a metric-absence dead-man's switch cannot
-# span a monthly cadence (absence windows max out around a day). The
-# scheduled canary (scheduler.tf, the day before the run) covers both the
-# AISR-breakage case and the launch path with a day of slack: if it fails,
-# or cannot launch, these same two alerts fire. A true absence alert
-# becomes practical if cadence moves to weekly or daily.
+# And because ticks launch every few hours, silence is a signal too: a
+# third alert fires when the job has not completed any execution for
+# twelve hours (a deleted or paused scheduler, a broken launch path).
 
 resource "google_monitoring_notification_channel" "email" {
   count = var.alert_email != "" ? 1 : 0
@@ -66,7 +63,7 @@ resource "google_monitoring_alert_policy" "scheduler_launch_failed" {
     display_name = "Cloud Scheduler attempt failed"
 
     condition_matched_log {
-      filter = "resource.type = \"cloud_scheduler_job\" AND (resource.labels.job_id = \"${google_cloud_scheduler_job.run.name}\" OR resource.labels.job_id = \"${google_cloud_scheduler_job.canary.name}\") AND severity >= ERROR"
+      filter = "resource.type = \"cloud_scheduler_job\" AND resource.labels.job_id =~ \"^pipeline-\" AND severity >= ERROR"
     }
   }
 
@@ -75,6 +72,33 @@ resource "google_monitoring_alert_policy" "scheduler_launch_failed" {
       period = "3600s"
     }
     auto_close = "86400s"
+  }
+
+  notification_channels = [google_monitoring_notification_channel.email[0].name]
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "job_silent" {
+  count = var.alert_email != "" ? 1 : 0
+
+  project      = local.project_id
+  display_name = "Pipeline job has not run for 12 hours"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "No completed Cloud Run job executions"
+
+    condition_absent {
+      filter   = "resource.type = \"cloud_run_job\" AND resource.labels.job_name = \"${google_cloud_run_v2_job.pipeline.name}\" AND metric.type = \"run.googleapis.com/job/completed_execution_count\""
+      duration = "43200s"
+
+      aggregations {
+        alignment_period     = "3600s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
   }
 
   notification_channels = [google_monitoring_notification_channel.email[0].name]

@@ -1,19 +1,22 @@
 """The pipeline's use-cases.
 
-`run_cycle` is the whole pipeline in one execution: `policy.decide`
-names each next step (submit queries, await staging, compute the diff,
-deliver, commit the master) and `execute.run_to_completion` runs them
-until the decision is `Finish`. One scheduler triggers it. Claims in
-the ledger make reruns safe: a rerun skips the roster submission (so
-nurses are never emailed twice for one period) and never re-delivers a
-diff another run already delivered. Delivery precedes the master
-commit, so a failed delivery fails loudly with the master untouched.
+A period is the pipeline's unit of work: one roster submission per
+school, then results, a diff, a delivery, and a master commit.
+`run_cycle` opens a period (on the district's cadence) and
+`run_tick_cycle` (every few hours) advances whichever period is open;
+both hand it to `execute.run_to_completion`, where `policy.decide` names
+each next step. Waiting for MDH to stage results ends an execution
+rather than sleeping in it, so a period spans as many executions as it
+needs. Claims in the ledger make every execution safe to repeat: no
+school's roster goes out twice in a period (each one emails every
+nurse), and no diff is delivered twice.
 
 `run_canary_cycle` is a read-only probe (login + staged-results count).
 `run_rebaseline_cycle` pushes the entire known set to Drive in chunks to
 recover from sync trouble; safe because IC imports are idempotent.
 
-Each cycle owns its ledger and guarantees a terminal event.
+Each cycle owns its ledger and guarantees a terminal event; an idle tick
+writes nothing at all.
 """
 
 from __future__ import annotations
@@ -25,8 +28,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from mn_immunization.domain.ic_format import chunk, render_csv
-from mn_immunization.gcp.port import ObjectStore
 from mn_immunization.ledger import events
+from mn_immunization.ledger.port import RunLedger
 from mn_immunization.pipeline.context import RunContext
 from mn_immunization.pipeline.execute import (
     probe_staging,
@@ -35,6 +38,7 @@ from mn_immunization.pipeline.execute import (
     run_to_completion,
 )
 from mn_immunization.pipeline.incremental import load_known_records
+from mn_immunization.pipeline.periods import OpenPeriod, open_periods, period_key
 from mn_immunization.pipeline.services import Services
 from mn_immunization.pipeline.support import append_event, new_run_id
 from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
@@ -44,22 +48,32 @@ logger = logging.getLogger(__name__)
 
 @contextmanager
 def pipeline_run(
-    kind: str, services: Services, trigger: str, include_query_files: bool = False
+    kind: str,
+    services: Services,
+    trigger: str,
+    *,
+    ledger: RunLedger | None = None,
+    period: OpenPeriod | None = None,
 ):
     """Common cycle scaffolding: the run's ledger, config, schools, temp
-    dir, and the guarantee that an escaping exception is recorded as
-    RunFailed."""
-    ledger = services.new_ledger(new_run_id(kind, services.clock.now()))
+    dir, the period it works on (`period`, or the one a submission made
+    now would belong to), and the guarantee that an escaping exception is
+    recorded as RunFailed. For `run` and `tick`, which work on the period,
+    it also closes the period, as every other failure does: one alert,
+    not one per tick."""
+    now = services.clock.now()
+    ledger = ledger or services.new_ledger(new_run_id(kind, now))
     append_event(ledger, events.run_started(kind=kind, trigger=trigger))
+    if period is None:
+        settings = services.settings
+        local = now.astimezone(settings.time_zone)
+        period = OpenPeriod(period_key(local, settings.query_period_format), now)
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
             config = json.loads(services.objects.read_text("config/config.json"))
             auth_url, api_url = get_aisr_urls_from_config(config)
             district = get_district_from_config(config)
-            schools = create_school_info_list(
-                config, services.objects, temp_path, include_query_files
-            )
+            schools = create_school_info_list(config)
             logger.info(
                 "Loaded configuration for %d schools: %s",
                 len(schools),
@@ -73,13 +87,18 @@ def pipeline_run(
                 objects=services.objects,
                 drive=services.drive,
                 open_source=services.open_source,
-                temp=temp_path,
+                temp=Path(temp_dir),
                 auth_url=auth_url,
                 api_url=api_url,
                 district=district,
+                period=period.key,
+                opened_at=period.opened_at,
                 schools=schools,
+                roster_paths={s["id"]: s["bulk_query_file"] for s in config["schools"]},
             )
     except Exception as error:
+        if kind in ("run", "tick"):
+            append_event(ledger, events.period_closed(period.key, "failed"))
         append_event(
             ledger,
             events.run_failed(step=f"{kind}_cycle", error=type(error).__name__),
@@ -87,37 +106,19 @@ def pipeline_run(
         raise
 
 
-def create_school_info_list(
-    config: dict,
-    objects: ObjectStore,
-    temp_dir: Path,
-    include_query_files: bool = True,
-) -> list[SchoolQueryInformation]:
-    """Create SchoolQueryInformation objects from configuration, staging
-    each school's roster in temp when the cycle will submit it."""
-    school_info_list = []
-
-    for school in config["schools"]:
-        query_file_path = ""
-
-        if include_query_files:
-            query_file = temp_dir / f"{school['name']}_query.csv"
-            query_file.write_text(
-                objects.read_text(school["bulk_query_file"]), encoding="utf-8"
-            )
-            query_file_path = str(query_file)
-
-        school_info_list.append(
-            SchoolQueryInformation(
-                school_name=school["name"],
-                classification=school["classification"],
-                school_id=school["id"],
-                email_contact=school["email"],
-                query_file_path=query_file_path,
-            )
+def create_school_info_list(config: dict) -> list[SchoolQueryInformation]:
+    """The schools config describes. Rosters are read later, and only for
+    the schools about to be submitted (`execute._stage_roster`)."""
+    return [
+        SchoolQueryInformation(
+            school_name=school["name"],
+            classification=school["classification"],
+            school_id=school["id"],
+            email_contact=school["email"],
+            query_file_path="",
         )
-
-    return school_info_list
+        for school in config["schools"]
+    ]
 
 
 def get_aisr_urls_from_config(config: dict) -> tuple[str, str]:
@@ -140,13 +141,41 @@ def get_district_from_config(config: dict) -> DistrictInfo:
 
 
 def run_cycle(services: Services, trigger: str = "scheduled") -> dict:
-    """The whole pipeline, one execution: decide, execute, repeat.
+    """Open this period, or reopen it, and advance it as far as it goes now.
 
-    Before the cycle, reconcile the Drive import queue: files staff have
-    deleted (imported) since last run get an ImportConfirmed event. This
-    is best-effort and never blocks the delivery work.
+    Reopening is how a human retries a closed period: rosters already
+    submitted this period are never sent again, and the staging deadline
+    starts over. Any other period still open is closed as superseded:
+    AISR lists only each school's latest results, so a new submission
+    makes the old period's unreachable, and the new results (each
+    student's full history) carry everything the old ones would have.
+
+    First, reconcile the Drive import queue: files staff have deleted
+    (imported) since get an ImportConfirmed event. Best-effort; it never
+    blocks the delivery work.
     """
-    with pipeline_run("run", services, trigger, include_query_files=True) as ctx:
+    with pipeline_run("run", services, trigger) as ctx:
+        for other in open_periods(ctx.ledger.recent_runs()):
+            if other.key != ctx.period:
+                append_event(ctx.ledger, events.period_closed(other.key, "superseded"))
+        append_event(ctx.ledger, events.period_opened(ctx.period))
+        record_import_confirmations(ctx)
+        return run_to_completion(ctx)
+
+
+def run_tick_cycle(services: Services, trigger: str = "scheduled") -> dict:
+    """Advance the open period, if there is one: probe staging and, once
+    results are in (or the deadline has passed), diff, deliver, commit.
+
+    With no period open, write nothing at all: most ticks are idle, and
+    the ledger records work, not polling."""
+    ledger = services.new_ledger(new_run_id("tick", services.clock.now()))
+    periods = open_periods(ledger.recent_runs())
+    if not periods:
+        logger.info("No open period; nothing to do")
+        return {"status": "idle"}
+    newest = periods[0]
+    with pipeline_run("tick", services, trigger, ledger=ledger, period=newest) as ctx:
         record_import_confirmations(ctx)
         return run_to_completion(ctx)
 

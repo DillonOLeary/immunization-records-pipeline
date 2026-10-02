@@ -4,8 +4,7 @@ Every test here runs `job.main([...])`, which runs the real cycles, the
 real decider and executors, the real AISR adapter (against the in-process
 fake AISR), and the real GCS ledger, snapshot, and master code over one
 shared FakeBucket. Only the edges are swapped, by handing `job.main` a
-`build` that composes test services: the bucket, Secret Manager, Drive,
-and a clock that never sleeps.
+`build` that composes test services: the bucket, Secret Manager, and Drive.
 
 Two guarantees ride along on every test that uses `world`:
 
@@ -21,7 +20,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -97,15 +95,18 @@ class World:
         self.printed.append(printed)
         return code, json.loads(printed)
 
+    def tick(self, capsys) -> int:
+        """Run one tick; an idle tick starts no run, so this returns only
+        the exit code (the printed result is in `printed`)."""
+        code = job.main(["tick", "--trigger", "scheduled"], build=self.build)
+        self.printed.append(capsys.readouterr().out.strip().splitlines()[-1])
+        return code
+
     def build(self, settings: Settings) -> Services:
         """Test composition: the real GCS adapters over the shared fake
         bucket, the fake Drive, the real AISR opener, no sleeping."""
         assert settings.data_bucket == self.bucket.name
-        clock = Clock(
-            now=lambda: datetime.now(UTC),
-            sleep=lambda _: None,
-            monotonic=time.monotonic,
-        )
+        clock = Clock(now=lambda: datetime.now(UTC))
         return Services(
             settings=settings,
             clock=clock,
@@ -147,8 +148,9 @@ def world(monkeypatch, mock_aisr, caplog):
     monkeypatch.setenv("DATA_BUCKET", BUCKET)
     monkeypatch.setenv("DISTRICT_TIME_ZONE", "America/Chicago")
     monkeypatch.setenv("GOOGLE_DRIVE_FOLDER_ID", "e2e-folder")
-    # One staging probe, then proceed: the fake AISR stages at once.
-    monkeypatch.setenv("POLL_INTERVAL_SECONDS", "0")
+    # A zero deadline: one staging probe per execution, then go ahead with
+    # what is staged (the fake AISR stages at once). Tests of waiting set
+    # it back.
     monkeypatch.setenv("POLL_DEADLINE_SECONDS", "0")
     for name in ("DIFF_SANITY_FRACTION", "QUERY_PERIOD_FORMAT", "TRIGGER"):
         monkeypatch.delenv(name, raising=False)

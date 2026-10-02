@@ -31,7 +31,7 @@ Already done if any district is live.
    Terraform; CI only validates.
 
 `schedule` is the run cadence (cron, in `time_zone`); `canary_schedule`
-defaults to the day before. Choose the cadence with the district: every
+defaults to the day before, `tick_schedule` to every 3 hours. Choose the cadence with the district: every
 run emails its nurses.
 
 ## 4. Secrets [terminal]
@@ -78,10 +78,10 @@ run should be the scheduled one, with the district told to expect it.
 
 | Task | When | How |
 |---|---|---|
-| Canary, run cycle | per schedule | automatic; failures email |
+| Canary, run, ticks | per schedule | automatic; failures email |
 | Import a delivered diff, then delete it from Drive | per delivery | school health staff (the deletion is the acknowledgment) |
 | Refresh rosters | before each run | export from IC, upload |
-| Respond to an alert | on email | `uv run mn-immunization status --bucket <data-bucket>` |
+| Respond to an alert | on email | `uv run mn-immunization status --bucket <data-bucket>`; a failed period stays closed until `--args=run,--trigger,manual` reopens it |
 | Merge Dependabot PRs | weekly-ish | by hand: merging to `main` deploys |
 | Rotate a credential | as needed | add a secret version (steps 4, 5) |
 | Drive out of sync | as needed | `gcloud run jobs execute pipeline-job --args=rebaseline,--trigger,manual` |

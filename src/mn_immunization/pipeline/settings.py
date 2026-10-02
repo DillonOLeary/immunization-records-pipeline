@@ -68,8 +68,9 @@ class Settings:
     time_zone: ZoneInfo  # DISTRICT_TIME_ZONE: periods and dates are local
     gcp_project: str | None = None  # GCP_PROJECT; None: from ADC
     drive_folder_id: str | None = None  # GOOGLE_DRIVE_FOLDER_ID; None: no delivery
-    poll_interval_seconds: int = 14400  # POLL_INTERVAL_SECONDS
-    poll_deadline_seconds: int = 72000  # POLL_DEADLINE_SECONDS
+    # POLL_DEADLINE_SECONDS: how long after a period opens ticks wait for
+    # every school's results before going ahead with the ones staged.
+    poll_deadline_seconds: int = 72000
     brake_fraction: float | None = 0.2  # DIFF_SANITY_FRACTION; "off" -> None
     query_period_format: str = "%Y-%m"  # QUERY_PERIOD_FORMAT
     import_reminder_days: int = 7  # IMPORT_REMINDER_DAYS
@@ -85,7 +86,6 @@ class Settings:
             time_zone=_zone(env),
             gcp_project=env.get("GCP_PROJECT") or None,
             drive_folder_id=env.get("GOOGLE_DRIVE_FOLDER_ID") or None,
-            poll_interval_seconds=_int(env, "POLL_INTERVAL_SECONDS", 14400),
             poll_deadline_seconds=_int(env, "POLL_DEADLINE_SECONDS", 72000),
             brake_fraction=_brake(env),
             query_period_format=env.get("QUERY_PERIOD_FORMAT") or "%Y-%m",

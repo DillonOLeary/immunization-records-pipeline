@@ -2,7 +2,7 @@
 
 The pipeline relays immunization records between two systems it does not
 own. MIIC (Minnesota's registry, via the AISR bulk interface) owns
-immunization truth; Infinite Campus owns student truth. Each scheduled run
+immunization truth; Infinite Campus owns student truth. Each period
 submits school rosters to AISR, waits for results, diffs them against
 every record already delivered, and puts only the new records in a Google
 Drive folder that district staff import from. The one thing the pipeline
@@ -17,7 +17,8 @@ owns is knowledge of its own runs: the ledger.
   never rehearsed (`canary` is the rehearsal).
 - A failed run is acceptable; an unnoticed one is not. Every run ends in a
   terminal ledger event, and a failed job or a failed launch alerts.
-- One maintainer, small data (monthly, ~8 schools, ~170k known records).
+- One maintainer, small data (a period a month or more, ~8 schools, ~180k
+  known records).
 - One GCP project per district: its IAM boundary, data, and blast radius.
 
 ## Layout
@@ -32,7 +33,8 @@ src/mn_immunization/
   pipeline/              the application layer
     policy.py            the decider: CycleState -> next Step (pure)
     execute.py           executors and the runner loop
-    cycles.py            run, canary, rebaseline
+    cycles.py            run, tick, canary, rebaseline
+    periods.py           which period is open: a fold over the ledger
     incremental.py       known set (fail-closed), diff, master commit
     settings.py          every environment variable, parsed once
     services.py          what a cycle is given: ports, settings, clock
@@ -52,7 +54,23 @@ builds adapters, reads the environment, or reads the clock.
 `tests/test_architecture.py` enforces this, along with the rule that no
 exception value ever reaches a log line.
 
-## The run cycle
+## Periods, runs, and ticks
+
+A period is the unit of work: each school's roster submitted once, then
+results, a diff, a delivery, a master commit. `run` (on the district's
+cadence) opens a period and advances it; `tick` (every few hours)
+advances whichever period is open. Nothing sleeps: waiting for MDH ends
+the execution as RunWaiting and the next tick looks again, so a period
+spans as many executions as staging takes (each well under the job's
+one-hour timeout). Whether a period is open is a fold over PeriodOpened
+and PeriodClosed events; an idle tick writes nothing.
+
+Every outcome but waiting closes the period, failures included, so a
+failure alerts once rather than every tick. `run` reopens a closed
+period: rosters already submitted stay submitted, and the staging
+deadline starts over. Opening a period closes any other still open as
+superseded (AISR lists only the newest results, which carry each
+student's full history).
 
 `policy.decide` is the pipeline on one screen: pure, no I/O, no clock.
 The runner (`execute.run_to_completion`) asks it for the next step,
@@ -69,8 +87,10 @@ SubmitQueries -> AwaitStaging -> ComputeDiff -> [brake] -> DeliverDiff -> Commit
   master untouched and the records in the next diff.
 - Only schools submitted this period are waited for, and only results
   uploaded since a school's submission count as staged: AISR keeps the
-  previous results listed for days. Probes tolerate failures until the
-  deadline (20h).
+  previous results listed for days. Each execution probes once; a failed
+  probe waits for the next tick. At the deadline (`POLL_DEADLINE_SECONDS`
+  after the period opened, 20h by default) the period goes ahead with
+  what is staged, or fails if nothing is.
 - A school that is stuck or failed to submit lets the others deliver, then
   turns the run's success into RunFailed naming it.
 
@@ -123,10 +143,12 @@ because IC imports are idempotent.
 
 ## Operations and security
 
-- Cloud Run Job `pipeline-job`, launched by Cloud Scheduler (`run` monthly,
-  `canary` the day before). Manual runs: `gcloud run jobs execute`. The
-  CLI only reads the ledger.
-- Alerts email on a failed job execution and on a failed scheduler launch.
+- Cloud Run Job `pipeline-job`, launched by Cloud Scheduler: `run` on the
+  district's cadence, `tick` every 3 hours, `canary` the day before a
+  run. Manual runs: `gcloud run jobs execute`. The CLI only reads the
+  ledger.
+- Alerts email on a failed job execution, on a failed scheduler launch,
+  and when the job has not run for 12 hours.
 - CI: pytest (including e2e and the architecture rules), ruff,
   basedpyright, pip-audit, gitleaks, terraform validate, CodeQL. Deploys
   build and smoke-test the image, then update the job (via WIF; no

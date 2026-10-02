@@ -9,6 +9,8 @@ on. The autouse PHI scan (conftest) runs on every one of them.
 from __future__ import annotations
 
 import hashlib
+import json
+from datetime import UTC, datetime
 
 from google.api_core.exceptions import ServiceUnavailable
 from minnesota_immunization_mock.sample_data import expected_ic_rows
@@ -46,6 +48,7 @@ def test_first_run_submits_fetches_delivers_and_commits(world, capsys):
     assert result["new_records"] == len(ic_text("2542", "2543").splitlines())
     assert world.latest_event_types() == [
         "RunStarted",
+        "PeriodOpened",
         "QuerySubmitted",
         "QuerySubmitted",
         "RecordsFetched",
@@ -53,6 +56,7 @@ def test_first_run_submits_fetches_delivers_and_commits(world, capsys):
         "DiffComputed",
         "Delivered",
         "MasterCommitted",
+        "PeriodClosed",
         "RunCompleted",
     ]
     assert world.aisr.received_uploads == ["2542", "2543"]
@@ -78,9 +82,11 @@ def test_same_day_rerun_sends_nothing_and_delivers_nothing(world, capsys):
     assert len(world.drive.uploads) == 1
     assert world.latest_event_types() == [
         "RunStarted",
+        "PeriodOpened",
         "RecordsFetched",
         "RecordsFetched",
         "DiffComputed",
+        "PeriodClosed",
         "RunCompleted",
     ]
 
@@ -104,7 +110,11 @@ def test_crash_between_delivery_and_commit_resumes_at_commit(world, capsys):
     assert result["status"] == "skipped"
     assert len(world.drive.uploads) == 1
     assert world.bucket.objects[MASTER] == ic_text("2542", "2543")
-    assert world.latest_event_types()[-2:] == ["MasterCommitted", "RunSkipped"]
+    assert world.latest_event_types()[-3:] == [
+        "MasterCommitted",
+        "PeriodClosed",
+        "RunSkipped",
+    ]
 
 
 def test_an_unparseable_master_fails_before_anything_is_delivered(world, capsys):
@@ -254,6 +264,110 @@ def test_the_brake_blocks_a_flood_and_leaves_the_master_alone(world, capsys):
     }
     assert world.drive.uploads == []
     assert world.bucket.objects[MASTER] == ic_text("2542")
+
+
+# --- periods across executions: run opens, ticks advance ---
+
+
+def test_a_tick_with_no_open_period_writes_nothing(world, capsys):
+    code = world.tick(capsys)
+
+    assert code == 0
+    assert world.printed[-1] == '{"status": "idle"}'
+    assert world.bucket.objects.keys() == {
+        "config/config.json",
+        "data/queries/2542.csv",
+        "data/queries/2543.csv",
+    }
+
+
+def test_a_period_waits_across_ticks_until_results_stage(world, capsys, monkeypatch):
+    # MDH takes hours to stage results. `run` submits and ends "waiting"
+    # with the period open; ticks look again without sleeping or
+    # resubmitting; once results are in, a tick delivers and closes the
+    # period, and later ticks are idle.
+    monkeypatch.setenv("POLL_DEADLINE_SECONDS", "72000")
+    world.aisr.faults.stale_listing.update({"2542", "2543"})
+
+    code, result = world.run("run", capsys)
+
+    assert (code, result["status"]) == (0, "waiting")
+    assert result["reason"] == "0/2 schools have results staged"
+    assert world.aisr.received_uploads == ["2542", "2543"]
+    assert world.latest_event_types()[-1] == "RunWaiting"
+
+    code, result = world.run("tick", capsys)
+    assert (code, result["status"]) == (0, "waiting")
+
+    world.aisr.faults.clear()
+    code, result = world.run("tick", capsys)
+
+    assert (code, result["status"]) == (0, "success")
+    assert world.aisr.received_uploads == ["2542", "2543"]
+    _, text = only_drive_file(world)
+    assert text == ic_text("2542", "2543")
+    assert world.latest_event_types()[-2:] == ["PeriodClosed", "RunCompleted"]
+
+    assert world.tick(capsys) == 0
+    assert world.printed[-1] == '{"status": "idle"}'
+
+
+def test_a_failed_period_is_retried_by_running_again(world, capsys):
+    # Every failure closes the period (one alert, no repeats every tick);
+    # `run` reopens it without resending a roster.
+    world.aisr.faults.stale_listing.update({"2542", "2543"})
+    code, _ = world.run("run", capsys)
+    assert code == 1
+    assert world.tick(capsys) == 0  # closed: the tick is idle
+
+    world.aisr.faults.clear()
+    world.aisr.received_uploads.clear()
+    code, result = world.run("run", capsys)
+
+    assert (code, result["status"]) == (0, "success")
+    assert world.aisr.received_uploads == []
+
+
+def test_a_failure_outside_the_steps_also_closes_the_period(world, capsys, monkeypatch):
+    # An unreadable config fails the tick before any step runs; the period
+    # closes like any other failure, so the next tick is idle instead of
+    # failing (and alerting) again.
+    monkeypatch.setenv("POLL_DEADLINE_SECONDS", "72000")
+    world.aisr.faults.stale_listing.update({"2542", "2543"})
+    world.run("run", capsys)
+    del world.bucket.objects["config/config.json"]
+
+    code, result = world.run("tick", capsys)
+
+    assert (code, result["error"]) == (1, "ObjectNotFoundError")
+    assert world.latest_event_types()[-2:] == ["PeriodClosed", "RunFailed"]
+    assert world.tick(capsys) == 0
+    assert world.printed[-1] == '{"status": "idle"}'
+
+
+def test_opening_a_period_supersedes_one_left_open(world, capsys):
+    now = datetime.now(UTC).replace(tzinfo=None)
+    world.bucket.write(
+        f"ledger/{now:%Y}/{now:%m}/run_old/001_PeriodOpened.json",
+        json.dumps(
+            {
+                "run_id": "run_old",
+                "seq": 1,
+                "type": "PeriodOpened",
+                "at": now.isoformat(timespec="seconds"),
+                "data": {"period": "1999-01"},
+            }
+        ),
+    )
+
+    code, _ = world.run("run", capsys)
+
+    assert code == 0
+    closed = [e for e in world.latest_run_events() if e["type"] == "PeriodClosed"]
+    assert [e["data"] for e in closed] == [
+        {"period": "1999-01", "outcome": "superseded"},
+        {"period": district_period(), "outcome": "success"},
+    ]
 
 
 # --- the canary and the rebaseline ---

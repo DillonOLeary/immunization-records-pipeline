@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -25,6 +25,7 @@ from google.api_core.exceptions import NotFound, PreconditionFailed
 from mn_immunization.gcp.storage import GcsObjectStore
 from mn_immunization.ledger.events import LedgerEvent
 from mn_immunization.pipeline.context import RunContext
+from mn_immunization.pipeline.periods import period_key
 from mn_immunization.pipeline.services import Clock
 from mn_immunization.pipeline.settings import Settings
 from mn_immunization.sources.aisr.port import DistrictInfo, SchoolQueryInformation
@@ -218,27 +219,20 @@ def district_period(now: datetime | None = None) -> str:
 
 
 class FakeClock:
-    """Wall time fixed at `at` (UTC-aware, like the real clock); monotonic
-    time moves only when the code under test sleeps, and every sleep is
-    recorded."""
+    """Wall time fixed at `at` (UTC-aware, like the real clock), moved only
+    by `advance`."""
 
     def __init__(self, at: datetime | None = None):
         self.at = at or datetime.now(UTC)
-        self.elapsed = 0.0
-        self.sleeps: list[float] = []
 
     def now(self) -> datetime:
         return self.at
 
-    def monotonic(self) -> float:
-        return self.elapsed
-
-    def sleep(self, seconds: float) -> None:
-        self.sleeps.append(seconds)
-        self.elapsed += seconds
+    def advance(self, seconds: float) -> None:
+        self.at += timedelta(seconds=seconds)
 
     def as_clock(self) -> Clock:
-        return Clock(now=self.now, sleep=self.sleep, monotonic=self.monotonic)
+        return Clock(now=self.now)
 
 
 def no_source(auth_url: str, api_url: str):
@@ -258,13 +252,20 @@ def make_run_context(
     drive=_DEFAULT,
     open_source=no_source,
     schools: list[SchoolQueryInformation] | None = None,
+    roster_paths: dict[str, str] | None = None,
+    opened_at: datetime | None = None,
 ) -> RunContext:
     """A RunContext of fakes: in-memory ledger and snapshots, a FakeBucket
     object store, a FakeDrive, and an AISR opener that must not be used.
-    Pass `drive=None` for a district with no delivery folder."""
+    Its period is the one current at the clock's time, opened then unless
+    `opened_at` says otherwise. Pass `drive=None` for a district with no
+    delivery folder."""
+    settings = settings or Settings(data_bucket="test-bucket", time_zone=DISTRICT)
+    clock = clock or FakeClock().as_clock()
+    now = clock.now()
     return RunContext(
-        settings=settings or Settings(data_bucket="test-bucket", time_zone=DISTRICT),
-        clock=clock or FakeClock().as_clock(),
+        settings=settings,
+        clock=clock,
         ledger=ledger or InMemoryRunLedger(),
         snapshots=InMemorySnapshotStore(),
         objects=objects or GcsObjectStore(FakeBucket()),
@@ -274,5 +275,10 @@ def make_run_context(
         auth_url="https://auth.test",
         api_url="https://api.test",
         district=DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host"),
+        period=period_key(
+            now.astimezone(settings.time_zone), settings.query_period_format
+        ),
+        opened_at=opened_at or now,
         schools=schools or [],
+        roster_paths=roster_paths or {},
     )

@@ -11,11 +11,11 @@ as production runs do.
 
 import json
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
 import mn_immunization.pipeline.execute as execute
+from mn_immunization.domain.hashing import sha256_hex
 from mn_immunization.gcp.storage import GcsObjectStore
 from mn_immunization.ledger.gcs_ledger import GcsRunLedger
 from mn_immunization.sources.aisr.authenticate import AuthenticationError
@@ -46,15 +46,15 @@ def make_ctx(
 ):
     schools = []
     for school_id in SCHOOL_IDS:
-        roster = tmp_path / f"{school_id}_query.csv"
-        roster.write_text("roster rows\n", encoding="utf-8")
+        if roster_path(school_id) not in bucket.objects:
+            bucket.write(roster_path(school_id), "roster rows\n")
         schools.append(
             SchoolQueryInformation(
                 school_name=f"School {school_id}",
                 classification="N",
                 school_id=school_id,
                 email_contact="nurse@example.test",
-                query_file_path=str(roster),
+                query_file_path="",
             )
         )
     ctx = make_run_context(
@@ -63,9 +63,14 @@ def make_ctx(
         objects=GcsObjectStore(bucket),
         open_source=lambda auth, api: aisr_session(auth, api, "test_user", password),
         schools=schools,
+        roster_paths={school_id: roster_path(school_id) for school_id in SCHOOL_IDS},
     )
     ctx.auth_url, ctx.api_url = mock_aisr.auth_url, mock_aisr.base_url
     return ctx
+
+
+def roster_path(school_id: str) -> str:
+    return f"data/queries/{school_id}.csv"
 
 
 def submit(ctx):
@@ -187,15 +192,29 @@ def test_a_failed_upload_keeps_its_claim_and_is_never_resent(
     assert mock_aisr.received_uploads == []
 
 
-def test_an_unreadable_roster_releases_its_claim(bucket, tmp_path, mock_aisr, period):
+def test_a_missing_roster_fails_before_anything_is_claimed(
+    bucket, tmp_path, mock_aisr, period
+):
     ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1")
-    Path(ctx.schools[1].query_file_path).unlink()
+    del bucket.objects[roster_path("2543")]
 
     result = submit(ctx)
 
     assert result.failed == frozenset({"2543"})
     assert f"{period}_query_2543" not in claims(bucket)
     assert mock_aisr.received_uploads == ["2542", "2544"]
+
+
+def test_the_submitted_roster_is_the_one_in_the_bucket(bucket, tmp_path, mock_aisr):
+    bucket.write(roster_path("2542"), "id_1|id_2\n81|91\n")
+    ctx = make_ctx(bucket, tmp_path, mock_aisr, "run-1")
+
+    submit(ctx)
+
+    (event,) = [
+        e for e in query_submitted_events(bucket) if e["data"]["school_id"] == "2542"
+    ]
+    assert event["data"]["query_file_hash"] == sha256_hex("id_1|id_2\n81|91\n")
 
 
 def test_a_failed_login_leaves_no_claims(bucket, tmp_path, mock_aisr):
