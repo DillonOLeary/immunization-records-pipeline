@@ -41,7 +41,7 @@ from mn_immunization.workflow.steps.delivery import (
 )
 from mn_immunization.workflow.steps.diff import fetch_all
 from mn_immunization.workflow.steps.staging import probe_staging
-from mn_immunization.workflow.steps.submit import query_period
+from mn_immunization.workflow.steps.submit import check_roster_exports, query_period
 from mn_immunization.workflow.support import append_event, new_run_id
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,7 @@ def pipeline_run(
                 objects=services.objects,
                 delivery=services.delivery,
                 open_registry=district.open_registry,
+                open_rosters=district.open_rosters,
                 temp=Path(temp_dir),
                 period=period.key,
                 opened_at=period.opened_at,
@@ -178,11 +179,12 @@ def run_refresh_cycle(services: Services, trigger: str = "manual") -> dict:
 
 
 def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
-    """Read-only readiness probe: AISR login plus a staged-results count per
-    school, and a full read of the known-vaccinations master, so that an
-    unreadable master (MasterMissingError, a malformed row) fails here, a day
-    before the run. Moves no PHI and sends no email: the master is read
-    in memory, and only counts are logged or recorded."""
+    """Read-only readiness probe, the day before a run: AISR login and a
+    staged-results count per school; a full read of the known set, so an
+    unreadable one (KnownRecordsMissingError, a malformed row) fails here;
+    and, with a roster source, every school's roster exported and checked.
+    Stores nothing and emails no one: what it reads stays in memory, and
+    only counts are logged or recorded."""
     with pipeline_run("canary", services, trigger) as ctx:
         logger.info(
             "District zone %s: roster period %s",
@@ -209,6 +211,19 @@ def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
                 "reason": f"results listing failed for {probe.failed} school(s)",
             }
         known = load_known_records(ctx.objects)
+        rosters: dict[str, int] = {}
+        if ctx.open_rosters is not None:
+            checked, failed = check_roster_exports(ctx)
+            if failed:
+                append_event(
+                    ctx.ledger,
+                    events.run_failed(step="canary", error="RosterCheckFailed"),
+                )
+                return {
+                    "status": "failed",
+                    "reason": f"roster export failed for {failed} school(s)",
+                }
+            rosters = {"rosters_checked": checked}
 
         append_event(
             ctx.ledger,
@@ -216,6 +231,7 @@ def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
                 schools_checked=len(ctx.schools),
                 records_available=available,
                 known_records=len(known),
+                **rosters,
             ),
         )
         logger.info(
@@ -230,4 +246,5 @@ def run_canary_cycle(services: Services, trigger: str = "scheduled") -> dict:
             "schools_checked": len(ctx.schools),
             "records_available": available,
             "known_records": len(known),
+            **rosters,
         }

@@ -25,7 +25,7 @@ owns is knowledge of its own runs: the ledger.
 
 ```
 src/mn_immunization/
-  records/               pure: what a record is, IC's CSV format, hashing
+  records/               pure: what a record is, the roster layout, IC's CSV format
   workflow/              the process: periods, decisions, steps
     ports.py             what it needs from outside: Registry, Delivery, ObjectStore, RunLedger
     events.py            the ledger's event types
@@ -42,6 +42,7 @@ src/mn_immunization/
     context.py           one execution's view: RunContext
   adapters/              one folder per external system
     miic/                AISR: login, actions, parsing, the Registry
+    infinite_campus/     IC: login and the roster export, the RosterSource
     drive/               the Drive folder: the Delivery
     gcs/                 object store, ledger, secrets
   runtime/
@@ -96,6 +97,12 @@ SubmitQueries -> AwaitStaging -> ComputeDiff -> [brake] -> DeliverDiff -> Commit
   anything is delivered or committed.
 - Delivery precedes the commit, so a failed upload leaves the known set
   untouched and the records in the next diff.
+- With Infinite Campus configured, each school's roster is exported fresh
+  just before its submission and checked (MIIC's layout, not under half
+  the students on file). A failed or unfit export sends the roster on
+  file and ends the period failed after delivery (RosterRefreshFailed).
+  IC logins continue past its device confirmation without trusting the
+  device, so each one emails the account owner.
 - Only schools submitted this period are waited for, and only results
   uploaded since a school's submission count as staged: AISR keeps the
   previous results listed for days. Each execution probes once; a failed

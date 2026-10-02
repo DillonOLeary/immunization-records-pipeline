@@ -242,6 +242,7 @@ def make_run_context(
     objects=None,
     delivery=_DEFAULT,
     open_registry=no_registry,
+    open_rosters=None,
     schools: list[School] | None = None,
     opened_at: datetime | None = None,
 ) -> RunContext:
@@ -260,6 +261,7 @@ def make_run_context(
         objects=objects or GcsObjectStore(FakeBucket()),
         delivery=FakeDrive() if delivery is _DEFAULT else delivery,
         open_registry=open_registry,
+        open_rosters=open_rosters,
         temp=tmp_path,
         period=period_key(
             now.astimezone(settings.time_zone), settings.query_period_format

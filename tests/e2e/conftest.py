@@ -48,7 +48,10 @@ SECRETS = {
     "drive-refresh-token": "fake-refresh",
     "drive-client-id": "fake-client",
     "drive-client-secret": "fake-secret",
+    "ic-username": "ic_user",
+    "ic-password": "ic_password",
 }
+IC_CALENDARS = {"2542": "FHMS", "2543": "GEMS", "2544": "PK"}
 
 
 @dataclass
@@ -59,8 +62,9 @@ class World:
     printed: list[str] = field(default_factory=list)
     last_run_id: str = ""
 
-    def set_schools(self, school_ids: list[str]) -> None:
-        """Write config.json and a roster per school into the bucket."""
+    def set_schools(self, school_ids: list[str], ic: bool = False) -> None:
+        """Write config.json and a roster per school into the bucket; with
+        `ic`, rosters are to be exported from the fake Infinite Campus."""
         schools = []
         for school_id in school_ids:
             self.bucket.write(roster_path(school_id), "roster rows\n")
@@ -70,6 +74,7 @@ class World:
                     "id": school_id,
                     "classification": "N",
                     "email": "nurse@example.test",
+                    **({"ic_calendar": IC_CALENDARS[school_id]} if ic else {}),
                 }
             )
         config = {
@@ -81,6 +86,12 @@ class World:
             "district": {"iddis": "0197"},
             "schools": schools,
         }
+        if ic:
+            config["infinite_campus"] = {
+                "base_url": self.aisr.ic_url,
+                "app_name": "wstpaul",
+                "roster_filter": "MIIC Oct 2023",
+            }
         self.bucket.write("config/config.json", json.dumps(config))
 
     def run(self, cycle: str, capsys) -> tuple[int, dict]:

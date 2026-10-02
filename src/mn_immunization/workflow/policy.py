@@ -55,12 +55,15 @@ class Submission:
     this run or an earlier one. `stuck`: its claim is held but no event
     exists, so it may or may not have gone out; it is never resubmitted
     automatically (a human checks and clears the claim). `failed`: this
-    run's attempt raised, or its claim could not be taken.
+    run's attempt raised, or its claim could not be taken. `stale`:
+    submitted this period, but with the roster already on file because
+    the fresh export from the student information system failed.
     """
 
     submitted: frozenset[str] = frozenset()
     stuck: frozenset[str] = frozenset()
     failed: frozenset[str] = frozenset()
+    stale: frozenset[str] = frozenset()
 
     @property
     def incomplete(self) -> bool:
@@ -166,9 +169,20 @@ Step = SubmitQueries | AwaitStaging | ComputeDiff | DeliverDiff | CommitMaster |
 
 def _settle(submission: Submission, finish: Finish) -> Finish:
     """A run that would otherwise end well still fails if any school is
-    stuck or failed to submit: its records reached no one this period,
-    and only a failed run makes the alert fire."""
+    stuck or failed to submit (its records reached no one this period),
+    or went out with an old roster (new students were missed): only a
+    failed run makes the alert fire."""
     if not submission.incomplete:
+        if submission.stale:
+            return Finish(
+                status="failed",
+                step="refresh_rosters",
+                error="RosterRefreshFailed",
+                reason=(
+                    f"{len(submission.stale)} school(s) submitted with the "
+                    "roster on file: the export from IC failed"
+                ),
+            )
         return finish
     return Finish(
         status="failed",

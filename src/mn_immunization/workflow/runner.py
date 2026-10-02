@@ -81,13 +81,19 @@ def _finish(ctx: RunContext, step: Finish, state: CycleState) -> dict:
     # School ids (not PHI) so the operator knows exactly which rosters
     # need a human: stuck ones need a claim checked and cleared.
     detail = {}
-    if submission.incomplete:
+    if submission.incomplete or submission.stale:
         detail = {
             "stuck_schools": sorted(submission.stuck),
             "failed_schools": sorted(submission.failed),
+            "stale_schools": sorted(submission.stale),
         }
         names = {school.id: school.name for school in ctx.schools}
-        for label, ids in (("stuck", submission.stuck), ("failed", submission.failed)):
+        labelled = (
+            ("stuck", submission.stuck),
+            ("failed", submission.failed),
+            ("sent with its old roster", submission.stale),
+        )
+        for label, ids in labelled:
             for school_id in sorted(ids):
                 logger.error(
                     "Roster %s this period: %s (%s)",

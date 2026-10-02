@@ -1,4 +1,5 @@
-"""Shared fixtures: the fake AISR server, running in-process.
+"""Shared fixtures: the fake AISR (and fake Infinite Campus) server,
+running in-process.
 
 One server per test session, on a free port, in a background thread. A
 health poll (not a fixed sleep) decides when it is ready. Faults and the
@@ -38,6 +39,16 @@ class MockAisr:
         """School ids whose roster upload succeeded, in order."""
         return self.app.state.received_uploads
 
+    @property
+    def ic_url(self) -> str:
+        """The fake Infinite Campus served by the same app."""
+        return f"{self.base_url}/campus"
+
+    @property
+    def ic(self):
+        """The fake IC's faults, exports, and device registrations."""
+        return self.app.state.ic
+
 
 @pytest.fixture(scope="session")
 def _mock_aisr_server():
@@ -75,6 +86,7 @@ def mock_aisr(_mock_aisr_server: MockAisr) -> MockAisr:
     _mock_aisr_server.faults.clear()
     _mock_aisr_server.received_uploads.clear()
     _mock_aisr_server.app.state.uploaded_at.clear()
+    _mock_aisr_server.app.state.ic.reset()
     return _mock_aisr_server
 
 

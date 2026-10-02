@@ -23,6 +23,7 @@ from urllib.parse import urlencode
 from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from .ic import add_ic_routes
 from .sample_data import get_sample_vaccination_data
 
 REALM = "/mock-auth-server/auth/realms/idepc-aisr-realm"
@@ -85,6 +86,7 @@ def create_mock_app(
     app.state.faults = faults or MockFaults()
     app.state.received_uploads = []
     app.state.uploaded_at = {}  # school id -> epoch ms of its latest upload
+    add_ic_routes(app, base_url)  # a fake Infinite Campus under /campus
 
     @app.get("/health")
     async def health_check():

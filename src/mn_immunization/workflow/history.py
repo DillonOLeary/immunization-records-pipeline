@@ -79,6 +79,16 @@ class History:
                 times[school_id] = max(entry.at, times.get(school_id, entry.at))
         return times
 
+    def stale_rosters(self, period: str) -> set[str]:
+        """Schools submitted for `period` with a stale roster (the export
+        from IC failed and the one on file went instead)."""
+        return {
+            entry.data["school_id"]
+            for entry in self._of(events.QUERY_SUBMITTED)
+            if entry.data.get("period") == period
+            and entry.data.get("roster") == "stale"
+        }
+
     def deliveries(self) -> dict[str, str]:
         """Drive file name -> its content hash ("" for deliveries recorded
         before hashes were)."""

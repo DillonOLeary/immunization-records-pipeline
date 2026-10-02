@@ -17,6 +17,7 @@ from mn_immunization.workflow.ports import (
     Delivery,
     ObjectStore,
     RegistryOpener,
+    RosterSourceOpener,
     RunLedger,
     School,
 )
@@ -32,6 +33,7 @@ class RunContext:
     objects: ObjectStore
     delivery: Delivery | None  # None: no delivery folder configured
     open_registry: RegistryOpener
+    open_rosters: RosterSourceOpener | None  # None: rosters uploaded by hand
     temp: Path
     period: str  # the period this execution works on (periods.period_key)
     opened_at: datetime  # when that period was (re)opened, UTC

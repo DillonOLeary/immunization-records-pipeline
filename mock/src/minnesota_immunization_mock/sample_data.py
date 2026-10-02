@@ -89,11 +89,35 @@ def expected_ic_rows(school_id: str) -> list[str]:
     return out
 
 
+ROSTER_HEADER = (
+    "id_1|id_2|id_3|id_4|id_5|id_6|first_name|last_name|date_of_birth|"
+    "street_address|other_address|city|state|zip_code|county|sex"
+)
+
+
+def _street(n: int) -> str:
+    return f"{n + 1} Wrenwhistle Way"
+
+
+def roster_csv(school_id: str) -> str:
+    """A school's roster as Infinite Campus exports it through the MIIC
+    filter: MIIC's bulk-query layout, pipe-delimited, with a header."""
+    students = STUDENTS.get(school_id, STUDENTS[DEFAULT_SCHOOL])
+    rows = [
+        "|".join(
+            [id_1, id_2, f"7{id_1}", "", "", "", *name.split(" ", 1), dob]
+            + [_street(n), "", "Mendota Heights", "MN", "55118", "Dakota", "F"]
+        )
+        for n, (id_1, id_2, name, dob) in enumerate(students)
+    ]
+    return "\n".join([ROSTER_HEADER, *rows]) + "\n"
+
+
 def _canary_values() -> frozenset[str]:
     values: set[str] = set()
     for students in STUDENTS.values():
-        for id_1, id_2, name, dob in students:
-            values.update({id_1, id_2, dob, *name.split()})
+        for n, (id_1, id_2, name, dob) in enumerate(students):
+            values.update({id_1, id_2, dob, *name.split(), _street(n)})
     for school_id in STUDENTS:
         for row in _rows(school_id):
             iso = row[5]

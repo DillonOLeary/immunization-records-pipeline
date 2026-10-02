@@ -50,19 +50,28 @@ def period_closed(period: str, outcome: str) -> LedgerEvent:
     return LedgerEvent(PERIOD_CLOSED, {"period": period, "outcome": outcome})
 
 
-def query_submitted(school_id: str, query_file_hash: str, period: str) -> LedgerEvent:
+def query_submitted(
+    school_id: str, query_file_hash: str, period: str, roster: str = "on_file"
+) -> LedgerEvent:
     """One school's roster went to MIIC for `period`. Ledger folders are
     by UTC month, so the period is recorded explicitly; a rerun matches
-    on it to know which schools must never be submitted again."""
+    on it to know which schools must never be submitted again. `roster`
+    says where it came from: "exported" fresh from IC, "on_file" when no
+    export is configured, "stale" when the export failed."""
     return LedgerEvent(
-        "QuerySubmitted",
-        {"school_id": school_id, "query_file_hash": query_file_hash, "period": period},
+        QUERY_SUBMITTED,
+        {
+            "school_id": school_id,
+            "query_file_hash": query_file_hash,
+            "period": period,
+            "roster": roster,
+        },
     )
 
 
 def records_fetched(school_id: str, content_hash: str, byte_size: int) -> LedgerEvent:
     return LedgerEvent(
-        "RecordsFetched",
+        RECORDS_FETCHED,
         {
             "school_id": school_id,
             "content_hash": content_hash,
@@ -78,7 +87,7 @@ def diff_computed(
     diff_hash: str,
 ) -> LedgerEvent:
     return LedgerEvent(
-        "DiffComputed",
+        DIFF_COMPUTED,
         {
             "new_count": new_count,
             "total_count": total_count,

@@ -8,6 +8,8 @@ resource "google_secret_manager_secret" "secrets" {
     "drive-refresh-token",
     "drive-client-id",
     "drive-client-secret",
+    "ic-username",
+    "ic-password",
   ])
 
   project   = local.project_id

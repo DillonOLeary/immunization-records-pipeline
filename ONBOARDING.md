@@ -44,6 +44,12 @@ printf '%s' '<value>' | gcloud secrets versions add aisr-username --project <pro
 printf '%s' '<value>' | gcloud secrets versions add aisr-password --project <project> --data-file=-
 ```
 
+With Infinite Campus rosters (step 6), fill `ic-username` and
+`ic-password` the same way: an IC account that can run the district's
+MIIC ad hoc filter in Data Export. MIIC passwords expire every 60 days;
+update `aisr-password` when they do, or the canary fails the day before
+the next run.
+
 ## 5. Drive folder [console]
 
 1. Create an OAuth 2.0 Client ID (Desktop app) in the GCP console and
@@ -60,8 +66,11 @@ printf '%s' '<value>' | gcloud secrets versions add aisr-password --project <pro
    [config/config.json.example](config/config.json.example) (its
    `_instructions` explain how to read school values from AISR) and upload
    it to `gs://<data-bucket>/config/config.json`.
-2. Upload each school's roster CSV (exported from Infinite Campus) to
-   `gs://<data-bucket>/rosters/<school_id>.csv`.
+2. Rosters: either set `infinite_campus` in config (the IC base URL, its
+   login app name, and the saved ad hoc filter that produces MIIC's
+   layout) plus each school's `ic_calendar` code (e.g. `FHMS` for
+   `26-27FHMS`), and runs export them fresh; or upload each school's
+   roster CSV to `gs://<data-bucket>/rosters/<school_id>.csv` by hand.
 
 ## 7. Verify [terminal]
 
@@ -80,7 +89,7 @@ run should be the scheduled one, with the district told to expect it.
 |---|---|---|
 | Canary, run, ticks | per schedule | automatic; failures email |
 | Import a delivered diff, then delete it from Drive | per delivery | school health staff (the deletion is the acknowledgment) |
-| Refresh rosters | before each run | export from IC, upload |
+| Refresh rosters | before each run | automatic with `infinite_campus`; otherwise export from IC and upload |
 | Respond to an alert | on email | `uv run mn-immunization status --bucket <data-bucket>`; a failed period stays closed until `--args=run,--trigger,manual` reopens it |
 | Merge Dependabot PRs | weekly-ish | by hand: merging to `main` deploys |
 | Rotate a credential | as needed | add a secret version (steps 4, 5) |

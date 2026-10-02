@@ -13,7 +13,7 @@ import json
 from datetime import UTC, datetime
 
 from google.api_core.exceptions import ServiceUnavailable
-from minnesota_immunization_mock.sample_data import expected_ic_rows
+from minnesota_immunization_mock.sample_data import expected_ic_rows, roster_csv
 
 from mn_immunization.workflow.layout import KNOWN_MARKER, KNOWN_RECORDS
 from tests.fakes import district_period
@@ -177,6 +177,7 @@ def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(world, capsys):
         "error": "QuerySubmissionIncomplete",
         "stuck_schools": ["2543"],
         "failed_schools": [],
+        "stale_schools": [],
     }
 
 
@@ -369,6 +370,83 @@ def test_opening_a_period_supersedes_one_left_open(world, capsys):
         {"period": "1999-01", "outcome": "superseded"},
         {"period": district_period(), "outcome": "success"},
     ]
+
+
+# --- rosters exported from Infinite Campus ---
+
+
+def test_rosters_are_exported_from_ic_put_on_file_and_sent(world, capsys):
+    world.set_schools(["2542", "2543"], ic=True)
+
+    code, result = world.run("run", capsys)
+
+    assert (code, result["status"]) == (0, "success")
+    assert world.aisr.ic.exports == ["26-27FHMS", "26-27GEMS"]
+    assert world.aisr.ic.devices_registered == 0
+    assert world.bucket.objects["rosters/2542.csv"] == roster_csv("2542")
+    submitted = [
+        e["data"] for e in world.latest_run_events() if e["type"] == "QuerySubmitted"
+    ]
+    assert [(d["school_id"], d["roster"]) for d in submitted] == [
+        ("2542", "exported"),
+        ("2543", "exported"),
+    ]
+    assert (
+        submitted[0]["query_file_hash"]
+        == hashlib.sha256(roster_csv("2542").encode()).hexdigest()
+    )
+
+
+def test_a_failed_export_sends_the_roster_on_file_then_fails_naming_it(world, capsys):
+    # The roster on file is what used to go every time; sending it still
+    # gets the school's records to the nurses. The period then ends failed
+    # so the alert names the school whose new students were missed.
+    world.set_schools(["2542", "2543"], ic=True)
+    world.aisr.ic.faults.export_status["26-27GEMS"] = 500
+
+    code, result = world.run("run", capsys)
+
+    assert code == 1
+    assert world.aisr.received_uploads == ["2542", "2543"]
+    assert world.bucket.objects["rosters/2543.csv"] == "roster rows\n"
+    assert len(world.drive.uploads) == 1
+    assert world.latest_run_events()[-1]["data"] == {
+        "step": "refresh_rosters",
+        "error": "RosterRefreshFailed",
+        "stuck_schools": [],
+        "failed_schools": [],
+        "stale_schools": ["2543"],
+    }
+
+
+def test_a_roster_that_collapsed_is_refused(world, capsys):
+    world.set_schools(["2542"], ic=True)
+    world.bucket.write("rosters/2542.csv", roster_csv("2544"))  # 20 students
+    world.aisr.ic.faults.short_roster.add("26-27FHMS")  # now 1
+
+    code, _ = world.run("run", capsys)
+
+    assert code == 1
+    assert world.bucket.objects["rosters/2542.csv"] == roster_csv("2544")
+    assert world.latest_run_events()[-1]["data"]["error"] == "RosterRefreshFailed"
+
+
+def test_canary_checks_every_roster_export_and_keeps_none(world, capsys):
+    world.set_schools(["2542", "2543"], ic=True)
+
+    code, result = world.run("canary", capsys)
+
+    assert (code, result["rosters_checked"]) == (0, 2)
+    assert world.bucket.objects["rosters/2542.csv"] == "roster rows\n"
+
+    world.aisr.ic.faults.wrong_layout.add("26-27GEMS")
+    code, _ = world.run("canary", capsys)
+
+    assert code == 1
+    assert world.latest_run_events()[-1]["data"] == {
+        "step": "canary",
+        "error": "RosterCheckFailed",
+    }
 
 
 # --- the canary and the rebaseline ---

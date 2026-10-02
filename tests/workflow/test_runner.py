@@ -218,6 +218,7 @@ def test_a_stuck_school_delivers_the_rest_then_fails_naming_it(tmp_path):
         "error": "QuerySubmissionIncomplete",
         "stuck_schools": ["1000"],
         "failed_schools": [],
+        "stale_schools": [],
     }
 
 

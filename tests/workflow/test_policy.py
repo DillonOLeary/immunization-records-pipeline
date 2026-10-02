@@ -325,3 +325,42 @@ def test_every_path_ends_in_exactly_one_terminal_decision(submission):
             raise AssertionError(f"never finished from {state}")
         if submission.incomplete:
             assert step.status not in ("success", "skipped"), state
+
+
+# --- rosters sent stale because the export from IC failed ---
+
+ONE_STALE = Submission(submitted=SCHOOL_IDS, stale=frozenset({"2542"}))
+
+
+def test_a_stale_roster_still_delivers_and_commits():
+    state = ready_to_deliver().with_submission(ONE_STALE)
+    assert decide(state, BRAKE) == DeliverDiff(state.diff)
+    assert decide(state.with_delivered(), BRAKE) == CommitMaster(state.diff)
+
+
+def test_a_stale_roster_turns_success_into_a_loud_failure():
+    state = (
+        ready_to_deliver()
+        .with_submission(ONE_STALE)
+        .with_delivered()
+        .with_master_committed()
+    )
+    step = decide(state, BRAKE)
+    assert isinstance(step, Finish)
+    assert (step.status, step.step, step.error) == (
+        "failed",
+        "refresh_rosters",
+        "RosterRefreshFailed",
+    )
+
+
+def test_a_stuck_school_outranks_a_stale_roster():
+    both = Submission(
+        submitted=SCHOOL_IDS - {"2540"},
+        stuck=frozenset({"2540"}),
+        stale=frozenset({"2542"}),
+    )
+    state = ready_to_deliver(diff_result(new_count=0)).with_submission(both)
+    step = decide(state, BRAKE)
+    assert isinstance(step, Finish)
+    assert step.error == "QuerySubmissionIncomplete"

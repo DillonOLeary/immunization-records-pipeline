@@ -6,11 +6,16 @@ from __future__ import annotations
 import logging
 
 from mn_immunization.records.hashing import sha256_hex
+from mn_immunization.records.roster import RosterFormatError, check_roster
 from mn_immunization.workflow import events
 from mn_immunization.workflow.context import RunContext
 from mn_immunization.workflow.layout import roster_path
 from mn_immunization.workflow.policy import Submission
-from mn_immunization.workflow.ports import RosterNotSentError
+from mn_immunization.workflow.ports import (
+    ObjectNotFoundError,
+    RosterNotSentError,
+    School,
+)
 from mn_immunization.workflow.support import append_event
 
 logger = logging.getLogger(__name__)
@@ -42,6 +47,11 @@ def submit_queries(ctx: RunContext) -> Submission:
     - a roster that cannot be read from the bucket is `failed` before
       anything is claimed.
 
+    First, when the district has a roster source (Infinite Campus), each
+    pending school's roster is exported fresh and put on file
+    (`refresh_rosters`); one that cannot be is sent as it was on file and
+    marked `stale`, so the period still delivers but ends failed.
+
     Ledger reads happen before anything is claimed, and login before any
     claim too, so a read error or a failed login leaves no claims behind.
     """
@@ -58,12 +68,15 @@ def submit_queries(ctx: RunContext) -> Submission:
         return Submission(submitted=frozenset(all_ids))
 
     submitted = set(history.submissions(period)) & all_ids
+    stale = history.stale_rosters(period) & all_ids
     pending = [school for school in ctx.schools if school.id not in submitted]
     if not pending:
         logger.info(
             "All rosters already submitted for period %s; nothing to send", period
         )
-        return Submission(submitted=frozenset(submitted))
+        return Submission(submitted=frozenset(submitted), stale=frozenset(stale))
+
+    origin = refresh_rosters(ctx, pending)
 
     stuck: set[str] = set()
     failed: set[str] = set()
@@ -113,19 +126,99 @@ def submit_queries(ctx: RunContext) -> Submission:
                     _release_unsent(ctx, key, school.name)
                 continue
             submitted.add(school.id)
+            if origin[school.id] == "stale":
+                stale.add(school.id)
             append_event(
                 ctx.ledger,
                 events.query_submitted(
                     school_id=school.id,
                     query_file_hash=sha256_hex(roster),
                     period=period,
+                    roster=origin[school.id],
                 ),
             )
     return Submission(
         submitted=frozenset(submitted),
         stuck=frozenset(stuck),
         failed=frozenset(failed),
+        stale=frozenset(stale),
     )
+
+
+def refresh_rosters(ctx: RunContext, schools: list[School]) -> dict[str, str]:
+    """Export each school's roster fresh from the roster source and put it
+    on file, so the submission sends it. Returns school id -> "exported",
+    "stale" (the export failed or was unfit, so the roster on file goes
+    instead), or "on_file" (no roster source is configured).
+
+    A fresh roster replaces the one on file only if `check_roster` passes:
+    the MIIC layout, and not under half the students it had. Roster
+    content never reaches a log; only counts, classes, and problems do.
+    """
+    if ctx.open_rosters is None:
+        return {school.id: "on_file" for school in schools}
+    origin = {school.id: "stale" for school in schools}
+    try:
+        with ctx.open_rosters() as source:
+            for school in schools:
+                try:
+                    roster = source.export_roster(school.id)
+                    count = check_roster(roster, _on_file(ctx, school.id))
+                    ctx.objects.write_text(roster_path(school.id), roster, "text/csv")
+                except Exception as error:
+                    logger.error(
+                        "Roster export for %s failed (%s%s); sending the roster "
+                        "on file",
+                        school.name,
+                        type(error).__name__,
+                        f": {error.problem}"
+                        if isinstance(error, RosterFormatError)
+                        else "",
+                    )
+                    continue
+                origin[school.id] = "exported"
+                logger.info("Exported roster for %s: %d students", school.name, count)
+    except Exception as error:
+        logger.error(
+            "Could not reach the roster source (%s); sending the rosters on file",
+            type(error).__name__,
+        )
+    return origin
+
+
+def check_roster_exports(ctx: RunContext) -> tuple[int, int]:
+    """The canary's look at the roster source: export every school's roster
+    and check it as `refresh_rosters` would, keeping nothing. Returns
+    (schools checked, exports that failed or were unfit)."""
+    assert ctx.open_rosters is not None
+    failed = 0
+    try:
+        with ctx.open_rosters() as source:
+            for school in ctx.schools:
+                try:
+                    count = check_roster(
+                        source.export_roster(school.id), _on_file(ctx, school.id)
+                    )
+                except Exception as error:
+                    failed += 1
+                    logger.error(
+                        "Roster export for %s would fail (%s)",
+                        school.name,
+                        type(error).__name__,
+                    )
+                    continue
+                logger.info("Roster export for %s: %d students", school.name, count)
+    except Exception as error:
+        logger.error("Could not reach the roster source (%s)", type(error).__name__)
+        return len(ctx.schools), len(ctx.schools)
+    return len(ctx.schools), failed
+
+
+def _on_file(ctx: RunContext, school_id: str) -> str | None:
+    try:
+        return ctx.objects.read_text(roster_path(school_id))
+    except ObjectNotFoundError:
+        return None
 
 
 def _release_unsent(ctx: RunContext, key: str, school_name: str) -> None:

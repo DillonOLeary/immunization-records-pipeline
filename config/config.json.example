@@ -9,7 +9,8 @@
         "5. This request response contains the id, classification, and email values needed",
         "6. The 'name' field can be any descriptive name, but id, classification, and email must match AISR exactly",
         "7. Each school's roster CSV lives at rosters/<id>.csv in the data bucket",
-        "8. district.iddis is the district's MDE number; api.s3_upload_host is the MDH ingest bucket host"
+        "8. district.iddis is the district's MDE number; api.s3_upload_host is the MDH ingest bucket host",
+        "9. infinite_campus (optional): IC base_url, its login app_name, and the saved ad hoc roster_filter; each school's ic_calendar is its calendar code without the school-year prefix"
     ],
     "_mock_server": [
         "`uv run mock-server`: auth_base_url http://localhost:8080/mock-auth-server, aisr_api_base_url http://localhost:8080; schools 2542, 2543, 2544"
@@ -27,13 +28,20 @@
             "name": "Friendly Hills Mid (Mock Server)",
             "id": "2542",
             "classification": "N",
-            "email": "nurse@friendlyhills.example.org"
+            "email": "nurse@friendlyhills.example.org",
+            "ic_calendar": "FHMS"
         },
         {
             "name": "Garlough Elementary (Mock Server)",
             "id": "2543",
             "classification": "N",
-            "email": "health@garlough.example.org"
+            "email": "health@garlough.example.org",
+            "ic_calendar": "GEMS"
         }
-    ]
+    ],
+    "infinite_campus": {
+        "base_url": "https://<district>.infinitecampus.org/campus",
+        "app_name": "<app>",
+        "roster_filter": "MIIC Oct 2023"
+    }
 }

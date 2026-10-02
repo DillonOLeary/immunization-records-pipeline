@@ -90,12 +90,29 @@ RegistryOpener = Callable[[], AbstractContextManager[Registry]]
 credentials are bound in by composition; the workflow never holds them."""
 
 
+# --- the student information system rosters come from (Infinite Campus) ---
+
+
+class RosterSource(Protocol):
+    """A logged-in session with the student information system."""
+
+    def export_roster(self, school_id: str) -> str:
+        """The school's current roster, in the layout the registry takes
+        (`records.roster`). Read-only."""
+        ...
+
+
+RosterSourceOpener = Callable[[], AbstractContextManager[RosterSource]]
+
+
 @dataclass(frozen=True)
 class District:
-    """The district as its config describes it, bound to its adapters."""
+    """The district as its config describes it, bound to its adapters.
+    `open_rosters` is None when rosters are uploaded by hand instead."""
 
     schools: tuple[School, ...]
     open_registry: RegistryOpener
+    open_rosters: RosterSourceOpener | None = None
 
 
 # --- delivery: where new records go for import into Infinite Campus ---
