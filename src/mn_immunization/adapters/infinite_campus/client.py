@@ -269,7 +269,9 @@ def ic_opener(
 
     def open_rosters():
         if not credentials:
-            credentials.extend([secret("ic-username"), secret("ic-password")])
+            credentials.extend(
+                [secret("infinite-campus-username"), secret("infinite-campus-password")]
+            )
         username, password = credentials
         return ic_session(site, username, password, calendars)
 

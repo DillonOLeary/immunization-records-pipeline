@@ -37,11 +37,11 @@ def test_configured_project_wins_over_adc(monkeypatch, fake_client):
         secrets_module.google.auth, "default", lambda: (None, "adc-project")
     )
 
-    value = secrets_module.secret_reader("district-a")("aisr-username")
+    value = secrets_module.secret_reader("district-a")("miic-username")
 
     assert value == "secret-value"
     assert fake_client.requested_name == (
-        "projects/district-a/secrets/aisr-username/versions/latest"
+        "projects/district-a/secrets/miic-username/versions/latest"
     )
 
 
@@ -50,10 +50,10 @@ def test_adc_project_used_when_none_configured(monkeypatch, fake_client):
         secrets_module.google.auth, "default", lambda: (None, "adc-project")
     )
 
-    secrets_module.secret_reader(None)("aisr-username")
+    secrets_module.secret_reader(None)("miic-username")
 
     assert fake_client.requested_name == (
-        "projects/adc-project/secrets/aisr-username/versions/latest"
+        "projects/adc-project/secrets/miic-username/versions/latest"
     )
 
 
@@ -61,7 +61,7 @@ def test_no_project_fails_loudly(monkeypatch, fake_client):
     monkeypatch.setattr(secrets_module.google.auth, "default", lambda: (None, None))
 
     with pytest.raises(RuntimeError, match="GCP project"):
-        secrets_module.secret_reader(None)("aisr-username")
+        secrets_module.secret_reader(None)("miic-username")
 
 
 def test_nothing_is_resolved_until_a_secret_is_read(monkeypatch, fake_client):

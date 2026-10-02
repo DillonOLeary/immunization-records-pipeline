@@ -86,11 +86,14 @@ def test_the_opener_reads_credentials_once(mock_aisr):
 
     def secret(name):
         reads.append(name)
-        return {"ic-username": "ic_user", "ic-password": "ic_password"}[name]
+        return {
+            "infinite-campus-username": "ic_user",
+            "infinite-campus-password": "ic_password",
+        }[name]
 
     opener = ic_opener(secret, site(mock_aisr), CALENDARS)
     for _ in range(2):
         with opener():
             pass
 
-    assert reads == ["ic-username", "ic-password"]
+    assert reads == ["infinite-campus-username", "infinite-campus-password"]

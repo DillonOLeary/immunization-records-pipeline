@@ -15,7 +15,7 @@ from mn_immunization.adapters.miic.parsing import AisrParseError
 from mn_immunization.records.ic_format import render_csv
 from mn_immunization.workflow.ports import RosterNotSentError, School
 
-SECRETS = {"aisr-username": "test_user", "aisr-password": "test_password"}
+SECRETS = {"miic-username": "test_user", "miic-password": "test_password"}
 
 
 DISTRICT = DistrictInfo(iddis="0197", s3_upload_host="mock-s3-host")
@@ -68,7 +68,7 @@ def test_the_opener_reads_credentials_once_per_run(mock_aisr):
         with opener():
             pass
 
-    assert reads == ["aisr-username", "aisr-password"]
+    assert reads == ["miic-username", "miic-password"]
 
 
 def test_a_roster_goes_up_with_the_schools_upload_metadata(mock_aisr):

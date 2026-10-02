@@ -37,19 +37,19 @@ run emails its nurses.
 
 ## 4. Secrets [terminal]
 
-Terraform creates empty shells. Fill the AISR ones (values never touch
-Terraform state):
+Terraform creates empty shells. Fill the MIIC ones, the account that
+logs into AISR (values never touch Terraform state):
 
 ```sh
-printf '%s' '<value>' | gcloud secrets versions add aisr-username --project <project> --data-file=-
-printf '%s' '<value>' | gcloud secrets versions add aisr-password --project <project> --data-file=-
+printf '%s' '<value>' | gcloud secrets versions add miic-username --project <project> --data-file=-
+printf '%s' '<value>' | gcloud secrets versions add miic-password --project <project> --data-file=-
 ```
 
-With Infinite Campus rosters (step 6), fill `ic-username` and
-`ic-password` the same way: an IC account that can run the district's
-MIIC ad hoc filter in Data Export. MIIC passwords expire every 60 days;
-update `aisr-password` when they do, or the canary fails the day before
-the next run.
+With Infinite Campus rosters (step 6), fill `infinite-campus-username`
+and `infinite-campus-password` the same way: an IC account that can run
+the district's MIIC ad hoc filter in Data Export. MIIC passwords expire
+every 60 days; update `miic-password` when they do, or the next weekly
+canary fails.
 
 ## 5. Drive folder [console]
 

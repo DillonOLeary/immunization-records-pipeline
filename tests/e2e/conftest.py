@@ -43,13 +43,13 @@ from tests.fakes import FakeBucket, FakeDrive
 BUCKET = "e2e-bucket"
 SCHOOLS = {"2542": "Friendly Hills Mid", "2543": "Garlough Elementary"}
 SECRETS = {
-    "aisr-username": "test_user",
-    "aisr-password": "test_password",
+    "miic-username": "test_user",
+    "miic-password": "test_password",
     "drive-refresh-token": "fake-refresh",
     "drive-client-id": "fake-client",
     "drive-client-secret": "fake-secret",
-    "ic-username": "ic_user",
-    "ic-password": "ic_password",
+    "infinite-campus-username": "ic_user",
+    "infinite-campus-password": "ic_password",
 }
 IC_CALENDARS = {"2542": "FHMS", "2543": "GEMS", "2544": "PK"}
 

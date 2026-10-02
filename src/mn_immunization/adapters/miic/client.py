@@ -150,13 +150,13 @@ def aisr_opener(
     uploads: Mapping[str, SchoolUpload],
 ) -> RegistryOpener:
     """A RegistryOpener bound to this district's AISR endpoints and upload
-    identity, logging in with the AISR credentials from `secret` (a secret
+    identity, logging in with the MIIC account's credentials from `secret` (a secret
     name -> value reader), read when first needed and kept for the run."""
     credentials: list[str] = []
 
     def open_registry():
         if not credentials:
-            credentials.extend([secret("aisr-username"), secret("aisr-password")])
+            credentials.extend([secret("miic-username"), secret("miic-password")])
         username, password = credentials
         return aisr_session(auth_url, api_url, username, password, district, uploads)
 
