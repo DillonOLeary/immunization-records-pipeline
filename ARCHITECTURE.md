@@ -191,9 +191,3 @@ set; safe any time because IC imports are idempotent.
 - PHI stays out of logs by construction (value-free exceptions), by test
   (the architecture rule), and by scan (every e2e test checks logs, output,
   and ledger for the fake AISR's canary PHI).
-
-## Not used, on purpose
-
-Firestore or any database (nothing queries the ledger), an orchestrator
-(two runs a month), the `eventsourcing` library (three durable facts do
-not need it), pandas (small data, supply-chain surface).
